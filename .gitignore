@@ -1,0 +1,14 @@
+# Build output
+/build/
+/build-*/
+*.o
+*.a
+
+# Compiled bundles
+*.kec
+
+# Editor / OS
+.DS_Store
+*.swp
+compile_commands.json
+.cache/
