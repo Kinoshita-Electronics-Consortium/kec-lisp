@@ -16,8 +16,8 @@
 typedef struct kec_State kec_State;
 
 /* Open an interpreter: allocate `arena_bytes`, open Fe, install the error
-** recovery handler, bind the host stdlib for `profile`, and load KEC Core.
-** Returns NULL on allocation failure or a non-conforming Core load. */
+** recovery handler, bind the host primitives for `profile`, and load Core.
+** Returns NULL on allocation failure or if Core fails to load. */
 kec_State *kec_open(size_t arena_bytes, kec_Profile profile);
 void kec_close(kec_State *S);
 

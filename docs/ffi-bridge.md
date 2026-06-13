@@ -1,9 +1,8 @@
-# The FFI Bridge Contract
+# Adding C primitives
 
-How to expose a C library as **KEC Stdlib** — the seam a downstream host (the
-KN-86 firmware, or your own embedding) uses to make C callable from KEC Lisp.
-This is the implementation-grounded form of standard §6; the live seam is
-`host/host.c` (the portable stdlib) and `runtime/kec.c` (`load`, `try`).
+How to make a C function callable from KEC Lisp — what the KN-86 firmware (or
+any program embedding KEC Lisp) does to add its own primitives. The working
+examples are `host/host.c` and `runtime/kec.c`.
 
 ---
 
@@ -28,12 +27,11 @@ kec_bind_fe(kec_fe(S), "beep", lisp_beep);   /* now callable: (beep 440) */
 ```
 
 - **Naming.** C `lisp_foo` → KEC Lisp `foo-bar` (kebab-case). The Lisp name is
-  the contract; the C name is private.
-- **Tier = which context you bind into.** There is no global table of all
-  primitives. `kec_host_register` binds different sets per `kec_Profile`; a
-  downstream host binds its device tier the same way. **The binding-set *is*
-  the sandbox** — a context cannot reach a primitive that was never bound into
-  it (standard §2.1, §6.4).
+  what callers use; the C name is internal.
+- **Which context you bind into matters.** There's no global table of
+  primitives — `kec_host_register` binds different sets per `kec_Profile`, and a
+  host binds its own primitives the same way. A context can only call what was
+  bound into it, which is how sandboxing works.
 - **GC discipline is mandatory.** Interning a symbol and wrapping a cfunc each
   push a GC root; `kec_bind_fe` saves/restores around both. Reuse it.
 
@@ -60,8 +58,7 @@ A C struct handed to KEC Lisp crosses as `FE_TPTR`:
   primitive must never retain one across a reset, and Lisp must never stash one
   expecting it to survive.
 - KEC Lisp never sees raw bytes; expose field access through accessor
-  primitives, never pointer arithmetic. The FFI boundary is the tamper
-  boundary.
+  primitives, not pointer arithmetic.
 
 ## 4. Capability tiers
 
@@ -109,6 +106,6 @@ kec_eval_string(S, "(dotimes (i 3) (beep (+ 440 (* i sensor-read))))", NULL);
 kec_close(S);
 ```
 
-That is the whole integration surface. KEC Core and the language semantics come
-from this repository unchanged; your host supplies its primitives through
-`kec_bind_fe` and its sandbox through which primitives it binds where.
+That's the whole thing. The language comes from this repo as-is; your program
+adds its own primitives with `kec_bind_fe`, and controls what each context can
+do by choosing which ones to bind.

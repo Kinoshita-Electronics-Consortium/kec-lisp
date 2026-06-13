@@ -52,9 +52,8 @@ enum {
 };
 
 static const char *primnames[] = {
-  /* KEC: assignment is `set`, not `=`. `=` is freed for value-equality in KEC
-     Core (standard §4.1 intent). The P_SET primitive is unchanged; only its
-     surface name differs from upstream Fe. */
+  /* KEC: assignment is `set`, not `=`, so `=` is free to mean equality in Core.
+     The primitive itself is unchanged; only its name differs from upstream Fe. */
   "let", "set", "if", "fn", "mac", "while", "quote", "and", "or", "do", "cons",
   "car", "cdr", "setcar", "setcdr", "list", "not", "is", "atom", "print", "<",
   "<=", "+", "-", "*", "/"

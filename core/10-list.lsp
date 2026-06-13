@@ -1,10 +1,8 @@
-;; KEC Core — list : list & sequence operations (standard §4.2)
+;; KEC Core — list : list & sequence operations
 ;;
 ;; Kernel ships cons/car/cdr/setcar/setcdr/list. Core adds traversal and
-;; construction. Recursive helpers here are convenience-tier (board, REPL,
-;; nEmacs) — per §4.2, per-frame cart loops use while + setcar/setcdr.
-;; This file uses only the kernel (not the later predicate names), so it can
-;; load before pred.
+;; construction, all iterative (the GC stack is bounded). This file uses only
+;; the kernel — none of the later predicate names — so it can load before pred.
 
 ;; (nth xs i) -> 0-indexed element; nil past the end.
 (defn nth (xs i)
@@ -25,7 +23,7 @@
 
 ;; (append xs ys) -> concatenate (non-destructive copy of xs).
 ;; Iterative (cons reverse(a) onto b) so list length, not GC-stack depth,
-;; bounds it (standard §4.2).
+;; bounds it.
 (defn append (a b)
   (let r b)
   (let ra (reverse a))

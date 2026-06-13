@@ -2,8 +2,8 @@
 ** kec.c — KEC Lisp runtime: arena + Fe context lifecycle, error recovery,
 ** KEC Core injection, and the two kec-level primitives `load` and `try`.
 **
-** Error model (standard §6.5): every C-side failure routes through fe_error.
-** Fe's default handler prints a traceback and exit()s; we replace it with a
+** Error model: every C-side failure routes through fe_error. Fe's default
+** handler prints a traceback and exit()s; we replace it with a
 ** longjmp back to the nearest active guard so a script error recovers into
 ** the REPL / runner instead of killing the process.
 */
@@ -159,18 +159,18 @@ kec_State *kec_open(size_t arena_bytes, kec_Profile profile) {
     g_state = S;
     fe_handlers(S->ctx)->error = on_error;
 
-    /* Layer 2 (portable host stdlib) must be bound before Core loads — Core's
-    ** predicates and string ops call type-of / mod / gensym / string-*. */
+    /* Host primitives must be bound before Core loads — Core's predicates and
+    ** string ops call type-of / mod / gensym / string-*. */
     kec_host_register(S->ctx, profile);
     kec_bind_fe(S->ctx, "try", h_try);
     if (profile == KEC_PROFILE_FULL) { kec_bind_fe(S->ctx, "load", h_load); }
 
-    /* Layer 1 (KEC Core) — the prelude, authored in KEC Lisp. */
+    /* Load Core (the standard library, written in KEC Lisp). */
     {
         StrReader r = { KEC_CORE_SRC, 0 };
         if (run_forms(S, str_readfn, &r, NULL) != 0) {
-            /* A Core load failure means Core is non-conforming — fail open so
-            ** the caller sees it rather than running on a broken prelude. */
+            /* If Core fails to load it's a bug in Core — surface it rather than
+            ** running on a broken prelude. */
             fprintf(stderr, "kec: KEC Core failed to load: %s\n", S->errmsg);
             kec_close(S);
             return NULL;

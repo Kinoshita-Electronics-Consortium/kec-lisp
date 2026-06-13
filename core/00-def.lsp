@@ -1,8 +1,8 @@
-;; KEC Core — def : ergonomic definition macros (standard §4.5)
+;; KEC Core — def : ergonomic definition macros
 ;;
-;; The Fe Kernel has no define/defun/defmacro — only `set` and `fn`/`mac`.
-;; These three macros are the ground floor every other Core module builds on,
-;; so this file loads first. They expand to plain `(set name (fn ...))` shapes.
+;; The kernel has no define/defun/defmacro — only `set` and `fn`/`mac`. These
+;; load first because the other modules use them; they expand to plain
+;; `(set name (fn ...))` shapes.
 
 ;; (defn name (params...) body...)  ->  (set name (fn (params...) body...))
 (set defn (mac (name params . body)

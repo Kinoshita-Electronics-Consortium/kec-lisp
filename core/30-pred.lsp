@@ -1,10 +1,9 @@
-;; KEC Core — pred : type predicates (standard §4.7)
+;; KEC Core — pred : type predicates
 ;;
-;; nil? / pair? / even? / odd? are pure KEC Lisp. The tag tests
-;; number? / symbol? / string? / fn? cannot be — Fe exposes no type-tag
-;; introspection from Lisp — so they ride on the one host primitive Core
-;; requires: (type-of x) -> :pair|:nil|:number|:symbol|:string|:fn|...
-;; (standard §4.7 ⚙ FFI; ADR-0037 follow-on #2).
+;; nil? / pair? / even? / odd? are plain KEC Lisp. The tag tests
+;; number? / symbol? / string? / fn? can't be — Fe gives no way to read a
+;; value's type tag from Lisp — so they use the host primitive
+;; (type-of x) -> :pair|:nil|:number|:symbol|:string|:fn|...
 
 (defn nil?  (x) (not x))
 (defn pair? (x) (not (atom x)))

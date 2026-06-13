@@ -1,13 +1,8 @@
 # KEC Lisp — Language Reference
 
-This is the implementer-and-author reference for the standalone KEC Lisp
-distribution. It documents the Fe Kernel surface (Layer 0), the KEC Core
-prelude (Layer 1), and the portable host stdlib (Layer 2) that this repository
-ships. The device FFI (NoshAPI) is downstream and documented separately.
-
-The canonical, prescriptive standard is the KN-86 *KEC Lisp Language Standard*
-(ADR-0037). Where this implementation deviates from the standard for a concrete
-reason, it is flagged **⚠ deviation** below.
+Reference for KEC Lisp: the kernel, the standard library (`core/`), and the C
+primitives (`host/`) this repo ships. The KN-86 device primitives live in the
+firmware, not here.
 
 ---
 
@@ -22,18 +17,19 @@ reason, it is flagged **⚠ deviation** below.
   `:keyword`s are ordinary symbols (there is no keyword type).
 - **`nil`.** The empty list and the only false value. Read as the nil sentinel,
   not a symbol.
-- **Quote.** `'x` ≡ `(quote x)`. There is **no quasiquote/unquote** — macros
-  build expansions with `list`/`cons`/`append`.
+- **Quote.** `'x` ≡ `(quote x)`. There is no quasiquote/unquote — macros build
+  expansions with `list`/`cons`/`append`.
 
 Booleans are not a type: `nil` is false, everything else (including `0` and
 `""`) is true. Predicates return a truthy value or `nil`.
 
 ---
 
-## 2. Fe Kernel — the 26 primitives (Layer 0, frozen)
+## 2. The kernel
 
-The kernel is vendored `rxi/fe` 1.0 and is **never extended or forked**. New
-capability comes through Core (KEC Lisp) or the Stdlib (a bound C function).
+KEC Lisp's kernel is rxi's [Fe](https://github.com/rxi/fe), vendored. Most new
+things get added in Core (Lisp) or as a C primitive; the kernel itself gets
+patched when there's a reason to. It has 26 primitives:
 
 ```
 let  set  if  fn  mac  while  quote  and  or  do
@@ -41,9 +37,8 @@ cons  car  cdr  setcar  setcdr  list  not  is  atom  print
 <  <=  +  -  *  /
 ```
 
-> **KEC kernel change.** Upstream Fe names assignment `=`. KEC renames it to
-> `set`, which frees `=` to mean equality in Core (standard §4.1). The
-> primitive is otherwise unchanged.
+(KEC names assignment `set` rather than Fe's `=`, which leaves `=` free to mean
+equality.)
 
 | Form | Meaning |
 |---|---|
@@ -58,54 +53,48 @@ cons  car  cdr  setcar  setcdr  list  not  is  atom  print
 | `(do …)` | Sequence; returns last. |
 | `cons car cdr setcar setcdr list` | Pair construction / access / mutation. |
 | `(not x)` | `x` is `nil`. |
-| `(is a b)` | Equality: numbers by value, strings structurally, **pairs and other atoms by identity**. |
+| `(is a b)` | Equality: numbers by value, strings structurally, pairs and other atoms by identity. |
 | `(atom x)` | `x` is not a pair. |
 | `(print …)` | Write args to stdout + newline. |
 | `< <= + - * /` | Numeric (variadic for arithmetic). |
 
-Notable kernel realities:
+A few things the kernel doesn't have, that Core or the host fill in:
 
-- **No `define`/`defun`/`defmacro`/`cond`/`>`** — Core supplies these. `=` is
-  not a kernel primitive in KEC; it is Core value-equality (assignment is `set`).
-- **`is` is not structural over lists.** `(is (list 1) (list 1))` → `nil`.
-  Compare element-wise.
-- **GC root stack is small and fixed** (256 default; raised on desktop builds).
-  Recursion depth is bounded by it, so long *library* traversals use `while`.
-- **No TCO, no `eval` from Lisp, no vectors/hash-tables/records.**
+- No `define`/`defun`/`defmacro`/`cond`/`>` — Core adds these. `=` isn't a
+  kernel primitive; it's value-equality from Core (assignment is `set`).
+- `is` compares lists by identity, not contents — `(is (list 1) (list 1))` is
+  `nil`. Compare element by element.
+- The GC root stack is small and fixed (256 by default, larger on desktop
+  builds), so recursion depth is bounded; long library traversals use `while`.
+- No tail-call optimization, no `eval` from Lisp, no vectors/hash-tables/records.
 
 ---
 
-## 3. KEC Core — the prelude (Layer 1, KEC Lisp)
+## 3. The standard library (Core)
 
-Loaded into every context before user code. Authored in KEC Lisp over the
-kernel (plus `type-of`/`mod`/`gensym`/string leaves from the host).
+Written in KEC Lisp (with a few C helpers: `type-of`, `mod`, `gensym`, the
+string ops). Loaded before your code runs.
 
 ### 3.1 `def` — definitions
 | Form | Expands to |
 |---|---|
-| `(defn name (params…) body…)` | `(= name (fn (params…) body…))` |
-| `(defmacro name (params…) body…)` | `(= name (mac (params…) body…))` |
-| `(define name value)` | `(= name value)` |
-| `(define (f args…) body…)` | `(= f (fn (args…) body…))` (Scheme-style sugar) |
+| `(defn name (params…) body…)` | `(set name (fn (params…) body…))` |
+| `(defmacro name (params…) body…)` | `(set name (mac (params…) body…))` |
+| `(define name value)` | `(set name value)` |
+| `(define (f args…) body…)` | `(set f (fn (args…) body…))` (Scheme-style sugar) |
 
 ### 3.2 `list` — list & sequence
 `nth` `length` `reverse` `append` `last` `member` `assoc` `take` `drop` `range`.
-All iterative (bounded depth). `(range a b)` → `(a … b-1)`; `(nth xs i)` → `nil`
-past the end; `(member x xs)` / `(assoc k alist)` → the matching tail/pair or
-`nil`.
+All iterative. `(range a b)` → `(a … b-1)`; `(nth xs i)` → `nil` past the end;
+`(member x xs)` / `(assoc k alist)` → the matching tail/pair or `nil`.
 
 ### 3.3 `cmp` — comparison
 `=` `==` `/=` `>` `>=` `zero?` `positive?` `negative?` `min` `max` (variadic).
 `=`, `==`, and `is` are the same value comparison; `/=` negates it.
 
-> **Note on `=` (standard §4.1).** The standard names equality `=`. Upstream Fe
-> used `=` for *assignment*, which is the conflict an earlier draft flagged.
-> KEC resolves it at the kernel: assignment is `set`, so `=` is free for
-> equality and this implementation **conforms** to §4.1 directly.
-
 ### 3.4 `pred` — predicates
-`nil?` `pair?` `even?` `odd?` `number?` `symbol?` `string?` `fn?`. The four tag
-tests use the host `type-of` primitive (standard §4.7).
+`nil?` `pair?` `even?` `odd?` `number?` `symbol?` `string?` `fn?`. The four type
+tests use the host `type-of` primitive.
 
 ### 3.5 `ctrl` — control macros
 `when` `unless` `cond` `case` `let*` `letrec` `dotimes` `dolist` `begin`.
@@ -127,17 +116,16 @@ tests use the host `type-of` primitive (standard §4.7).
 
 ---
 
-## 4. Host stdlib (Layer 2, portable)
+## 4. C primitives (host)
 
-Bound C primitives that need only the C library. Two capability profiles
-demonstrate "capability is the binding-set": `FULL` (the CLI) adds file/sys
-primitives on top of `SANDBOX`.
+C functions that only need the C library. Two profiles: `FULL` (used by the CLI)
+adds the file and system primitives; `SANDBOX` leaves them out.
 
 | Group | Primitives | Profile |
 |---|---|---|
 | Reflection | `type-of` `gensym` | both |
 | Math | `mod` `floor` `ceil` `round` `abs` `sqrt` `pow` | both |
-| String leaves | `string-length` `string-ref` `substring` `string-append` `char->string` `number->string` `string->number` `symbol->string` `string->symbol` | both |
+| String | `string-length` `string-ref` `substring` `string-append` `char->string` `number->string` `string->number` `symbol->string` `string->symbol` | both |
 | I/O | `princ` `newline` `repr` | both |
 | Sys | `rand` `rand-int` `clock` | both |
 | Control | `try` | both |
@@ -145,8 +133,8 @@ primitives on top of `SANDBOX`.
 
 - `(type-of x)` → `:pair`/`:nil`/`:number`/`:symbol`/`:string`/`:fn`/`:macro`/`:prim`/`:cfunc`/`:ptr`.
 - `(number->string n [radix])` — radix defaults to 10; 2/8/16 supported.
-- `(try thunk)` → the value of `(thunk)`, or `:error` if it raised. The
-  primitive the test harness's `check-err` is built on.
+- `(try thunk)` → the value of `(thunk)`, or `:error` if it raised. `check-err`
+  in the test harness is built on it.
 - `(load "path")` reads and evaluates a file in the current context.
 
 ---
@@ -156,17 +144,16 @@ primitives on top of `SANDBOX`.
 - **Application** evaluates the operator, then arguments left-to-right.
 - **Macros** receive unevaluated forms; the expansion replaces the call site
   and is re-evaluated.
-- **Errors** route through `fe_error`. The standalone runtime installs a
-  recovery handler that unwinds to the nearest guard (the REPL prompt, a script
-  boundary, or a `(try …)`) instead of exiting. `(try …)` is the Lisp-visible
-  catch.
+- **Errors** route through `fe_error`. The runtime installs a recovery handler
+  that unwinds to the nearest guard (the REPL prompt, a script boundary, or a
+  `(try …)`) instead of exiting. `(try …)` is the Lisp-visible catch.
 
 ---
 
 ## 6. Quick reference
 
 1. Bind with `define` / `defn` / `let`; mutate with `set`; compare with `=` / `==`.
-2. List equality is element-wise — `is` / `=` are identity on pairs.
+2. List equality is element-wise — `is` / `=` compare pairs by identity.
 3. Core is iterative; for your own deep recursion prefer `while` / `fold-left`
    (the GC-root stack is bounded, though generous on desktop builds).
 4. Numbers are single floats; mind ±2²⁴ and exact-integer expectations.
