@@ -19,6 +19,16 @@ typedef struct kec_State kec_State;
 ** recovery handler, bind the host primitives for `profile`, and load Core.
 ** Returns NULL on allocation failure or if Core fails to load. */
 kec_State *kec_open(size_t arena_bytes, kec_Profile profile);
+
+/* Open an interpreter on a caller-provided arena `buf` of `size` bytes — same
+** lifecycle as kec_open (open Fe, install the error handler, bind the host
+** stdlib for `profile`, load KEC Core) but with no malloc of the arena. For
+** embedders that avoid the heap (the KN-86 device): supply a static or stack
+** buffer. The buffer must outlive the kec_State and is NOT freed by kec_close.
+** Returns NULL (cleanly, freeing only what it owns) if Core fails to load —
+** e.g. `buf` is too small to hold the prelude. */
+kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile);
+
 void kec_close(kec_State *S);
 
 /* Underlying Fe context — for downstream FFI extension (kec_bind_fe). */

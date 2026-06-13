@@ -94,3 +94,10 @@ set(TEST_FILES
 foreach(t ${TEST_FILES})
   add_test(NAME ${t} COMMAND kec test ${CMAKE_SOURCE_DIR}/${t})
 endforeach()
+
+# ---------------------------------------------------------------------------
+# C-level embedding tests — the no-malloc arena seam the .lsp suite can't reach.
+# ---------------------------------------------------------------------------
+add_executable(test_arena tests/c/test_arena.c)
+target_link_libraries(test_arena kec_core m)
+add_test(NAME c/arena COMMAND test_arena)

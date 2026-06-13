@@ -20,6 +20,7 @@
 struct kec_State {
     fe_Context *ctx;
     void *arena;
+    int owns_arena; /* 1 if kec malloc'd the arena and must free it */
     kec_Profile profile;
     char errmsg[256];
     int had_error;
@@ -147,12 +148,25 @@ static fe_Object *h_try(fe_Context *ctx, fe_Object *args) {
 /* Public API.                                                         */
 /* ------------------------------------------------------------------ */
 
-kec_State *kec_open(size_t arena_bytes, kec_Profile profile) {
-    kec_State *S = calloc(1, sizeof *S);
+kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
+    kec_State *S;
+    size_t floor;
+    if (!buf) { return NULL; }
+
+    /* Reject a buffer too small to even survive fe_open. fe_open subtracts its
+    ** context header off the front, then registers ~30 primitives; a buffer
+    ** below the header floor (plus a small object margin for registration)
+    ** would fault inside fe_open before our error handler is installed — so we
+    ** must reject it here, not catch it there. Above this floor, an
+    ** insufficient arena fails cleanly later via the Core-load guard. */
+    floor = (size_t)fe_min_arena_bytes() + 64u * (size_t)fe_object_size();
+    if (size < floor) { return NULL; }
+
+    S = calloc(1, sizeof *S);
     if (!S) { return NULL; }
-    S->arena = malloc(arena_bytes);
-    if (!S->arena) { free(S); return NULL; }
-    S->ctx = fe_open(S->arena, (int)arena_bytes);
+    S->arena = buf;
+    S->owns_arena = 0; /* caller owns the buffer; kec_close never frees it */
+    S->ctx = fe_open(buf, (int)size);
     S->profile = profile;
     S->depth = 0;
 
@@ -165,12 +179,12 @@ kec_State *kec_open(size_t arena_bytes, kec_Profile profile) {
     kec_bind_fe(S->ctx, "try", h_try);
     if (profile == KEC_PROFILE_FULL) { kec_bind_fe(S->ctx, "load", h_load); }
 
-    /* Load Core (the standard library, written in KEC Lisp). */
+    /* Load Core (the standard library, written in KEC Lisp). A failure here
+    ** usually means the arena is too small to hold the prelude; surface it and
+    ** return NULL, freeing only what we own (never a caller-provided buffer). */
     {
         StrReader r = { KEC_CORE_SRC, 0 };
         if (run_forms(S, str_readfn, &r, NULL) != 0) {
-            /* If Core fails to load it's a bug in Core — surface it rather than
-            ** running on a broken prelude. */
             fprintf(stderr, "kec: KEC Core failed to load: %s\n", S->errmsg);
             kec_close(S);
             return NULL;
@@ -179,10 +193,25 @@ kec_State *kec_open(size_t arena_bytes, kec_Profile profile) {
     return S;
 }
 
+kec_State *kec_open(size_t arena_bytes, kec_Profile profile) {
+    void *arena = malloc(arena_bytes);
+    kec_State *S;
+    if (!arena) { return NULL; }
+    S = kec_open_with_arena(arena, arena_bytes, profile);
+    if (!S) {
+        /* kec_open_with_arena does not own the buffer, so it left ours intact
+        ** on failure — free it here since kec_open is the owner. */
+        free(arena);
+        return NULL;
+    }
+    S->owns_arena = 1; /* kec_open malloc'd it; kec_close frees it */
+    return S;
+}
+
 void kec_close(kec_State *S) {
     if (!S) { return; }
     if (S->ctx) { fe_close(S->ctx); }
-    free(S->arena);
+    if (S->owns_arena) { free(S->arena); }
     if (g_state == S) { g_state = NULL; }
     free(S);
 }
