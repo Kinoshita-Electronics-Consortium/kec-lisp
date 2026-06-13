@@ -1,13 +1,12 @@
 /*
-** host.c — KEC Lisp portable host stdlib.
+** host.c — KEC Lisp's portable C primitives.
 **
-** Every primitive here is laptop-portable: it needs only the C library, not
-** KN-86 hardware. The device FFI (NoshAPI) is registered downstream through
-** the same kec_bind_fe seam; see docs/ffi-bridge.md (section 6 of the
-** language standard).
+** Every primitive here needs only the C library, not KN-86 hardware. The
+** firmware adds its device primitives through the same kec_bind_fe seam; see
+** docs/ffi-bridge.md.
 **
-** C name `h_foo`  ->  KEC Lisp symbol `foo-bar` (kebab-case). The Lisp name
-** is the contract; the C name is private (standard §6.1).
+** C name `h_foo`  ->  KEC Lisp symbol `foo-bar` (kebab-case). The Lisp name is
+** what callers use; the C name is internal.
 */
 #include "host.h"
 
@@ -23,7 +22,7 @@
 #define KEC_STRBUF 4096
 
 /* ------------------------------------------------------------------ */
-/* The bind seam (standard §6.1) — GC-safe symbol→cfunc registration.  */
+/* The bind seam — GC-safe symbol→cfunc registration.                  */
 /* ------------------------------------------------------------------ */
 
 void kec_bind_fe(fe_Context *ctx, const char *name, fe_CFunc fn) {
@@ -48,8 +47,7 @@ static int arg_str(fe_Context *ctx, fe_Object **args, char *buf, int size) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Reflection — the one primitive KEC Core's predicates require        */
-/* (standard §4.7, ADR-0037 follow-on #2).                             */
+/* Reflection — type-of, which Core's number?/string?/etc. need.       */
 /* ------------------------------------------------------------------ */
 
 static fe_Object *h_type_of(fe_Context *ctx, fe_Object *args) {

@@ -1,9 +1,8 @@
-;; KEC Core — str : string & format (standard §4.6)
+;; KEC Core — str : string & format
 ;;
-;; The char-level leaves (string-length, string-ref, substring,
-;; string-append, number->string, string->number, char->string) are host
-;; primitives — Fe exposes no way to index a string from Lisp. This module
-;; provides the composite forms §4.6 specifies, authored over those leaves.
+;; The char-level pieces (string-length, string-ref, substring, string-append,
+;; number->string, string->number, char->string) are host primitives — Fe gives
+;; no way to index a string from Lisp. This module builds the rest on top.
 
 ;; (str a b...) -> concatenate stringified args. string-append already
 ;; stringifies each argument (numbers via %.7g, symbols by name, strings raw).

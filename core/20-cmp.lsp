@@ -1,8 +1,8 @@
-;; KEC Core — cmp : equality & comparison (standard §4.1)
+;; KEC Core — cmp : equality & comparison
 ;;
 ;; Kernel ships < <= is. Core completes the set.
 ;;
-;; `=` is value equality (standard §4.1). The KEC kernel names assignment
+;; `=` is value equality. The KEC kernel names assignment
 ;; `set` (not `=`, as upstream Fe did), which frees `=` for its conventional
 ;; meaning. `=`, `==`, and `is` are the same comparison: value for numbers and
 ;; strings, identity for symbols and pairs. `/=` is its negation.

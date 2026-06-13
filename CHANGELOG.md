@@ -2,39 +2,32 @@
 
 ## 0.1.0 — 2026-06-13
 
-First standalone release of KEC Lisp (KN-86 Standard), extracted greenfield
-from the KN-86 emulator per ADR-0037.
+First standalone release, split out from the KN-86 emulator.
 
 ### Added
-- **Fe Kernel** (Layer 0) vendored from `rxi/fe` 1.0, with three small,
-  documented KEC changes (see *Kernel changes* below).
-- **KEC Core** (Layer 1) — the prelude authored in KEC Lisp, conforming to
-  standard §4: `def`, `list`, `cmp`, `pred`, `ctrl`, `hof`, `str`. All
-  linear traversals are iterative so a library call never exhausts the GC
-  root stack regardless of list length.
-- **Portable host stdlib** (Layer 2) — `type-of` (standard §4.7), math,
-  string leaves, I/O, sys, and `try`, gated by `KEC_PROFILE_FULL` /
-  `KEC_PROFILE_SANDBOX` (capability-by-binding-set).
-- **Embedding API** (`kec.h`) — `kec_open`, `kec_eval_*`, `kec_bind_fe`, error
-  recovery via a guard stack (no `exit()` on script error).
-- **`kec` CLI** — `repl`, `run`, `eval`, `build` (inline + parse-check +
-  bundle), `test`.
-- **Test harness** — xUnit in KEC Lisp (`deftest`/`check`/`check-err`) plus a
-  conformance suite wired into CTest.
+- The Fe interpreter (`kernel/`), vendored from `rxi/fe` with a few small
+  changes (see *Kernel changes* below).
+- The standard library (`core/`), written in KEC Lisp: `def`, `list`, `cmp`,
+  `pred`, `ctrl`, `hof`, `str`. The list/sequence functions are iterative so a
+  library call won't exhaust the GC stack on a long list.
+- C primitives (`host/`): `type-of`, math, string ops, a little I/O, and `try`,
+  with two profiles (`KEC_PROFILE_FULL` / `KEC_PROFILE_SANDBOX`).
+- The embedding API (`kec.h`): `kec_open`, `kec_eval_*`, `kec_bind_fe`, and
+  error recovery so a script error doesn't take down the process.
+- The `kec` CLI: `repl`, `run`, `eval`, `build`, `test`.
+- A test harness written in KEC Lisp (`deftest` / `check` / `check-err`) and a
+  test suite wired into CTest.
 
 ### Kernel changes (vs upstream rxi/fe 1.0)
-- **Assignment verb `=` → `set`.** This frees `=` for value equality in Core,
-  so the implementation conforms to standard §4.1 (`=` is equality) directly
-  rather than deviating to `==`. `==` remains as an alias.
-- **Top-level `let` binds globally** instead of being a silent no-op — removes
-  a footgun where `(let x v)` at the REPL / script top level did nothing.
-- **`GCSTACKSIZE` is compile-time configurable** (`#ifndef`, default 256). The
-  desktop build raises it to 8192 so naive recursive user code has headroom;
-  memory-tight hosts that vendor the kernel keep 256.
+- Assignment is `set`, not `=`. This leaves `=` free to mean equality. `==` is
+  an alias.
+- Top-level `let` binds globally instead of being a silent no-op — `(let x v)`
+  at the REPL or top of a script used to do nothing.
+- `GCSTACKSIZE` is compile-time configurable (default 256). The desktop build
+  raises it to 8192 so recursive code has headroom; hosts that vendor the
+  kernel can keep 256.
 
 ### Notes
-- `(type-of x)` ships here as a host primitive (ADR-0037 follow-on #2 placed it
-  on the device Stdlib; it is portable, so the standalone repo carries it and
-  Core's tag predicates are conformant out of the box).
-- The Fe Kernel is a tree-walking interpreter; `kec build` is an ahead-of-time
-  link/validate/bundle step, not a bytecode compiler.
+- `kec build` isn't a compiler — Fe is a tree-walking interpreter. It inlines
+  `(load ...)`s, checks the program parses, and writes one self-contained `.kec`
+  file.

@@ -1,4 +1,4 @@
-;; KEC Core — ctrl : control macros (standard §4.4)
+;; KEC Core — ctrl : control macros
 ;;
 ;; Kernel ships if/and/or/do/while. Core adds the macros every real program
 ;; reaches for. Fe has no quasiquote, so expansions are built by hand with

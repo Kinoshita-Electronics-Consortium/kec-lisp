@@ -1,13 +1,9 @@
-;; KEC Core — hof : higher-order functions (standard §4.3)
+;; KEC Core — hof : higher-order functions
 ;;
-;; The functions builtins.md already assumed carts could call "as if they
-;; were primitives" (map, filter). Core makes that real.
-;;
-;; All traversals are iterative (while + accumulator + reverse), not
-;; recursive: the Fe Kernel's GC root stack is small and fixed (256 on
-;; memory-tight hosts; raised on desktop), so a recursive map/filter would
-;; overflow on long lists. Iteration bounds depth at a constant regardless of
-;; list length — the right shape for a library others build on.
+;; All traversals are iterative (while + accumulator + reverse), not recursive:
+;; the GC root stack is small and fixed (256 on memory-tight hosts, raised on
+;; desktop), so a recursive map/filter would overflow on long lists. Iteration
+;; keeps depth constant regardless of list length.
 
 (defn map (f xs)
   (let acc nil)
