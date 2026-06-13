@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **`kec_open_with_arena(buf, size, profile)`** — open an interpreter on a
+  caller-provided arena with no malloc of the arena, for embedders that avoid
+  the heap (the KN-86 device). Same lifecycle as `kec_open`; returns NULL
+  cleanly if the buffer is too small to load Core, and never frees a
+  caller-owned buffer. `kec_open` now delegates to it. (GWP-502)
+
 ## 0.1.0 — 2026-06-13
 
 First standalone release, split out from the KN-86 emulator.

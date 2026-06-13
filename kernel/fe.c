@@ -904,6 +904,22 @@ int fe_object_size(void) {
 }
 
 
+/*
+ * Minimum arena, in bytes, that fe_open() can be called with without
+ * underflowing `size` past the context header. fe_open() subtracts
+ * sizeof(fe_Context) from the arena up front (line ~835); a buffer smaller
+ * than that drives object_count negative and the primitive registration in
+ * fe_open() faults before any error handler is installed. Embedders that
+ * accept a caller-supplied arena (kec_open_with_arena) gate on this so a
+ * too-small buffer is rejected cleanly instead of crashing. The value tracks
+ * GCSTACKSIZE — fe_Context is dominated by its gcstack — so it is correct for
+ * whatever GCSTACKSIZE fe.c was compiled with.
+ */
+int fe_min_arena_bytes(void) {
+  return (int)sizeof(fe_Context);
+}
+
+
 #ifdef FE_STANDALONE
 
 #include <setjmp.h>

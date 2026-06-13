@@ -90,6 +90,10 @@ kec_eval_string(S, "(beep 440)", NULL);
 kec_close(S);
 ```
 
+If you'd rather not use the heap (e.g. on the KN-86 device), give it your own
+buffer with `kec_open_with_arena(buf, size, profile)` — same as `kec_open` but
+no malloc of the arena, and the buffer is never freed by `kec_close`.
+
 This is how the KN-86 firmware adds its device primitives. Details in
 [docs/ffi-bridge.md](docs/ffi-bridge.md).
 
