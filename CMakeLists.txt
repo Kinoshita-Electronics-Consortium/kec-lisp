@@ -68,6 +68,9 @@ target_include_directories(kec_core PUBLIC
   ${CMAKE_SOURCE_DIR}/runtime
   ${GEN_DIR})
 target_compile_definitions(kec_core PUBLIC KEC_VERSION="${KEC_VERSION}")
+# Desktop has memory to spare — raise Fe's recursion ceiling well past the
+# 256-root device default so naive recursive user code doesn't hit the wall.
+target_compile_definitions(kec_core PRIVATE GCSTACKSIZE=8192)
 add_dependencies(kec_core kec_generated)
 
 add_executable(kec cli/main.c)

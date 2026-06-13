@@ -21,7 +21,7 @@ Stdlib (NoshAPI) is registered downstream through `docs/ffi-bridge.md`.
 
 | Component | Layer | Why it's here |
 |---|---|---|
-| Fe Kernel (`kernel/`) | 0 | The VM. Vendored, frozen, re-pull only. |
+| Fe Kernel (`kernel/`) | 0 | The VM. Vendored from `rxi/fe` with small documented KEC changes (assignment verb, top-level `let`, configurable GC stack — see CHANGELOG). |
 | KEC Core (`core/`) | 1 | The prelude. Pure KEC Lisp. The heart of the language. |
 | Portable host stdlib (`host/`) | 2 | `type-of`, math, strings, I/O, sys, `try`. Laptop-portable, zero device coupling. Makes scripts *runnable*. |
 | Embedding API + recovery (`runtime/`) | 2 | `kec_open`, Core injection, error guard, `load`. |
@@ -57,5 +57,5 @@ demonstrated here.
 4. **Author** carts and system surfaces against KEC Core + that tier — the same
    vocabulary this repo documents, plus the device primitives.
 
-The language never forks. Core is versioned as a unit (standard §8); the device
-tier evolves independently behind the FFI bridge.
+Kernel changes are minimal and documented; Core is versioned as a unit
+(standard §8); the device tier evolves independently behind the FFI bridge.

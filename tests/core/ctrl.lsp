@@ -1,12 +1,12 @@
 ;; KEC Core §4.4 — ctrl
 
 (deftest "ctrl/when-unless"
-  (= a 0)
-  (when 1 (= a 5))
+  (set a 0)
+  (when 1 (set a 5))
   (check (is a 5))
-  (unless nil (= a 6))
+  (unless nil (set a 6))
   (check (is a 6))
-  (when nil (= a 99))
+  (when nil (set a 99))
   (check (is a 6)))
 
 (deftest "ctrl/cond"
@@ -38,11 +38,11 @@
     (check (not (ev? 7)))))
 
 (deftest "ctrl/dotimes-dolist"
-  (= s 0)
-  (dotimes (i 5) (= s (+ s i)))
+  (set s 0)
+  (dotimes (i 5) (set s (+ s i)))
   (check (is s 10))                 ; 0+1+2+3+4
-  (= acc nil)
-  (dolist (x (list 1 2 3)) (= acc (cons x acc)))
+  (set acc nil)
+  (dolist (x (list 1 2 3)) (set acc (cons x acc)))
   (check (is (length acc) 3))
   (check (is (car acc) 3)))
 

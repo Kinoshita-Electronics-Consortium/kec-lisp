@@ -3,8 +3,9 @@ MIT License
 Copyright (c) 2026 Kinoshita Electronics Consortium
 
 The Fe Kernel in kernel/fe.c and kernel/fe.h is vendored from rxi/fe and is
-Copyright (c) 2020 rxi, also under the MIT License. It is included unmodified;
-see the copyright notice at the top of kernel/fe.c.
+Copyright (c) 2020 rxi, also under the MIT License. It carries small documented
+KEC modifications (assignment verb, top-level let, configurable GC stack); see
+the CHANGELOG and the copyright notice at the top of kernel/fe.c.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

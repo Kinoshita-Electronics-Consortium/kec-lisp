@@ -8,8 +8,10 @@
   (check (not (>= 3 4))))
 
 (deftest "cmp/eq"
+  (check (= 3 3))                  ; = is value equality (kernel assign is `set`)
+  (check (not (= 3 4)))
+  (check (= "ab" "ab"))
   (check (== 3 3))
-  (check (not (== 3 4)))
   (check (/= 3 4))
   (check (not (/= 3 3))))
 

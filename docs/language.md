@@ -36,15 +36,19 @@ The kernel is vendored `rxi/fe` 1.0 and is **never extended or forked**. New
 capability comes through Core (KEC Lisp) or the Stdlib (a bound C function).
 
 ```
-let  =  if  fn  mac  while  quote  and  or  do
+let  set  if  fn  mac  while  quote  and  or  do
 cons  car  cdr  setcar  setcdr  list  not  is  atom  print
 <  <=  +  -  *  /
 ```
 
+> **KEC kernel change.** Upstream Fe names assignment `=`. KEC renames it to
+> `set`, which frees `=` to mean equality in Core (standard §4.1). The
+> primitive is otherwise unchanged.
+
 | Form | Meaning |
 |---|---|
-| `(let sym val)` | Bind `sym` in the current body scope; returns `val`. **Only binds inside a `do`-sequence body** (function/macro body, `do`, `while` body). |
-| `(= sym val)` | Assignment. At top level this creates/updates a global. |
+| `(let sym val)` | Bind `sym`. Inside a body → a local for the rest of that body; at the top level → a global. |
+| `(set sym val)` | Assignment to an existing binding (or a top-level global). |
 | `(if c a b…)` | Conditional; supports cond-style chaining `(if c1 t1 c2 t2 else)`. |
 | `(fn (params…) body…)` | Lambda (lexical closure). `(fn (a . rest) …)` and `(fn args …)` bind variadic/rest args. |
 | `(mac (params…) body…)` | Macro; args unevaluated, expansion re-evaluated. |
@@ -61,12 +65,12 @@ cons  car  cdr  setcar  setcdr  list  not  is  atom  print
 
 Notable kernel realities:
 
-- **No `define`/`defun`/`defmacro`/`cond`/`>`/`=`-as-equality** — Core supplies
-  these.
+- **No `define`/`defun`/`defmacro`/`cond`/`>`** — Core supplies these. `=` is
+  not a kernel primitive in KEC; it is Core value-equality (assignment is `set`).
 - **`is` is not structural over lists.** `(is (list 1) (list 1))` → `nil`.
   Compare element-wise.
-- **GC root stack is fixed at 256.** Recursion depth (user *and* library) is
-  bounded by this. Long traversals use `while`.
+- **GC root stack is small and fixed** (256 default; raised on desktop builds).
+  Recursion depth is bounded by it, so long *library* traversals use `while`.
 - **No TCO, no `eval` from Lisp, no vectors/hash-tables/records.**
 
 ---
@@ -91,12 +95,13 @@ past the end; `(member x xs)` / `(assoc k alist)` → the matching tail/pair or
 `nil`.
 
 ### 3.3 `cmp` — comparison
-`>` `>=` `==` `/=` `zero?` `positive?` `negative?` `min` `max` (variadic).
+`=` `==` `/=` `>` `>=` `zero?` `positive?` `negative?` `min` `max` (variadic).
+`=`, `==`, and `is` are the same value comparison; `/=` negates it.
 
-> **⚠ deviation (standard §4.1).** The standard names numeric equality `=`. The
-> kernel's `=` is *assignment* and is frozen, so KEC Lisp exposes equality as
-> **`==`** and inequality as **`/=`**. Kernel `is` already compares numbers by
-> value. Recommended standard amendment: adopt `==` as canonical.
+> **Note on `=` (standard §4.1).** The standard names equality `=`. Upstream Fe
+> used `=` for *assignment*, which is the conflict an earlier draft flagged.
+> KEC resolves it at the kernel: assignment is `set`, so `=` is free for
+> equality and this implementation **conforms** to §4.1 directly.
 
 ### 3.4 `pred` — predicates
 `nil?` `pair?` `even?` `odd?` `number?` `symbol?` `string?` `fn?`. The four tag
@@ -158,10 +163,10 @@ primitives on top of `SANDBOX`.
 
 ---
 
-## 6. Quick gotcha checklist
+## 6. Quick reference
 
-1. Top-level binding → `=` / `define`. `let` is for body locals only.
-2. Numeric equality → `==` (or `is`). `=` is assignment.
-3. List equality → element-wise; `is` is identity on pairs.
-4. Big lists / deep recursion → iterate (`while`, `fold-left`). 256-root cap.
-5. Numbers are single floats; mind ±2²⁴ and exact-integer expectations.
+1. Bind with `define` / `defn` / `let`; mutate with `set`; compare with `=` / `==`.
+2. List equality is element-wise — `is` / `=` are identity on pairs.
+3. Core is iterative; for your own deep recursion prefer `while` / `fold-left`
+   (the GC-root stack is bounded, though generous on desktop builds).
+4. Numbers are single floats; mind ±2²⁴ and exact-integer expectations.

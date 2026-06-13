@@ -18,15 +18,15 @@
   (check (is 'sym 'sym)))         ; symbols compare by identity (interned)
 
 (deftest "kernel/closure"
-  (= mkcounter (fn (n) (fn () (= n (+ n 1)) n)))
-  (= c (mkcounter 10))
+  (set mkcounter (fn (n) (fn () (set n (+ n 1)) n)))
+  (set c (mkcounter 10))
   (check (is (c) 11))
   (check (is (c) 12)))
 
 (deftest "kernel/variadic-rest"
-  (= collect (fn args args))                 ; whole arg list
+  (set collect (fn args args))                 ; whole arg list
   (check (is (length (collect 1 2 3)) 3))
-  (= head-rest (fn (a . rest) rest))          ; dotted rest
+  (set head-rest (fn (a . rest) rest))          ; dotted rest
   (check (is (length (head-rest 0 1 2)) 2)))
 
 (deftest "kernel/error-recovers"

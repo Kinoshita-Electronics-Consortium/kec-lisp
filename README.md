@@ -111,10 +111,10 @@ executable encoding of standard §4.
 (+ 1 2)                  ; => 3
 (if nil 'yes 'no)        ; => no
 
-; top-level definitions use = (or define) — NOT let (see Gotchas)
-(= xs (range 0 5))       ; => (0 1 2 3 4)
-(define (sq x) (* x x))
-(defn cube (x) (* x x x))
+; bind with define / defn / let.  set mutates.  = / == compare.
+(define xs (range 0 5))  ; => (0 1 2 3 4)
+(defn sq (x) (* x x))
+(= 3 3)                  ; => t   (value equality)
 
 ; higher-order + control
 (map sq xs)                       ; => (0 1 4 9 16)
@@ -131,19 +131,15 @@ executable encoding of standard §4.
 
 Full reference: [`docs/language.md`](docs/language.md).
 
-### Gotchas (Fe Kernel realities)
+### Good to know
 
-- **Top-level binding is `=` / `define`, never `let`.** A top-level `let` is a
-  no-op in Fe — `let` only binds inside a `do`-sequence body (a function/macro
-  body). Use `let`/`let*` for locals, `=` for globals.
-- **Numeric equality is `==`, not `=`.** The kernel's `=` is *assignment*, and
-  the kernel is frozen, so it can't double as equality. Core provides `==` /
-  `/=`; kernel `is` also compares numbers by value. (A surfaced deviation from
-  standard §4.1 — see [`docs/language.md`](docs/language.md).)
+- **`=` / `==` compare, `set` assigns, `let` / `define` / `defn` bind.** KEC
+  renames Fe's assignment verb to `set` so `=` means value equality (standard
+  §4.1). `let` binds locals *and* works at the top level.
 - **Numbers are single-precision floats.** Integers are exact only within ±2²⁴.
-- **Recursion depth is bounded (~256 GC roots).** KEC Core's traversals are
-  iterative for this reason; deeply self-recursive user code should use `while`
-  with accumulators (or `fold-left`) past a few hundred levels.
+- **`is` is identity on pairs** — compare lists element-wise, not with `=`/`is`.
+- **Deep recursion** runs into the thousands on desktop; KEC Core stays
+  iterative so a library call never hits the ceiling.
 
 ---
 
@@ -180,5 +176,7 @@ capability tiers, error propagation — is [`docs/ffi-bridge.md`](docs/ffi-bridg
 
 ## License
 
-MIT. The Fe Kernel is © 2020 rxi (MIT, vendored unmodified). Everything else is
-© Kinoshita Electronics Consortium (MIT). See [`LICENSE`](LICENSE).
+MIT. The Fe Kernel is © 2020 rxi (MIT), vendored from `rxi/fe` with small
+documented KEC changes (assignment verb `=`→`set`, top-level `let` binds
+globally, configurable GC-stack size). Everything else is © Kinoshita
+Electronics Consortium (MIT). See [`LICENSE`](LICENSE).

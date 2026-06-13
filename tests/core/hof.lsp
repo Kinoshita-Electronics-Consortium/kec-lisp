@@ -21,8 +21,8 @@
   (check (is (count (fn (x) (odd? x)) (list 1 2 3 4 5)) 3)))
 
 (deftest "hof/for-each"
-  (= total 0)
-  (for-each (fn (x) (= total (+ total x))) (list 4 5 6))
+  (set total 0)
+  (for-each (fn (x) (set total (+ total x))) (list 4 5 6))
   (check (is total 15)))
 
 (deftest "hof/large-lists-iterative"   ; regression: recursive Core overflowed ~150

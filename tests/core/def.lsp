@@ -7,14 +7,14 @@
 (deftest "def/defn-variadic"
   (defn sum (a . rest)
     (let s a)
-    (while rest (= s (+ s (car rest))) (= rest (cdr rest)))
+    (while rest (set s (+ s (car rest))) (set rest (cdr rest)))
     s)
   (check (is (sum 1 2 3 4) 10)))
 
 (deftest "def/defmacro"
   (defmacro twice (e) (list 'do e e))
-  (= k 0)
-  (twice (= k (+ k 1)))
+  (set k 0)
+  (twice (set k (+ k 1)))
   (check (is k 2)))
 
 (deftest "def/define"

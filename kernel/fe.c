@@ -37,7 +37,12 @@
 
 #define STRBUFSIZE    ( (int) sizeof(fe_Object*) - 1 )
 #define GCMARKBIT     ( 0x2 )
+/* KEC: recursion ceiling is configurable. The standalone desktop build raises
+   it (CMake -DGCSTACKSIZE=...); the 256 default is kept for memory-tight hosts
+   (e.g. the 256 KB device arena) that vendor this kernel as-is. */
+#ifndef GCSTACKSIZE
 #define GCSTACKSIZE   ( 256 )
+#endif
 
 
 enum {
@@ -47,7 +52,10 @@ enum {
 };
 
 static const char *primnames[] = {
-  "let", "=", "if", "fn", "mac", "while", "quote", "and", "or", "do", "cons",
+  /* KEC: assignment is `set`, not `=`. `=` is freed for value-equality in KEC
+     Core (standard §4.1 intent). The P_SET primitive is unchanged; only its
+     surface name differs from upstream Fe. */
+  "let", "set", "if", "fn", "mac", "while", "quote", "and", "or", "do", "cons",
   "car", "cdr", "setcar", "setcdr", "list", "not", "is", "atom", "print", "<",
   "<=", "+", "-", "*", "/"
 };
@@ -649,6 +657,12 @@ static fe_Object* eval(fe_Context *ctx, fe_Object *obj, fe_Object *env, fe_Objec
           va = checktype(ctx, fe_nextarg(ctx, &arg), FE_TSYMBOL);
           if (newenv) {
             *newenv = fe_cons(ctx, fe_cons(ctx, va, evalarg()), env);
+          } else {
+            /* KEC: top-level let (no enclosing body to thread a binding into)
+               binds globally instead of silently doing nothing — removes the
+               footgun where (let x v) at the REPL / script top level was a
+               no-op. Identical to `set` here. */
+            cdr(getbound(va, env)) = res = evalarg();
           }
           break;
 

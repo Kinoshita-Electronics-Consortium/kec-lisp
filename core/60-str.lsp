@@ -7,7 +7,7 @@
 
 ;; (str a b...) -> concatenate stringified args. string-append already
 ;; stringifies each argument (numbers via %.7g, symbols by name, strings raw).
-(= str string-append)
+(set str string-append)
 
 ;; (join xs sep) -> elements of xs joined by sep. Iterative (see hof note).
 (defn join (xs sep)
@@ -15,10 +15,10 @@
       ""
       (do
         (let out (str (car xs)))
-        (= xs (cdr xs))
+        (set xs (cdr xs))
         (while xs
-          (= out (str out sep (car xs)))
-          (= xs (cdr xs)))
+          (set out (str out sep (car xs)))
+          (set xs (cdr xs)))
         out)))
 
 ;; (split s sep) -> list of substrings of s, split on the first char of sep.
@@ -30,10 +30,10 @@
   (let i 0)
   (while (< i n)
     (if (is (string-ref s i) sepc)
-        (do (= out (cons (substring s start i) out))
-            (= start (+ i 1))))
-    (= i (+ i 1)))
-  (= out (cons (substring s start n) out))
+        (do (set out (cons (substring s start i) out))
+            (set start (+ i 1))))
+    (set i (+ i 1)))
+  (set out (cons (substring s start n) out))
   (reverse out))
 
 ;; (format fmt arg...) -> printf-style splice returning a string.
@@ -46,16 +46,16 @@
     (let c (string-ref fmt i))
     (if (is c 37)                                  ; '%'
         (do
-          (= i (+ i 1))
+          (set i (+ i 1))
           (let d (string-ref fmt i))
           (cond
-            ((is d 100) (= out (str out (number->string (car args)))) (= args (cdr args)))     ; d
-            ((is d 117) (= out (str out (number->string (car args)))) (= args (cdr args)))     ; u
-            ((is d 120) (= out (str out (number->string (car args) 16))) (= args (cdr args)))  ; x
-            ((is d 99)  (= out (str out (char->string (car args)))) (= args (cdr args)))       ; c
-            ((is d 115) (= out (str out (str (car args)))) (= args (cdr args)))                ; s
-            ((is d 37)  (= out (str out "%")))                                                 ; %
-            (else (= out (str out "%")) (= out (str out (char->string d))))))
-        (= out (str out (char->string c))))
-    (= i (+ i 1)))
+            ((is d 100) (set out (str out (number->string (car args)))) (set args (cdr args)))     ; d
+            ((is d 117) (set out (str out (number->string (car args)))) (set args (cdr args)))     ; u
+            ((is d 120) (set out (str out (number->string (car args) 16))) (set args (cdr args)))  ; x
+            ((is d 99)  (set out (str out (char->string (car args)))) (set args (cdr args)))       ; c
+            ((is d 115) (set out (str out (str (car args)))) (set args (cdr args)))                ; s
+            ((is d 37)  (set out (str out "%")))                                                 ; %
+            (else (set out (str out "%")) (set out (str out (char->string d))))))
+        (set out (str out (char->string c))))
+    (set i (+ i 1)))
   out)
