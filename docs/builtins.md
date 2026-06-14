@@ -3,8 +3,8 @@ title: Built-ins
 description: The 26 compiled-in kernel primitives of KEC Lisp, with one-line semantics — distinct from the Lisp-authored Core library and the C host primitives.
 ---
 
-The KEC Lisp kernel (vendored [Fe](https://github.com/rxi/fe)) ships a tight set
-of **26 compiled-in primitives** — binding, control flow, list ops, predicates,
+The KEC Lisp kernel (vendored [Fe](https://github.com/rxi/fe)) ships
+**26 compiled-in primitives** — binding, control flow, list ops, predicates,
 arithmetic, and one I/O call. This page indexes them with one-line semantics.
 Everything else you call comes from one of the two layers above the kernel:
 
@@ -15,8 +15,8 @@ Everything else you call comes from one of the two layers above the kernel:
 | **Core / user** | `FE_TFUNC` / `FE_TMACRO` | KEC Lisp in `core/` (or your code) | `map`, `cond`, `defn`, `=` |
 
 So `=`, `map`, `cond`, and `defn` are **not** kernel built-ins — they live in
-[Core](/kec-lisp/language/#3-the-standard-library-core). The kernel is small on
-purpose; the language is the kernel plus Core plus the host primitives.
+[Core](/kec-lisp/language/#3-the-standard-library-core). The language is the
+kernel plus Core plus the host primitives.
 
 > **Kernel delta from upstream Fe.** KEC names assignment **`set`**, not `=`. That
 > frees `=` to mean **equality** (supplied by Core). If you've read upstream Fe
@@ -52,7 +52,7 @@ There is no `define` / `defn` / `defmacro` in the kernel — Core supplies those
 
 | Built-in | Signature | Semantics |
 |---|---|---|
-| `(cons a b)` | `Any Any → Pair` | Construct a pair. The fundamental allocator (arena). |
+| `(cons a b)` | `Any Any → Pair` | Construct a pair (allocated from the arena). |
 | `(car p)` | `Pair → Any` | First element. Errors if `p` is not a pair. |
 | `(cdr p)` | `Pair → Any` | Rest. Errors if `p` is not a pair. |
 | `(setcar p v)` | `Pair Any → Pair` | In-place mutation of `car`. Returns `p`. |
@@ -68,7 +68,7 @@ rather than deep recursion (the GC-root stack is bounded).
 
 | Built-in | Semantics |
 |---|---|
-| `(not x)` | True (`t`) if `x` is `nil`. |
+| `(not x)` | True if `x` is `nil`. |
 | `(atom x)` | True if `x` is *not* a pair (i.e. `nil`, number, symbol, string, fn, macro, prim, cfunc, or ptr). |
 | `(is a b)` | Equality: numbers by value, strings structurally, pairs and other atoms by **identity**. |
 
