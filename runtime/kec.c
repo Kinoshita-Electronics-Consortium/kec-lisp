@@ -173,6 +173,17 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
     g_state = S;
     fe_handlers(S->ctx)->error = on_error;
 
+    /* Guard the whole setup. Both host registration and Core load allocate, and
+    ** on a too-small arena Fe raises out-of-memory; without a guard here the
+    ** host-registration phase runs with no handler frame and Fe's default path
+    ** exit()s the process. Install a guard at slot 0 so any failure during
+    ** setup — host bind or Core load — returns NULL cleanly instead. */
+    if (setjmp(S->recover[0])) {
+        kec_close(S);
+        return NULL;
+    }
+    S->depth = 1;
+
     /* Host primitives must be bound before Core loads — Core's predicates and
     ** string ops call type-of / mod / gensym / string-*. */
     kec_host_register(S->ctx, profile);
@@ -190,6 +201,7 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
             return NULL;
         }
     }
+    S->depth = 0; /* setup complete — drop the setup guard */
     return S;
 }
 

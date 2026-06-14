@@ -916,7 +916,14 @@ int fe_object_size(void) {
  * whatever GCSTACKSIZE fe.c was compiled with.
  */
 int fe_min_arena_bytes(void) {
-  return (int)sizeof(fe_Context);
+  /* Header PLUS room for fe_open's own init allocations: the `t` symbol and the
+   * P_MAX built-in primitives, each of which allocates a prim object, an
+   * interned symbol, its name string, and a binding cons. Counting only the
+   * header (the original bug) left the floor below fe_open's real need, so
+   * fe_open exhausted the arena while registering primitives and exited before
+   * any handler existed. P_MAX*6 + 32 objects is a generous cover for the ~110
+   * objects fe_open actually uses. */
+  return (int)(sizeof(fe_Context) + (size_t)(P_MAX * 6 + 32) * sizeof(fe_Object));
 }
 
 

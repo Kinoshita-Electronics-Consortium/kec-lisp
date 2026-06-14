@@ -93,10 +93,38 @@ static void test_close_does_not_free_caller_arena(void) {
     }
 }
 
+/* Buffers in the window just above fe_open's context floor but below what host
+** registration + Core need must return NULL — never exit(). The earlier
+** too-small test (90000 B) only exercises the Core-load guard, where host
+** registration already succeeded; the failure that exit()ed is when host
+** registration itself exhausts the arena, which happens just above the floor.
+** Sweep that window plus a few larger undersized sizes; if any size exits,
+** this process dies and CTest reports failure. */
+static void test_undersized_never_exits(void) {
+    static unsigned char pool[128u * 1024u];
+    size_t floor = (size_t)fe_min_arena_bytes() + 64u * (size_t)fe_object_size();
+    size_t sizes[8];
+    size_t i;
+    sizes[0] = floor;
+    sizes[1] = floor + 256u;
+    sizes[2] = floor + 1024u;
+    sizes[3] = floor + 2048u;
+    sizes[4] = floor + 8192u;
+    sizes[5] = 72u * 1024u;
+    sizes[6] = 80u * 1024u;
+    sizes[7] = 95u * 1024u;
+    for (i = 0; i < sizeof sizes / sizeof sizes[0]; i++) {
+        kec_State *S = kec_open_with_arena(pool, sizes[i], KEC_PROFILE_SANDBOX);
+        CHECK(S == NULL, "undersized arena did not return NULL cleanly");
+        if (S) { kec_close(S); }
+    }
+}
+
 int main(void) {
     test_open_with_arena_runs_core();
     test_too_small_returns_null();
     test_tiny_buffer_returns_null();
+    test_undersized_never_exits();
     test_close_does_not_free_caller_arena();
 
     if (g_failures == 0) {
