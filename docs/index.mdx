@@ -1,0 +1,70 @@
+---
+title: KEC Lisp
+description: "A small Lisp — the scripting language for the KN-86 handheld terminal. The language on its own: interpreter, standard library, and the kec CLI."
+template: splash
+hero:
+  tagline: "A small Lisp. The scripting language for the KN-86 Deckline — usable on its own, on a normal computer, with no device hardware."
+  image:
+    alt: KEC Lisp
+    file: ../website/src/assets/kec-lisp-logo.png
+  actions:
+    - text: Get Started
+      link: /kec-lisp/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: Language Reference
+      link: /kec-lisp/language/
+      icon: open-book
+      variant: minimal
+    - text: Source on GitHub
+      link: https://github.com/Kinoshita-Electronics-Consortium/kec-lisp
+      icon: external
+      variant: minimal
+---
+
+```lisp
+(defn fizzbuzz (n)
+  (dotimes (i n)
+    (let k (+ i 1))
+    (princ (cond ((is (mod k 15) 0) "FizzBuzz")
+                 ((is (mod k 3)  0) "Fizz")
+                 ((is (mod k 5)  0) "Buzz")
+                 (else (number->string k))))
+    (newline)))
+(fizzbuzz 15)
+```
+
+## What it is
+
+KEC Lisp is [Fe](https://github.com/rxi/fe) — rxi's tiny Lisp — plus a standard
+library written in Lisp (`core/`) and a handful of portable C primitives
+(`host/`). It ships as the interpreter, the library, a `kec` command-line tool,
+and a test suite. The KN-86 firmware vendors it as a library and registers the
+device primitives (graphics, sound, save state, missions, the CIPHER voice) on
+top through the same FFI seam — none of that is here. This is just the language.
+
+## Documentation
+
+- [**Getting Started**](/kec-lisp/getting-started/) — build the `kec` binary, run the REPL, write your first program.
+- [**Language Reference**](/kec-lisp/language/) — the kernel, the standard library, and the host primitives.
+- [**Built-ins**](/kec-lisp/builtins/) — the 26 kernel primitives, with one-line semantics.
+- [**FFI Bridge**](/kec-lisp/ffi-bridge/) — add your own C primitives: the bind seam and marshalling rules.
+- [**Memory Model**](/kec-lisp/memory-model/) — one context, one arena. How allocation and resets work.
+- [**Language Standard**](/kec-lisp/language-standard/) — the layer model: Fe Kernel · KEC Core · Host · firmware.
+
+## A taste
+
+```lisp
+; bind with define / defn / let; mutate with set; compare with = / ==
+(define greeting "deckline")
+(str "hello, " greeting)             ; => "hello, deckline"  (str concatenates)
+
+(map (fn (x) (* x x)) (range 1 6))   ; => (1 4 9 16 25)
+(filter odd? (range 1 10))           ; => (1 3 5 7 9)
+(fold-left + 0 (range 1 101))        ; => 5050
+```
+
+`nil` is the only false value and the empty list. Numbers are single-precision
+floats. `=` and `==` are value equality; **assignment is `set`** (a deliberate
+change from upstream Fe). See the [Language Reference](/kec-lisp/language/) for
+the full story.

@@ -1,4 +1,7 @@
-# Adding C primitives
+---
+title: FFI Bridge
+description: How to make a C function callable from KEC Lisp — the bind seam, type marshalling, opaque handles, and arena discipline.
+---
 
 How to make a C function callable from KEC Lisp — what the KN-86 firmware (or
 any program embedding KEC Lisp) does to add its own primitives. The working

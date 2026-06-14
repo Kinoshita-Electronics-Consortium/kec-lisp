@@ -1,4 +1,7 @@
-# KEC Lisp Bytecode VM — Design Specification
+---
+title: Bytecode VM (deferred)
+description: Parked design spec for replacing the Fe tree-walking evaluator with an in-process bytecode VM. The tree-walker is retained.
+---
 
 **Status:** Deferred (2026-06-14) — parked design. **The tree-walking
 interpreter is retained.** This document is kept as the implementation-ready plan
