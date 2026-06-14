@@ -6,8 +6,6 @@ description: KEC Lisp runs against a fixed-size arena per context — how arenas
 KEC Lisp runs against a **fixed-size memory arena per interpreter context**.
 There is no heap that grows during evaluation: you hand the runtime a block of
 memory once, and all Lisp objects live inside it until the context is torn down.
-This is what lets KEC Lisp run unchanged on a normal computer *and* on the KN-86
-device, which has no allocator to spare.
 
 ## One state, one context, one arena
 
@@ -21,21 +19,18 @@ kec_close(S);
 ```
 
 - `kec_open(bytes, profile)` `malloc`s an arena of `bytes` and loads Core into
-  it. The desktop CLI uses **16 MB** (`ARENA_BYTES` in `cli/main.c`) — generous,
-  so interactive use never thinks about it.
+  it. The desktop CLI uses **16 MB** (`ARENA_BYTES` in `cli/main.c`).
 - `kec_close(S)` tears the context down and frees what `kec_open` allocated.
 
-Fe itself is a mark-sweep collector over a **fixed-size object pool** carved from
-that arena. The GC still runs *inside* a context, but the integration treats the
-arena as the hard ceiling: the collector reclaims dead objects, it does not grow
-the pool. Exhausting the arena is a runtime error routed through the normal
-error path (see [Evaluation & Errors](/kec-lisp/language/#5-evaluation--errors)),
-not a silent realloc.
+Fe is a mark-sweep collector over a **fixed-size object pool** carved from that
+arena. The GC runs *inside* a context: it reclaims dead objects but does not grow
+the pool. Exhausting the arena is a runtime error (see
+[Evaluation & Errors](/kec-lisp/language/#5-evaluation--errors)).
 
 ## The no-malloc entry point
 
-For environments without a heap to spare — the KN-86 device, or any embedder
-that wants deterministic memory — supply your own buffer instead:
+To run without `malloc`ing the arena — for example on the KN-86 device — supply
+your own buffer:
 
 ```c
 static unsigned char arena[256 * 1024];
@@ -53,21 +48,19 @@ This seam is exercised by the C-level arena tests (`tests/c/test_arena.c`,
 ctest name `c/arena`), which cover sizing and the undersized-buffer path that the
 `.lsp` suite can't reach.
 
-## Resets are boundaries, not heap frees
+## Lifetime
 
-From Lisp's point of view the arena is bump-allocated until a reset; at a reset,
-everything in it is gone at once. The standalone runtime has one coarse boundary
-— the life of the `kec_State` (`kec_open` … `kec_close`). Anything you want to
-keep across a reset must live **outside** the arena (in your C program), reached
-through primitives — never as a retained pointer into Fe-managed memory, which is
-invalidated by the reset.
+The arena exists from `kec_open*` until `kec_close`; nothing in it survives the
+teardown. C code must not retain a pointer into Fe-managed memory across a reset
+(`fe_close`+`fe_open`) — such handles are invalidated by it. State you need to
+keep lives in your C program, reached through primitives.
 
 > **Firmware uses finer boundaries.** The KN-86 firmware adds its own reset
 > boundaries on top of this one — fresh contexts at cartridge load,
 > mission-instance start/end, and REPL/editor sessions, each with its own arena
 > budget. Those boundaries are a firmware concern, not part of the standalone
-> language; see the [FFI Bridge](/kec-lisp/ffi-bridge/) for the lifetime contract
-> a primitive must honor across any reset.
+> language; see the [FFI Bridge](/kec-lisp/ffi-bridge/) for the lifetime rules
+> across a reset.
 
 ## What bounds recursion
 
@@ -77,11 +70,11 @@ invalidated by the reset.
 | GC root stack | `GCSTACKSIZE`, **compile-time configurable** — default **256** (sized for the device), raised to **8192** on the desktop build (`target_compile_definitions` in `CMakeLists.txt`). |
 | Call depth | No tail-call optimization. Deep recursion consumes the GC root stack and the C stack. |
 
-Because the GC root stack is bounded, the Core library is written **iteratively**
-on purpose — list/sequence functions use `while` rather than deep recursion so a
-long list won't exhaust the stack. For your own deep work, prefer `while` or
-`fold-left` over hand-rolled recursion. Numbers are single-precision floats, so
-counters and indices are exact only within ±2²⁴.
+Because the GC root stack is bounded, the Core library's list/sequence functions
+are written **iteratively** — `while` rather than deep recursion — so a long list
+won't exhaust the stack. For your own deep work, prefer `while` or `fold-left`
+over hand-rolled recursion. Numbers are single-precision floats, so counters and
+indices are exact only within ±2²⁴.
 
 ## Profiles control capability, not size
 
