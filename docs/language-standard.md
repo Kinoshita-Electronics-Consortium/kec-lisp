@@ -34,7 +34,7 @@ the firmware. Each layer depends only on the ones below it.
 
 | Layer | What it is | State in this repo | Spec home |
 |---|---|---|---|
-| **Fe Kernel** | The 26 vendored Fe primitives + reader + evaluator + arena/GC. The machine. | **Frozen** — vendored `rxi/fe` 1.0, lightly patched, never forked. | [Built-ins](/kec-lisp/builtins/) |
+| **Fe Kernel** | The 26 vendored Fe primitives + reader + evaluator + arena/GC. The machine. | Vendored `rxi/fe` 1.0 with the changes in §3. | [Built-ins](/kec-lisp/builtins/) |
 | **KEC Core** | The prelude: pure-KEC-Lisp functions + macros loaded into every context — `map filter fold-left cond when defn …`. The part that turns Fe into a usable language. | **Ships.** Authored in `core/*.lsp`, baked into the `kec` binary at build time. | [Language Reference §3](/kec-lisp/language/#3-the-standard-library-core) |
 | **Host primitives** | Portable C exposed to KEC Lisp — `type-of`, math, string ops, I/O, a few system calls. Tiered by [profile](/kec-lisp/ffi-bridge/#4-capability-tiers). | **Ships.** `host/host.c`, registered via `kec_host_register`. | [Language Reference §4](/kec-lisp/language/#4-c-primitives-host) |
 | *Device primitives + cart grammar* | *The KN-86 runtime FFI (graphics, audio, save, missions, CIPHER) and the `defcell`/`defmission` authoring DSL.* | *Not here — lives in the firmware.* | [§5](#5-relationship-to-the-kn-86-firmware) |
@@ -47,9 +47,9 @@ The shared principle across all of it: **capability is the binding-set.** Which
 primitives a context is created with *is* what it is allowed to do — enforced at
 context creation, not by per-call checks.
 
-## 3. Layer 0 — the Fe Kernel (frozen)
+## 3. Layer 0 — the Fe Kernel
 
-The 26 compiled-in primitives are the irreducible language:
+The 26 compiled-in primitives are:
 
 ```
 let  set  if  fn  mac  while  quote  and  or  do
@@ -61,11 +61,8 @@ Full reference: [Built-ins](/kec-lisp/builtins/). Single-precision-float numbers
 immutable strings; `nil` is false and the empty list; no booleans, vectors, hash
 tables, keyword args, TCO, or `eval`-from-Lisp.
 
-**The kernel is never extended to add features.** New capability comes through
-**Core** (authored in KEC Lisp) or a **host primitive** (C bound through the
-[FFI bridge](/kec-lisp/ffi-bridge/)) — not through editing the interpreter. That
-rule keeps the kernel a stable, re-pullable vendored dependency. The kernel
-carries only a few deliberate deltas from upstream Fe:
+The kernel is rxi's [Fe](https://github.com/rxi/fe), vendored. It carries these
+changes from upstream Fe:
 
 - **Assignment is `set`, not `=`** — freeing `=` to mean equality (supplied by Core).
 - **Top-level `let` binds globally** instead of being a silent no-op.
@@ -108,7 +105,7 @@ added; they differ only in *which* context they bind into.
 
 | Layer | Versioning rule |
 |---|---|
-| **Fe Kernel** | Pinned to `rxi/fe` 1.0 plus the documented deltas. Never forked; re-pull only. |
+| **Fe Kernel** | Based on `rxi/fe` 1.0; the changes from upstream are listed in §3 and the CHANGELOG. |
 | **KEC Core** | Versioned as a unit. Additions are backwards-compatible; no removal without a major bump. Ships as KEC Lisp source baked into the binary. |
 | **Host primitives** | Additions are backwards-compatible; the profile a primitive belongs to is part of its contract. |
 
