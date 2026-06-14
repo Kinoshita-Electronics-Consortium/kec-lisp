@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/kec-lisp-logo.png" alt="KEC Lisp" width="320">
+</p>
+
 # KEC Lisp
 
 A small Lisp. It's the scripting language for the KN-86, a handheld terminal
