@@ -1,0 +1,8 @@
+# Astro / Starlight
+node_modules/
+dist/
+.astro/
+
+# Editor / OS
+.DS_Store
+*.log

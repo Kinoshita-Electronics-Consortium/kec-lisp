@@ -13,6 +13,8 @@ The KN-86 firmware uses this as a library and adds its own primitives (graphics,
 sound, and so on) on top. None of that device stuff is here — this is just the
 language.
 
+**Documentation:** <https://kinoshita-electronics-consortium.github.io/kec-lisp/>
+
 ```lisp
 (defn fizzbuzz (n)
   (dotimes (i n)

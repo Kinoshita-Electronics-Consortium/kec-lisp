@@ -1,4 +1,7 @@
-# What's here and what's not
+---
+title: What's Here
+description: What the standalone KEC Lisp repo includes, and what lives in the KN-86 firmware instead.
+---
 
 This repo is the KEC Lisp language and a runtime you can use on a normal
 computer. The KN-86-specific stuff isn't here — it lives in the firmware, which

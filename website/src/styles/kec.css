@@ -1,0 +1,98 @@
+/* ============================================================
+   KEC Lisp docs — Starlight theme overrides
+   Brand: Kinoshita Electronics Consortium (KN-86 Deckline).
+   Amber #E6A020 on black #000. Brightness only — no second hue.
+   Sharp corners, hairline amber borders. (kn86-design)
+   ============================================================ */
+
+/* Amber-on-black for both schemes — the deck has one palette. The theme
+   toggle is hidden below, but we set light == dark so any forced light
+   render still looks right. */
+:root,
+:root[data-theme='light'] {
+  /* Accent (links, active nav, focus) */
+  --sl-color-accent-low: rgba(230, 160, 32, 0.15);
+  --sl-color-accent: #e6a020;
+  --sl-color-accent-high: #ffd27f;
+  --sl-color-text-accent: #e6a020;
+
+  /* Text ramp: gray-1 brightest → gray-6 darkest */
+  --sl-color-white: #f5f2ee;
+  --sl-color-gray-1: #e8e4df; /* off-white prose */
+  --sl-color-gray-2: #c9c4ba;
+  --sl-color-gray-3: #9c9689; /* warm-gray, muted copy */
+  --sl-color-gray-4: #5a554c;
+  --sl-color-gray-5: #2a2722;
+  --sl-color-gray-6: #16140f;
+  --sl-color-gray-7: #0b0a08;
+  --sl-color-black: #000000;
+
+  /* Surfaces */
+  --sl-color-bg: #000000;
+  --sl-color-bg-nav: rgba(0, 0, 0, 0.92);
+  --sl-color-bg-sidebar: #050505;
+  --sl-color-bg-inline-code: #0e0e0e;
+  --sl-color-bg-accent: #e6a020;
+  --sl-color-text-invert: #000000;
+
+  /* Hairlines — amber, never thicker than 1px */
+  --sl-color-hairline: rgba(230, 160, 32, 0.18);
+  --sl-color-hairline-light: rgba(230, 160, 32, 0.10);
+  --sl-color-hairline-shade: rgba(230, 160, 32, 0.06);
+
+  /* Type */
+  --sl-font: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --sl-font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* Single amber theme — drop the light/dark switcher. */
+starlight-theme-select {
+  display: none;
+}
+
+/* Site title in the terminal voice. */
+.site-title {
+  font-family: var(--sl-font-mono);
+  letter-spacing: 0.02em;
+}
+
+/* Section headings get the phosphor treatment; inline code reads as amber. */
+.sl-markdown-content h2,
+.sl-markdown-content h3 {
+  color: var(--sl-color-accent-high);
+}
+
+.sl-markdown-content :not(pre) > code {
+  color: #ffd27f;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 0;
+  padding: 0.1em 0.35em;
+}
+
+/* CRTs don't have rounded corners. */
+.card,
+.sl-markdown-content table,
+dialog,
+.sl-markdown-content .starlight-aside {
+  border-radius: 0 !important;
+}
+
+/* Links: amber with a hairline underline on hover (matches the brand). */
+.sl-markdown-content a {
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+.sl-markdown-content a:hover {
+  border-bottom-color: var(--sl-color-accent);
+  text-shadow: 0 0 8px rgba(230, 160, 32, 0.4);
+}
+
+::selection {
+  background: #e6a020;
+  color: #000000;
+}
+
+/* Splash hero: keep the logo crisp, centered, with a faint phosphor haze. */
+.hero img {
+  filter: drop-shadow(0 0 30px rgba(230, 160, 32, 0.12));
+}

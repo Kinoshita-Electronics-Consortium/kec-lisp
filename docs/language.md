@@ -1,4 +1,7 @@
-# KEC Lisp — Language Reference
+---
+title: Language Reference
+description: The KEC Lisp kernel, the standard library (core/), and the C host primitives this repo ships.
+---
 
 Reference for KEC Lisp: the kernel, the standard library (`core/`), and the C
 primitives (`host/`) this repo ships. The KN-86 device primitives live in the
