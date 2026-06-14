@@ -54,8 +54,15 @@ Strict bottom-up layering — each layer only depends on the ones below it:
 files (and `tests/harness.lsp`) into C string literals (`build/generated/kec_core_embed.h`,
 `kec_harness_embed.h`). The `kec` binary is a single relocatable artifact with
 no runtime file lookup for the prelude. **Consequence:** editing a `core/*.lsp`
-file requires a rebuild for the change to take effect — there is no on-disk Core
-to edit live.
+file requires a rebuild for the change to take effect in the shipped binary.
+
+**Prototyping fast path:** set `KEC_CORE_DIR=/abs/path/to/core` and the `kec`
+CLI re-loads those `.lsp` files (name order = the `NN-` dependency order) on top
+of the embedded Core at startup, so Core edits take effect with no rebuild. It
+*layers over* the baked-in prelude — adding/changing definitions works live; a
+definition you *delete* lingers from the embedded copy until you rebuild. Dev
+convenience only (CLI subcommands repl/run/eval/test); the embedded Core is what
+ships and what the firmware vendors.
 
 **`core/` load order is dependency order** and is hardcoded in `CMakeLists.txt`
 (`CORE_SRCS`): `00-def → 10-list → 20-cmp → 30-pred → 40-ctrl → 50-hof → 60-str`.
