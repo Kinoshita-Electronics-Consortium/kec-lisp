@@ -43,6 +43,10 @@
   /* Type */
   --sl-font: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --sl-font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  /* Display face for titles. The brand reserves Press Start 2P for in-fiction
+     firmware; used here only for the site/hero/page titles (not body or
+     section headings), which stay legible. */
+  --font-pixel: 'Press Start 2P', var(--sl-font-mono);
 }
 
 /* Single amber theme — drop the light/dark switcher. */
@@ -50,10 +54,30 @@ starlight-theme-select {
   display: none;
 }
 
-/* Site title in the terminal voice. */
+/* Site title + page/hero titles in the pixel display face. Press Start 2P
+   renders large and wide, so these get smaller sizes + roomy line-height. */
 .site-title {
-  font-family: var(--sl-font-mono);
-  letter-spacing: 0.02em;
+  font-family: var(--font-pixel);
+  font-size: 0.85rem;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+/* Every Starlight page title (and the splash hero title) is h1#_top. */
+h1#_top {
+  font-family: var(--font-pixel);
+  font-size: 1.45rem;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* The splash hero title sits inside .hero — give it more presence. */
+.hero h1#_top {
+  font-size: clamp(1.7rem, 4.8vw, 2.7rem);
+  line-height: 1.4;
+  color: var(--sl-color-accent-high);
+  text-shadow: 0 0 12px rgba(230, 160, 32, 0.35);
 }
 
 /* Section headings get the phosphor treatment; inline code reads as amber. */
