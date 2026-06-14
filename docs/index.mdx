@@ -20,10 +20,6 @@ hero:
       link: https://github.com/Kinoshita-Electronics-Consortium/kec-lisp
       icon: external
       variant: minimal
-    - text: KN-86 Deckline
-      link: https://kn86-deckline.com
-      icon: external
-      variant: minimal
 ---
 
 ```lisp
@@ -43,9 +39,10 @@ hero:
 KEC Lisp is [Fe](https://github.com/rxi/fe) — rxi's tiny Lisp — plus a standard
 library written in Lisp (`core/`) and a handful of portable C primitives
 (`host/`). It ships as the interpreter, the library, a `kec` command-line tool,
-and a test suite. The KN-86 firmware vendors it as a library and registers the
-device primitives (graphics, sound, save state, missions, the CIPHER voice) on
-top through the same FFI seam — none of that is here. This is just the language.
+and a test suite. The [KN-86 Deckline](https://kn86-deckline.com) firmware
+vendors it as a library and registers the device primitives (graphics, sound,
+save state, missions, the CIPHER voice) on top through the same FFI seam — none
+of that is here. This is just the language.
 
 ## Documentation
 
