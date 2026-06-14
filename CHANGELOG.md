@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+- **`kec test` with no file arguments now runs the whole conformance suite**
+  baked into the binary, instead of reporting `0 checks, 0 failed`. The suite
+  is embedded the same way Core and the harness are, so `kec test` works from
+  any directory with no repo on disk. Naming explicit files still runs just
+  those. CTest registers each file individually (granular failures) from the
+  same source list the binary embeds, so the two can't drift.
+
 ### Added
 - **`kec_open_with_arena(buf, size, profile)`** — open an interpreter on a
   caller-provided arena with no malloc of the arena, for embedders that avoid
