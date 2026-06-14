@@ -6,6 +6,15 @@ description: Build the kec binary, run the REPL, and write your first KEC Lisp p
 KEC Lisp builds to a single command-line tool, `kec`, that runs on a normal
 computer — no KN-86 hardware required.
 
+## Get the source
+
+Clone the repository from GitHub:
+
+```sh
+git clone https://github.com/Kinoshita-Electronics-Consortium/kec-lisp.git
+cd kec-lisp
+```
+
 ## Build
 
 You need CMake and a C compiler.
