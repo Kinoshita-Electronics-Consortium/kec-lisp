@@ -9,9 +9,12 @@
 **   kec test [FILE...]       run the embedded harness over FILE(s); exit=fails
 **   kec version | help
 */
+#define _POSIX_C_SOURCE 200809L /* scandir / alphasort / struct dirent */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
 
 #include "fe.h"
 #include "kec.h"
@@ -59,6 +62,57 @@ static char *read_file(const char *path) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Dev convenience: reload Core from disk (KEC_CORE_DIR).              */
+/* ------------------------------------------------------------------ */
+
+/* When KEC_CORE_DIR is set, re-load the directory's .lsp files on top of
+** the embedded Core, so an edit to a Core module takes effect without rebuilding
+** the binary — the prototyping fast path. Files load in name order; the NN-
+** numeric prefixes encode dependency order, which alphasort preserves.
+**
+** Dev-only, and it *layers over* the embedded prelude: a definition you delete
+** from a file still lingers from the baked-in copy until you rebuild. Adding and
+** changing definitions (the common case while prototyping) works live. */
+static void maybe_load_dev_core(kec_State *S) {
+    const char *dir = getenv("KEC_CORE_DIR");
+    struct dirent **names = NULL;
+    int n, i, loaded = 0;
+    if (!dir || !*dir) { return; }
+    n = scandir(dir, &names, NULL, alphasort);
+    if (n < 0) {
+        fprintf(stderr, "kec: KEC_CORE_DIR=%s cannot be read; using embedded Core\n", dir);
+        return;
+    }
+    for (i = 0; i < n; i++) {
+        const char *nm = names[i]->d_name;
+        size_t len = strlen(nm);
+        if (len > 4 && strcmp(nm + len - 4, ".lsp") == 0) {
+            char path[2048];
+            snprintf(path, sizeof path, "%s/%s", dir, nm);
+            if (kec_eval_file(S, path, NULL) != 0) {
+                fprintf(stderr, "kec: dev Core %s: %s\n", path, kec_error(S));
+            } else {
+                loaded++;
+            }
+        }
+        free(names[i]);
+    }
+    free(names);
+    if (loaded > 0) {
+        fprintf(stderr, "kec: dev mode — reloaded %d Core file(s) from %s\n", loaded, dir);
+    }
+}
+
+/* Open a FULL-profile context for a runtime subcommand, applying the
+** KEC_CORE_DIR dev override if set. (build uses kec_open directly — it only
+** parse-checks a bundle and has no reason to reload Core.) */
+static kec_State *cli_open(void) {
+    kec_State *S = kec_open(ARENA_BYTES, KEC_PROFILE_FULL);
+    if (S) { maybe_load_dev_core(S); }
+    return S;
+}
+
+/* ------------------------------------------------------------------ */
 /* REPL.                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -80,7 +134,7 @@ static int paren_delta(const char *s) {
 }
 
 static int do_repl(void) {
-    kec_State *S = kec_open(ARENA_BYTES, KEC_PROFILE_FULL);
+    kec_State *S = cli_open();
     char line[4096], acc[16384];
     int depth = 0;
     size_t acclen = 0;
@@ -126,7 +180,7 @@ static int do_run(int argc, char **argv) {
     int rc;
     if (argc < 1) { fprintf(stderr, "kec run: missing FILE\n"); return 2; }
     kec_host_set_args(argc, argv); /* (args) -> (FILE script-arg...) */
-    S = kec_open(ARENA_BYTES, KEC_PROFILE_FULL);
+    S = cli_open();
     if (!S) { fprintf(stderr, "kec: failed to open interpreter\n"); return 1; }
     rc = kec_eval_file(S, argv[0], NULL);
     if (rc != 0) { fprintf(stderr, "kec: %s\n", kec_error(S)); }
@@ -135,7 +189,7 @@ static int do_run(int argc, char **argv) {
 }
 
 static int do_eval(const char *src) {
-    kec_State *S = kec_open(ARENA_BYTES, KEC_PROFILE_FULL);
+    kec_State *S = cli_open();
     fe_Object *v = NULL;
     int rc;
     if (!S) { fprintf(stderr, "kec: failed to open interpreter\n"); return 1; }
@@ -155,7 +209,7 @@ static int do_eval(const char *src) {
 /* ------------------------------------------------------------------ */
 
 static int do_test(int argc, char **argv) {
-    kec_State *S = kec_open(ARENA_BYTES, KEC_PROFILE_FULL);
+    kec_State *S = cli_open();
     int i, failed;
     if (!S) { fprintf(stderr, "kec: failed to open interpreter\n"); return 1; }
     if (kec_eval_string(S, KEC_HARNESS_SRC, NULL) != 0) {

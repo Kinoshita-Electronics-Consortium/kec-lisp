@@ -81,6 +81,21 @@ tests/    a test harness (written in KEC Lisp) and the test suite
 examples/ runnable scripts
 ```
 
+## Hacking on Core
+
+Core (`core/*.lsp`) is baked into the `kec` binary at build time, so normally a
+Core edit needs a rebuild. While iterating, point the CLI at the source files
+instead:
+
+```sh
+KEC_CORE_DIR=$PWD/core ./build/kec eval '(your-core-fn ...)'
+```
+
+The CLI re-loads those `.lsp` files (in `NN-` name order) over the embedded Core
+at startup — adding or changing definitions takes effect with no rebuild. It
+layers over the baked-in copy, so a definition you *delete* lingers until you
+rebuild. Dev convenience only; the embedded Core is what ships.
+
 ## Embedding
 
 You can embed KEC Lisp in a C program: open an interpreter, register your own C
