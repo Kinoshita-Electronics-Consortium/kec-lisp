@@ -43,7 +43,7 @@ kec                      # REPL
 kec run FILE [args...]   # run a script
 kec eval "EXPR"          # evaluate one expression
 kec build FILE [-o OUT]  # bundle a script (and its loads) into one .kec file
-kec test [FILE...]       # run tests
+kec test [FILE...]       # run tests (no FILE = the whole embedded suite)
 ```
 
 ```sh

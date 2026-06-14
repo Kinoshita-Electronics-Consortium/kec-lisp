@@ -6,7 +6,8 @@
 **   kec run FILE [args...]   load + evaluate FILE; args reach (args)
 **   kec eval "EXPR"          evaluate EXPR, print the result
 **   kec build FILE [-o OUT]  inline (load ...)s, parse-check, write a .kec
-**   kec test [FILE...]       run the embedded harness over FILE(s); exit=fails
+**   kec test [FILE...]       run the harness over FILE(s), or the whole
+**                            embedded suite when no FILE is given; exit=fails
 **   kec version | help
 */
 #include <stdio.h>
@@ -16,6 +17,7 @@
 #include "fe.h"
 #include "kec.h"
 #include "kec_harness_embed.h" /* generated: static const char KEC_HARNESS_SRC[] */
+#include "kec_suite_embed.h"   /* generated: static const char KEC_SUITE_SRC[]   */
 
 #ifndef KEC_VERSION
 #define KEC_VERSION "0.1.0"
@@ -163,6 +165,15 @@ static int do_test(int argc, char **argv) {
         kec_close(S);
         return 1;
     }
+    if (argc == 0) {
+        /* No files named: run the whole conformance suite baked into the
+        ** binary, so `kec test` works from any directory with no repo on
+        ** disk — same self-contained spirit as the embedded Core. */
+        printf("• full suite (embedded)\n");
+        if (kec_eval_string(S, KEC_SUITE_SRC, NULL) != 0) {
+            fprintf(stderr, "  ERROR running embedded suite: %s\n", kec_error(S));
+        }
+    }
     for (i = 0; i < argc; i++) {
         printf("• %s\n", argv[i]);
         if (kec_eval_file(S, argv[i], NULL) != 0) {
@@ -299,7 +310,7 @@ static int usage(FILE *fp) {
         "  kec run FILE [args...]   evaluate FILE (args reach (args))\n"
         "  kec eval \"EXPR\"          evaluate EXPR and print the result\n"
         "  kec build FILE [-o OUT]  inline loads, parse-check, write a .kec\n"
-        "  kec test [FILE...]       run the test harness over FILE(s)\n"
+        "  kec test [FILE...]       run the suite (default: whole embedded suite)\n"
         "  kec version | help\n",
         KEC_VERSION);
     return 0;

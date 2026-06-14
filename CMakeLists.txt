@@ -52,8 +52,28 @@ add_custom_command(
   DEPENDS mkembed ${CMAKE_SOURCE_DIR}/tests/harness.lsp
   COMMENT "Embedding test harness")
 
+# Conformance suite — single source of truth, reused below by the embedded
+# `kec test` default (baked into the binary) and the per-file ctest loop.
+# Order is logical: kernel first, then Core in dependency order.
+set(SUITE_SRCS
+  ${CMAKE_SOURCE_DIR}/tests/kernel/kernel.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/def.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/list.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/cmp.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/pred.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/ctrl.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/hof.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/str.lsp)
+
+add_custom_command(
+  OUTPUT ${GEN_DIR}/kec_suite_embed.h
+  COMMAND mkembed ${GEN_DIR}/kec_suite_embed.h KEC_SUITE_SRC ${SUITE_SRCS}
+  DEPENDS mkembed ${SUITE_SRCS}
+  COMMENT "Embedding conformance suite")
+
 add_custom_target(kec_generated
-  DEPENDS ${GEN_DIR}/kec_core_embed.h ${GEN_DIR}/kec_harness_embed.h)
+  DEPENDS ${GEN_DIR}/kec_core_embed.h ${GEN_DIR}/kec_harness_embed.h
+          ${GEN_DIR}/kec_suite_embed.h)
 
 # ---------------------------------------------------------------------------
 # Library + CLI.
@@ -82,18 +102,18 @@ install(TARGETS kec RUNTIME DESTINATION bin)
 # Conformance suite — each file runs under `kec test` (exit code = failures).
 # ---------------------------------------------------------------------------
 enable_testing()
-set(TEST_FILES
-  tests/kernel/kernel.lsp
-  tests/core/def.lsp
-  tests/core/list.lsp
-  tests/core/cmp.lsp
-  tests/core/pred.lsp
-  tests/core/ctrl.lsp
-  tests/core/hof.lsp
-  tests/core/str.lsp)
-foreach(t ${TEST_FILES})
-  add_test(NAME ${t} COMMAND kec test ${CMAKE_SOURCE_DIR}/${t})
+# One ctest per file (separate processes → granular per-file failures). Uses
+# the same SUITE_SRCS the binary embeds, so the two can never drift apart.
+foreach(t ${SUITE_SRCS})
+  file(RELATIVE_PATH name ${CMAKE_SOURCE_DIR} ${t})
+  add_test(NAME ${name} COMMAND kec test ${t})
 endforeach()
+
+# `kec test` with no arguments runs the whole suite baked into the binary.
+# The regex doubles as the assertion: at least one check ran, none failed.
+add_test(NAME cli/test-default COMMAND kec test)
+set_tests_properties(cli/test-default PROPERTIES
+  PASS_REGULAR_EXPRESSION "[1-9][0-9]* checks, 0 failed")
 
 # ---------------------------------------------------------------------------
 # C-level embedding tests — the no-malloc arena seam the .lsp suite can't reach.
