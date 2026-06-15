@@ -354,7 +354,7 @@ static fe_Object *h_args(fe_Context *ctx, fe_Object *args) {
     return res;
 }
 
-static fe_Object *h_slurp(fe_Context *ctx, fe_Object *args) {
+static fe_Object *h_read_file(fe_Context *ctx, fe_Object *args) {
     char path[KEC_STRBUF];
     FILE *fp;
     long len;
@@ -362,12 +362,12 @@ static fe_Object *h_slurp(fe_Context *ctx, fe_Object *args) {
     fe_Object *res;
     arg_str(ctx, &args, path, sizeof path);
     fp = fopen(path, "rb");
-    if (!fp) { fe_error(ctx, "slurp: cannot open file"); }
+    if (!fp) { fe_error(ctx, "read-file: cannot open file"); }
     fseek(fp, 0, SEEK_END);
     len = ftell(fp);
     fseek(fp, 0, SEEK_SET);
     body = malloc((size_t)len + 1);
-    if (!body) { fclose(fp); fe_error(ctx, "slurp: out of memory"); }
+    if (!body) { fclose(fp); fe_error(ctx, "read-file: out of memory"); }
     if (fread(body, 1, (size_t)len, fp) != (size_t)len) { /* short read tolerated */ }
     body[len] = '\0';
     fclose(fp);
@@ -376,12 +376,13 @@ static fe_Object *h_slurp(fe_Context *ctx, fe_Object *args) {
     return res;
 }
 
-/* (spit path value) / (spit-append path value) — write value to a file.
+/* (write-file path value) / (append-file path value) — write value to a file.
 ** The value is stringified the writer's way (raw, like princ / str), so any
 ** value works, not just strings. Length-aware so writes past the old 4 KB
 ** ceiling are byte-exact (GWP-528/529). Failures route through fe_error
 ** (catchable by try); never exit(). FULL profile only. */
-static fe_Object *h_spit_mode(fe_Context *ctx, fe_Object *args, const char *mode) {
+static fe_Object *h_write_file_mode(fe_Context *ctx, fe_Object *args, const char *mode,
+                                    const char *name) {
     char path[KEC_STRBUF];
     fe_Object *val;
     size_t len;
@@ -391,22 +392,35 @@ static fe_Object *h_spit_mode(fe_Context *ctx, fe_Object *args, const char *mode
     arg_str(ctx, &args, path, sizeof path);
     val = fe_nextarg(ctx, &args);
     body = host_strdup_obj(ctx, val, &len);
-    if (!body) { fe_error(ctx, "spit: out of memory"); }
+    if (!body) {
+        char msg[64];
+        snprintf(msg, sizeof msg, "%s: out of memory", name);
+        fe_error(ctx, msg);
+    }
     fp = fopen(path, mode);
-    if (!fp) { free(body); fe_error(ctx, "spit: cannot open file for writing"); }
+    if (!fp) {
+        char msg[96];
+        free(body);
+        snprintf(msg, sizeof msg, "%s: cannot open file for writing", name);
+        fe_error(ctx, msg);
+    }
     wrote = fwrite(body, 1, len, fp);
     fclose(fp);
     free(body);
-    if (wrote != len) { fe_error(ctx, "spit: short write"); }
+    if (wrote != len) {
+        char msg[64];
+        snprintf(msg, sizeof msg, "%s: short write", name);
+        fe_error(ctx, msg);
+    }
     return fe_bool(ctx, 1); /* truthy on success */
 }
 
-static fe_Object *h_spit(fe_Context *ctx, fe_Object *args) {
-    return h_spit_mode(ctx, args, "wb");
+static fe_Object *h_write_file(fe_Context *ctx, fe_Object *args) {
+    return h_write_file_mode(ctx, args, "wb", "write-file");
 }
 
-static fe_Object *h_spit_append(fe_Context *ctx, fe_Object *args) {
-    return h_spit_mode(ctx, args, "ab");
+static fe_Object *h_append_file(fe_Context *ctx, fe_Object *args) {
+    return h_write_file_mode(ctx, args, "ab", "append-file");
 }
 
 /* (file-exists? path) -> truthy if path exists (any type), else nil. */
@@ -497,9 +511,9 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
 
     if (profile == KEC_PROFILE_FULL) {
         kec_bind_fe(ctx, "args", h_args);
-        kec_bind_fe(ctx, "slurp", h_slurp);
-        kec_bind_fe(ctx, "spit", h_spit);
-        kec_bind_fe(ctx, "spit-append", h_spit_append);
+        kec_bind_fe(ctx, "read-file", h_read_file);
+        kec_bind_fe(ctx, "write-file", h_write_file);
+        kec_bind_fe(ctx, "append-file", h_append_file);
         kec_bind_fe(ctx, "file-exists?", h_file_exists);
         kec_bind_fe(ctx, "list-dir", h_list_dir);
         kec_bind_fe(ctx, "getenv", h_getenv);

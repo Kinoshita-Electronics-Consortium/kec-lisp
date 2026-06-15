@@ -13,8 +13,9 @@
 
 /*
 ** A profile is just which primitives a context gets. FULL adds the file and
-** system primitives (load, slurp, exit, args) on top of SANDBOX; SANDBOX leaves
-** them out. Which set a context has is what it's allowed to do.
+** system primitives (load, read-file, write-file, append-file, exit, args) on
+** top of SANDBOX; SANDBOX leaves them out. Which set a context has is what
+** it's allowed to do.
 */
 typedef enum {
     KEC_PROFILE_FULL = 0,

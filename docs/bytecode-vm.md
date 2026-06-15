@@ -130,7 +130,8 @@ correctness or portability regression.
   - numbers are single-precision `float`;
   - `is`/`=` compare numbers by value, strings structurally, and **pairs by
     identity**;
-  - no quasiquote; macros build expansions with `list`/`cons`/`append`.
+  - quasiquote expands in Core before bytecode compilation sees the resulting
+    ordinary forms.
 - **I6 — Globals live in the symbol cell.** A global binding is stored in the
   interned symbol's `cdr` (`getbound` falls back to `cdr(sym)`;
   `fe_set` writes `cdr(getbound(sym,&nil))`). Global access is therefore O(1)

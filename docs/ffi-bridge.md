@@ -66,8 +66,8 @@ A C struct handed to KEC Lisp crosses as `FE_TPTR`:
 ## 4. Capability tiers
 
 - A primitive belongs to a tier; the binder only binds it into contexts of that
-  tier. This repo's worked example is `kec_Profile` (`FULL` adds
-  `load`/`slurp`/`args`/`exit` over `SANDBOX`).
+  tier. This repo's worked example is `kec_Profile` (`FULL` adds `load`, file
+  I/O, environment, `args`, and `exit` over `SANDBOX`).
 - The KN-86 firmware layers its own tiers on top: an all-cart tier, a
   mission-context tier, a REPL read-only whitelist, and the privileged
   system-render tier — each just a different binding-set at context creation.

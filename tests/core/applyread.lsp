@@ -41,10 +41,10 @@
   (check (is (read-string "1 2 3") 1)))
 
 (deftest "read-string/does-not-eval"
-  ;; read-string must NOT execute the form it parses. Reading a (spit ...) form
+  ;; read-string must NOT execute the form it parses. Reading a (write-file ...) form
   ;; that would create a file must leave the filesystem untouched.
   (let path "kec-readstring-sideeffect.tmp")
-  (let form (read-string (str "(spit \"" path "\" \"boom\")")))
+  (let form (read-string (str "(write-file \"" path "\" \"boom\")")))
   (check (pair? form))                          ; we got the form back
-  (check (is (car form) 'spit))                 ; ... unevaluated
+  (check (is (car form) 'write-file))                 ; ... unevaluated
   (check (nil? (file-exists? path))))           ; ... and nothing was written

@@ -106,13 +106,45 @@ static int run_forms(kec_State *S, fe_ReadFn rfn, void *ud, fe_Object **out) {
 /* kec-level primitives.                                               */
 /* ------------------------------------------------------------------ */
 
-/* (load path) — read + eval a file in the current context. FULL profile. */
-static fe_Object *h_load(fe_Context *ctx, fe_Object *args) {
-    char path[1024];
-    FILE *fp;
-    fe_tostring(ctx, fe_nextarg(ctx, &args), path, sizeof path);
-    fp = fopen(path, "rb");
-    if (!fp) { fe_error(ctx, "load: cannot open file"); }
+static int string_list_has(fe_Context *ctx, fe_Object *xs, const char *needle) {
+    char buf[1024];
+    while (!fe_isnil(ctx, xs)) {
+        fe_tostring(ctx, fe_car(ctx, xs), buf, sizeof buf);
+        if (strcmp(buf, needle) == 0) { return 1; }
+        xs = fe_cdr(ctx, xs);
+    }
+    return 0;
+}
+
+static fe_Object *global_value(fe_Context *ctx, const char *name) {
+    return fe_eval(ctx, fe_symbol(ctx, name));
+}
+
+static int global_string_list_has(fe_Context *ctx, const char *global, const char *needle) {
+    return string_list_has(ctx, global_value(ctx, global), needle);
+}
+
+static void global_string_list_add(fe_Context *ctx, const char *global, const char *value) {
+    int gc = fe_savegc(ctx);
+    fe_Object *sym = fe_symbol(ctx, global);
+    fe_Object *xs = fe_eval(ctx, sym);
+    fe_Object *next;
+    if (string_list_has(ctx, xs, value)) {
+        fe_restoregc(ctx, gc);
+        return;
+    }
+    next = fe_cons(ctx, fe_string(ctx, value), xs);
+    fe_set(ctx, sym, next);
+    fe_restoregc(ctx, gc);
+}
+
+static void eval_file_or_error(fe_Context *ctx, const char *path, const char *who) {
+    FILE *fp = fopen(path, "rb");
+    char msg[128];
+    if (!fp) {
+        snprintf(msg, sizeof msg, "%s: cannot open file", who);
+        fe_error(ctx, msg);
+    }
     for (;;) {
         int gc = fe_savegc(ctx);
         fe_Object *form = fe_readfp(ctx, fp);
@@ -121,7 +153,50 @@ static fe_Object *h_load(fe_Context *ctx, fe_Object *args) {
         fe_restoregc(ctx, gc);
     }
     fclose(fp);
+}
+
+/* (load path) — read + eval a file in the current context. FULL profile. */
+static fe_Object *h_load(fe_Context *ctx, fe_Object *args) {
+    char path[1024];
+    fe_tostring(ctx, fe_nextarg(ctx, &args), path, sizeof path);
+    eval_file_or_error(ctx, path, "load");
     return fe_bool(ctx, 0);
+}
+
+static fe_Object *h_provide(fe_Context *ctx, fe_Object *args) {
+    fe_Object *feature = fe_nextarg(ctx, &args);
+    char name[1024];
+    fe_tostring(ctx, feature, name, sizeof name);
+    global_string_list_add(ctx, "%provided", name);
+    return feature;
+}
+
+static fe_Object *h_provided_p(fe_Context *ctx, fe_Object *args) {
+    char name[1024];
+    fe_tostring(ctx, fe_nextarg(ctx, &args), name, sizeof name);
+    return fe_bool(ctx, global_string_list_has(ctx, "%provided", name));
+}
+
+/* (require key [path]) — load once, by feature key. If path is omitted, key's
+** printed name is used as the path. FULL profile only because it evaluates a
+** file. Files may call (provide key), but require also records the key after a
+** successful load so plain scripts are still loaded once. */
+static fe_Object *h_require(fe_Context *ctx, fe_Object *args) {
+    fe_Object *feature = fe_nextarg(ctx, &args);
+    char key[1024], path[1024];
+    fe_tostring(ctx, feature, key, sizeof key);
+    if (!fe_isnil(ctx, args)) {
+        fe_tostring(ctx, fe_nextarg(ctx, &args), path, sizeof path);
+    } else {
+        snprintf(path, sizeof path, "%s", key);
+    }
+    if (global_string_list_has(ctx, "%provided", key) ||
+        global_string_list_has(ctx, "%required", key)) {
+        return feature;
+    }
+    eval_file_or_error(ctx, path, "require");
+    global_string_list_add(ctx, "%required", key);
+    return feature;
 }
 
 /* (apply f arglist) — call f with the elements of arglist as its arguments.
@@ -254,7 +329,12 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
     kec_bind_fe(S->ctx, "try", h_try);
     kec_bind_fe(S->ctx, "apply", h_apply);
     kec_bind_fe(S->ctx, "read-string", h_read_string);
-    if (profile == KEC_PROFILE_FULL) { kec_bind_fe(S->ctx, "load", h_load); }
+    kec_bind_fe(S->ctx, "provide", h_provide);
+    kec_bind_fe(S->ctx, "provided?", h_provided_p);
+    if (profile == KEC_PROFILE_FULL) {
+        kec_bind_fe(S->ctx, "load", h_load);
+        kec_bind_fe(S->ctx, "require", h_require);
+    }
 
     /* Load Core (the standard library, written in KEC Lisp). A failure here
     ** usually means the arena is too small to hold the prelude; surface it and
