@@ -139,7 +139,8 @@ static int bound_as_cfunc(kec_State *S, const char *name) {
 ** — a SANDBOX context must not be able to touch the filesystem or environment. */
 static void test_profile_gating(void) {
     static const char *gated[] = {
-        "slurp", "spit", "spit-append", "args", "exit", "load"
+        "slurp", "spit", "spit-append", "file-exists?", "list-dir", "getenv",
+        "args", "exit", "load"
     };
     static const char *always[] = { "str", "string-length" };
     size_t i;

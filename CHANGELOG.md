@@ -19,6 +19,11 @@
   same source list the binary embeds, so the two can't drift.
 
 ### Added
+- **`file-exists?` / `list-dir` / `getenv`** — filesystem and environment
+  introspection (GWP-530). `(file-exists? path)` → truthy/nil via `stat`;
+  `(list-dir path)` → entry names (excluding `.`/`..`) via `readdir`, raising a
+  catchable error on an unopenable directory; `(getenv name)` → string or nil.
+  **FULL profile only**, gated and asserted like the rest of the file/sys set.
 - **`spit` / `spit-append`** — file output, the write-side counterpart to
   `slurp` (GWP-529). `(spit path value)` creates/overwrites; `(spit-append path
   value)` appends. The value is stringified the writer's way (like `princ`/`str`),

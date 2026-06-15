@@ -8,12 +8,16 @@
 ** C name `h_foo`  ->  KEC Lisp symbol `foo-bar` (kebab-case). The Lisp name is
 ** what callers use; the C name is internal.
 */
+#define _POSIX_C_SOURCE 200809L /* scandir / alphasort / stat / struct dirent */
+
 #include "host.h"
 
+#include <dirent.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
 /* Scratch buffer for the *short, bounded* conversions (number radix, single
@@ -405,6 +409,50 @@ static fe_Object *h_spit_append(fe_Context *ctx, fe_Object *args) {
     return h_spit_mode(ctx, args, "ab");
 }
 
+/* (file-exists? path) -> truthy if path exists (any type), else nil. */
+static fe_Object *h_file_exists(fe_Context *ctx, fe_Object *args) {
+    char path[KEC_STRBUF];
+    struct stat st;
+    arg_str(ctx, &args, path, sizeof path);
+    return fe_bool(ctx, stat(path, &st) == 0);
+}
+
+/* (list-dir path) -> list of entry names in path, excluding "." and "..".
+** Errors (catchable) if the directory cannot be opened. Order is unspecified
+** (we build the list in reverse of readdir order). */
+static fe_Object *h_list_dir(fe_Context *ctx, fe_Object *args) {
+    char path[KEC_STRBUF];
+    DIR *d;
+    struct dirent *e;
+    fe_Object *res = fe_bool(ctx, 0); /* nil */
+    int gc;
+    arg_str(ctx, &args, path, sizeof path);
+    d = opendir(path);
+    if (!d) { fe_error(ctx, "list-dir: cannot open directory"); }
+    gc = fe_savegc(ctx);
+    while ((e = readdir(d)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) {
+            continue;
+        }
+        res = fe_cons(ctx, fe_string(ctx, e->d_name), res);
+        /* Keep only the growing list rooted across the GC reset. */
+        fe_restoregc(ctx, gc);
+        fe_pushgc(ctx, res);
+    }
+    closedir(d);
+    return res;
+}
+
+/* (getenv name) -> the environment variable's value as a string, or nil. */
+static fe_Object *h_getenv(fe_Context *ctx, fe_Object *args) {
+    char name[KEC_STRBUF];
+    const char *v;
+    arg_str(ctx, &args, name, sizeof name);
+    v = getenv(name);
+    if (!v) { return fe_bool(ctx, 0); } /* unset -> nil */
+    return fe_string(ctx, v);
+}
+
 static fe_Object *h_exit(fe_Context *ctx, fe_Object *args) {
     int code = 0;
     if (!fe_isnil(ctx, args)) { code = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args)); }
@@ -452,6 +500,9 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
         kec_bind_fe(ctx, "slurp", h_slurp);
         kec_bind_fe(ctx, "spit", h_spit);
         kec_bind_fe(ctx, "spit-append", h_spit_append);
+        kec_bind_fe(ctx, "file-exists?", h_file_exists);
+        kec_bind_fe(ctx, "list-dir", h_list_dir);
+        kec_bind_fe(ctx, "getenv", h_getenv);
         kec_bind_fe(ctx, "exit", h_exit);
     }
 }
