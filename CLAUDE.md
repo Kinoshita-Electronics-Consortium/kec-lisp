@@ -21,7 +21,7 @@ ctest --test-dir build --output-on-failure   # run the full suite
 ./build/kec                      # REPL
 ./build/kec run FILE [args...]   # run a script; args reach Lisp (args)
 ./build/kec eval "EXPR"          # evaluate one expression, print result
-./build/kec build FILE [-o OUT]  # inline (load ...)s, parse-check, write one .kec
+./build/kec build FILE [-o OUT]  # inline top-level loads, parse-check, write one .kec
 ./build/kec test [FILE...]       # run the harness over FILE(s), or the whole embedded suite if none; exit code = # failures
 ```
 
@@ -32,9 +32,9 @@ Run a single conformance file directly (faster than ctest for one file):
 ```
 
 `kec build` is **not** a compiler — Fe is a tree-walking interpreter. It inlines
-`(load ...)`s, checks the whole program parses, and writes a self-contained
-`.kec` file. CI (`.github/workflows/ci.yml`) builds + tests on ubuntu and macos
-and smoke-runs an `eval` and `fizzbuzz`.
+top-level literal `(load "...")` forms, checks the whole program parses, and
+writes a self-contained `.kec` file. CI (`.github/workflows/ci.yml`) builds +
+tests on ubuntu and macos and smoke-runs an `eval` and `fizzbuzz`.
 
 ## Architecture
 

@@ -47,6 +47,11 @@
   buffer to fit. Core `split`/`join` (built on these) are fixed as a consequence.
 
 ### Changed
+- **`kec build` now inlines `(load "...")` structurally through the Lisp reader**
+  instead of scanning source lines as strings. Only top-level literal load forms
+  are bundled; nested or quoted load forms remain ordinary program code. This
+  makes multiline loads work and prevents function-body loads from being
+  accidentally treated as build-time dependencies.
 - **`kec test` with no file arguments now runs the whole conformance suite**
   baked into the binary, instead of reporting `0 checks, 0 failed`. The suite
   is embedded the same way Core and the harness are, so `kec test` works from
@@ -126,5 +131,5 @@ First standalone release, split out from the KN-86 emulator.
 
 ### Notes
 - `kec build` isn't a compiler — Fe is a tree-walking interpreter. It inlines
-  `(load ...)`s, checks the program parses, and writes one self-contained `.kec`
-  file.
+  top-level literal `(load "...")` forms, checks the program parses, and writes
+  one self-contained `.kec` file.
