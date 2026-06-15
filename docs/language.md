@@ -132,13 +132,19 @@ adds the file and system primitives; `SANDBOX` leaves them out.
 | I/O | `princ` `newline` `repr` | both |
 | Sys | `rand` `rand-int` `clock` | both |
 | Control | `try` | both |
-| File/Sys | `load` `slurp` `args` `exit` | **FULL only** |
+| File/Sys | `load` `slurp` `spit` `spit-append` `args` `exit` | **FULL only** |
 
 - `(type-of x)` → `:pair`/`:nil`/`:number`/`:symbol`/`:string`/`:fn`/`:macro`/`:prim`/`:cfunc`/`:ptr`.
 - `(number->string n [radix])` — radix defaults to 10; 2/8/16 supported.
 - `(try thunk)` → the value of `(thunk)`, or `:error` if it raised. `check-err`
   in the test harness is built on it.
 - `(load "path")` reads and evaluates a file in the current context.
+- `(spit path value)` writes `value` (stringified the writer's way, like
+  `princ`/`str`) to `path`, creating or **overwriting** it. `(spit-append path
+  value)` appends instead, creating the file if absent. Both return a truthy
+  value on success and raise a catchable error (never `exit`) on an I/O failure.
+  Round-trips with `slurp`. **FULL only** — a sandboxed context cannot write
+  files.
 
 ---
 

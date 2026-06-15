@@ -372,6 +372,39 @@ static fe_Object *h_slurp(fe_Context *ctx, fe_Object *args) {
     return res;
 }
 
+/* (spit path value) / (spit-append path value) — write value to a file.
+** The value is stringified the writer's way (raw, like princ / str), so any
+** value works, not just strings. Length-aware so writes past the old 4 KB
+** ceiling are byte-exact (GWP-528/529). Failures route through fe_error
+** (catchable by try); never exit(). FULL profile only. */
+static fe_Object *h_spit_mode(fe_Context *ctx, fe_Object *args, const char *mode) {
+    char path[KEC_STRBUF];
+    fe_Object *val;
+    size_t len;
+    char *body;
+    FILE *fp;
+    size_t wrote;
+    arg_str(ctx, &args, path, sizeof path);
+    val = fe_nextarg(ctx, &args);
+    body = host_strdup_obj(ctx, val, &len);
+    if (!body) { fe_error(ctx, "spit: out of memory"); }
+    fp = fopen(path, mode);
+    if (!fp) { free(body); fe_error(ctx, "spit: cannot open file for writing"); }
+    wrote = fwrite(body, 1, len, fp);
+    fclose(fp);
+    free(body);
+    if (wrote != len) { fe_error(ctx, "spit: short write"); }
+    return fe_bool(ctx, 1); /* truthy on success */
+}
+
+static fe_Object *h_spit(fe_Context *ctx, fe_Object *args) {
+    return h_spit_mode(ctx, args, "wb");
+}
+
+static fe_Object *h_spit_append(fe_Context *ctx, fe_Object *args) {
+    return h_spit_mode(ctx, args, "ab");
+}
+
 static fe_Object *h_exit(fe_Context *ctx, fe_Object *args) {
     int code = 0;
     if (!fe_isnil(ctx, args)) { code = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args)); }
@@ -417,6 +450,8 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     if (profile == KEC_PROFILE_FULL) {
         kec_bind_fe(ctx, "args", h_args);
         kec_bind_fe(ctx, "slurp", h_slurp);
+        kec_bind_fe(ctx, "spit", h_spit);
+        kec_bind_fe(ctx, "spit-append", h_spit_append);
         kec_bind_fe(ctx, "exit", h_exit);
     }
 }

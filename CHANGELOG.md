@@ -19,6 +19,12 @@
   same source list the binary embeds, so the two can't drift.
 
 ### Added
+- **`spit` / `spit-append`** — file output, the write-side counterpart to
+  `slurp` (GWP-529). `(spit path value)` creates/overwrites; `(spit-append path
+  value)` appends. The value is stringified the writer's way (like `princ`/`str`),
+  writes past 4 KB are byte-exact, and I/O failures raise a catchable error
+  rather than calling `exit`. **FULL profile only** — gated exactly like `slurp`,
+  asserted by the C profile-gating test.
 - **`kec_open_with_arena(buf, size, profile)`** — open an interpreter on a
   caller-provided arena with no malloc of the arena, for embedders that avoid
   the heap (the KN-86 device). Same lifecycle as `kec_open`; returns NULL

@@ -120,12 +120,74 @@ static void test_undersized_never_exits(void) {
     }
 }
 
+/* Helper: is `name` bound to a cfunc in this context? An unbound global
+** symbol evaluates to nil (type :nil), a bound host primitive to :cfunc — so
+** (type-of NAME) discriminates "primitive present" from "absent" without the
+** eval erroring. */
+static int bound_as_cfunc(kec_State *S, const char *name) {
+    char expr[64];
+    char buf[16];
+    fe_Object *out = NULL;
+    snprintf(expr, sizeof expr, "(type-of %s)", name);
+    if (kec_eval_string(S, expr, &out) != 0 || out == NULL) { return 0; }
+    fe_tostring(kec_fe(S), out, buf, (int)sizeof buf);
+    return strcmp(buf, ":cfunc") == 0;
+}
+
+/* Profile gating (GWP-529/530): the file/sys/env primitives must be bound in a
+** FULL context and absent from a SANDBOX one. This is the cart-sandbox boundary
+** — a SANDBOX context must not be able to touch the filesystem or environment. */
+static void test_profile_gating(void) {
+    static const char *gated[] = {
+        "slurp", "spit", "spit-append", "args", "exit", "load"
+    };
+    static const char *always[] = { "str", "string-length" };
+    size_t i;
+
+    kec_State *full = kec_open_with_arena(g_arena, sizeof g_arena, KEC_PROFILE_FULL);
+    CHECK(full != NULL, "FULL open failed");
+    if (full) {
+        for (i = 0; i < sizeof gated / sizeof gated[0]; i++) {
+            CHECK(bound_as_cfunc(full, gated[i]),
+                  "FULL profile is missing a gated primitive");
+        }
+        kec_close(full);
+    }
+
+    {
+        kec_State *sand =
+            kec_open_with_arena(g_arena, sizeof g_arena, KEC_PROFILE_SANDBOX);
+        CHECK(sand != NULL, "SANDBOX open failed");
+        if (sand) {
+            for (i = 0; i < sizeof gated / sizeof gated[0]; i++) {
+                CHECK(!bound_as_cfunc(sand, gated[i]),
+                      "SANDBOX profile leaked a file/sys/env primitive");
+            }
+            /* The always-available primitives must still be present in SANDBOX. */
+            for (i = 0; i < sizeof always / sizeof always[0]; i++) {
+                /* str is a Core fn (not a cfunc); the rest are cfuncs. Just
+                ** assert they evaluate to a non-nil type. */
+                char expr[64], buf[16];
+                fe_Object *out = NULL;
+                snprintf(expr, sizeof expr, "(type-of %s)", always[i]);
+                if (kec_eval_string(sand, expr, &out) == 0 && out) {
+                    fe_tostring(kec_fe(sand), out, buf, (int)sizeof buf);
+                    CHECK(strcmp(buf, ":nil") != 0,
+                          "SANDBOX is missing an always-available primitive");
+                }
+            }
+            kec_close(sand);
+        }
+    }
+}
+
 int main(void) {
     test_open_with_arena_runs_core();
     test_too_small_returns_null();
     test_tiny_buffer_returns_null();
     test_undersized_never_exits();
     test_close_does_not_free_caller_arena();
+    test_profile_gating();
 
     if (g_failures == 0) {
         printf("test_arena: all checks passed\n");
