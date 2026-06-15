@@ -1,4 +1,7 @@
-# BLACK ICE TRACE Design
+---
+title: BLACK ICE TRACE Design
+description: Design notes for the BLACK ICE TRACE KEC Lisp example game.
+---
 
 ## Concept
 
