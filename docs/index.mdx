@@ -3,7 +3,7 @@ title: KEC Lisp
 description: "A small Lisp — the scripting language for the KN-86 handheld terminal. The language on its own: interpreter, standard library, and the kec CLI."
 template: splash
 hero:
-  tagline: "A small Lisp. The scripting language for the KN-86 Deckline — usable on its own, on a normal computer, with no device hardware."
+  tagline: 'A small Lisp. The scripting language for the <a href="https://kn86-deckline.com">KN-86 Deckline</a> — usable on its own, on a normal computer, with no device hardware.'
   image:
     alt: KEC Lisp
     file: ../website/src/assets/kec-lisp-logo.png
@@ -39,10 +39,9 @@ hero:
 KEC Lisp is [Fe](https://github.com/rxi/fe) — rxi's tiny Lisp — plus a standard
 library written in Lisp (`core/`) and a handful of portable C primitives
 (`host/`). It ships as the interpreter, the library, a `kec` command-line tool,
-and a test suite. The [KN-86 Deckline](https://kn86-deckline.com) firmware
-vendors it as a library and registers the device primitives (graphics, sound,
-save state, missions, the CIPHER voice) on top through the same FFI seam — none
-of that is here. This is just the language.
+and a test suite. The KN-86 firmware vendors it as a library and registers the
+device primitives (graphics, sound, save state, missions, the CIPHER voice) on
+top through the same FFI seam — none of that is here. This is just the language.
 
 ## Documentation
 
