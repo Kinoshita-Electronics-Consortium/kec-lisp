@@ -1,9 +1,9 @@
 ;; KEC Core — ctrl : control macros
 ;;
 ;; Kernel ships if/and/or/do/while. Core adds the macros every real program
-;; reaches for. Fe has no quasiquote, so expansions are built by hand with
-;; list/cons/append; gensym (a host primitive) keeps loop temporaries from
-;; capturing user names.
+;; reaches for. This module loads before quasiquote, so its expansions are still
+;; built by hand with list/cons/append; gensym (a host primitive) keeps loop
+;; temporaries from capturing user names.
 
 ;; (when test body...)   -> (if test (do body...) nil)
 (set when (mac (test . body)

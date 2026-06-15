@@ -66,8 +66,8 @@ used a Lisp before it'll feel familiar. A few things worth knowing:
 - Bind with `define`, `defn`, or `let`. Mutate with `set`. Compare with `=`.
 - `nil` is false and the empty list. There are no other booleans.
 - Numbers are single-precision floats.
-- Lists compare element by element; `=` on two lists checks identity, not
-  contents.
+- Use `equal?` for element-by-element list comparison; `=` on two lists checks
+  identity, not contents.
 
 Fuller notes are in [docs/language.md](docs/language.md).
 

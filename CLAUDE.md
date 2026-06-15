@@ -65,10 +65,11 @@ convenience only (CLI subcommands repl/run/eval/test); the embedded Core is what
 ships and what the firmware vendors.
 
 **`core/` load order is dependency order** and is hardcoded in `CMakeLists.txt`
-(`CORE_SRCS`): `00-def → 10-list → 20-cmp → 30-pred → 40-ctrl → 50-hof → 60-str`.
-A new Core module must be slotted into that list at the right position. The
-list/sequence functions are written **iteratively** on purpose so a library call
-won't exhaust the GC stack on a long list.
+(`CORE_SRCS`): `00-def → 10-list → 20-cmp → 25-alist → 30-pred → 40-ctrl →
+45-quasiquote → 50-hof → 60-str → 70-sort`. A new Core module must be slotted
+into that list at the right position. The list/sequence functions are written
+**iteratively** on purpose so a library call won't exhaust the GC stack on a
+long list.
 
 ### Memory model
 
@@ -115,7 +116,9 @@ The kernel is frozen except for these deliberate deltas (also in CHANGELOG):
 - Numbers are single-precision `float` — integers are exact only within ±2²⁴.
 - `(is a b)` / `=` compare numbers by value and strings structurally, but **pairs
   by identity** — `=` on two lists checks identity, not contents.
-- No quasiquote/unquote. Macros (`mac`) build expansions with `list`/`cons`/`append`.
+- Quasiquote is available: `` `x `` / `,x` / `,@x` read as `quasiquote`,
+  `unquote`, and `unquote-splicing`. Macros (`mac`) can still build expansions
+  manually with `list`/`cons`/`append` when useful.
 
 Full reference: `docs/language.md`. Test harness API (`deftest` / `check` /
 `check-err`) is defined in `tests/harness.lsp`.

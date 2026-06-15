@@ -30,6 +30,17 @@
   same source list the binary embeds, so the two can't drift.
 
 ### Added
+- **`equal?` and alist helpers** — structural list/pair equality plus
+  record-like helpers over association lists: `get`, `put`, `has?`, `keys`,
+  `values`, and `merge`. `=` / `is` keep their pair-identity semantics;
+  `equal?` is the explicit contents comparator.
+- **Quasiquote syntax** — backquote, comma, and comma-at now read as
+  `quasiquote`, `unquote`, and `unquote-splicing`, with Core expansion into
+  ordinary `quote` / `cons` / `append` forms. Macro authors no longer have to
+  hand-build every expansion with nested `list` calls.
+- **`provide` / `provided?` / `require`** — runtime feature markers and
+  load-once file requiring. `provide` and `provided?` are available in every
+  profile; `require` is **FULL profile only** because it evaluates files.
 - **`sort`** — a Core function: `(sort xs less?)` returns a new list ordered by
   the binary predicate, leaving the input unmutated (GWP-532). Stable, iterative,
   bottom-up merge sort — GC-stack-safe on a 1000+ element list. Lives in the new

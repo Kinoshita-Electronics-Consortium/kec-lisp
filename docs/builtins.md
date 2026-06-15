@@ -102,9 +102,9 @@ from Core; `mod` / `abs` / `sqrt` and friends are host primitives (see the
 
 `print` is the kernel's only I/O. The host adds `princ` / `newline` / `repr`
 (and, in the `FULL` profile, file I/O — `load` / `read-file` / `write-file` /
-`append-file`). `read-string` parses a value from text in any profile, but it is
-a *reader*, not `eval` — there is still no `eval` from Lisp, and no socket I/O at
-the kernel level.
+`append-file`, plus `require`). `read-string` parses a value from text in any
+profile, but it is a *reader*, not `eval` — there is still no `eval` from Lisp,
+and no socket I/O at the kernel level.
 
 ---
 

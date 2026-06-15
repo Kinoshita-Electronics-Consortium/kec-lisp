@@ -465,7 +465,7 @@ void fe_set(fe_Context *ctx, fe_Object *sym, fe_Object *v) {
 static fe_Object rparen;
 
 static fe_Object* read_(fe_Context *ctx, fe_ReadFn fn, void *udata) {
-  const char *delimiter = " \n\t\r();";
+  const char *delimiter = " \n\t\r();`,";
   fe_Object *v, *res, **tail;
   fe_Number n;
   int chr, gc;
@@ -515,6 +515,23 @@ static fe_Object* read_(fe_Context *ctx, fe_ReadFn fn, void *udata) {
       v = fe_read(ctx, fn, udata);
       if (!v) { fe_error(ctx, "stray '''"); }
       return fe_cons(ctx, fe_symbol(ctx, "quote"), fe_cons(ctx, v, &nil));
+
+    case '`':
+      v = fe_read(ctx, fn, udata);
+      if (!v) { fe_error(ctx, "stray '`'"); }
+      return fe_cons(ctx, fe_symbol(ctx, "quasiquote"), fe_cons(ctx, v, &nil));
+
+    case ',':
+      chr = fn(ctx, udata);
+      if (chr == '@') {
+        v = fe_read(ctx, fn, udata);
+        if (!v) { fe_error(ctx, "stray ',@'"); }
+        return fe_cons(ctx, fe_symbol(ctx, "unquote-splicing"), fe_cons(ctx, v, &nil));
+      }
+      ctx->nextchr = chr;
+      v = fe_read(ctx, fn, udata);
+      if (!v) { fe_error(ctx, "stray ','"); }
+      return fe_cons(ctx, fe_symbol(ctx, "unquote"), fe_cons(ctx, v, &nil));
 
     case '"':
       res = buildstring(ctx, NULL, '\0');

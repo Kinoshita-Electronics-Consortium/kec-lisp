@@ -29,13 +29,15 @@ add_executable(mkembed tools/mkembed.c)
 set(GEN_DIR ${CMAKE_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${GEN_DIR})
 
-# Core modules — order is the dependency order (def first, str last).
+# Core modules — order is the dependency order.
 set(CORE_SRCS
   ${CMAKE_SOURCE_DIR}/core/00-def.lsp
   ${CMAKE_SOURCE_DIR}/core/10-list.lsp
   ${CMAKE_SOURCE_DIR}/core/20-cmp.lsp
+  ${CMAKE_SOURCE_DIR}/core/25-alist.lsp
   ${CMAKE_SOURCE_DIR}/core/30-pred.lsp
   ${CMAKE_SOURCE_DIR}/core/40-ctrl.lsp
+  ${CMAKE_SOURCE_DIR}/core/45-quasiquote.lsp
   ${CMAKE_SOURCE_DIR}/core/50-hof.lsp
   ${CMAKE_SOURCE_DIR}/core/60-str.lsp
   ${CMAKE_SOURCE_DIR}/core/70-sort.lsp)
@@ -61,13 +63,16 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/def.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/list.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/cmp.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/alist.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/pred.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/ctrl.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/quasiquote.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/hof.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/str.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/bigstr.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fileio.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fsenv.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/require.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/applyread.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/sort.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/trymsg.lsp)

@@ -29,8 +29,8 @@ cons  car  cdr  setcar  setcdr  list  not  is  atom  print
 ```
 
 Full reference: [Built-ins](/kec-lisp/builtins/). Single-precision-float numbers;
-immutable strings; `nil` is false and the empty list; no booleans, vectors, hash
-tables, keyword args, TCO, or `eval`-from-Lisp.
+immutable strings; `nil` is false and the empty list; quasiquote reader sugar;
+no booleans, vectors, hash tables, keyword args, TCO, or `eval`-from-Lisp.
 
 The kernel is rxi's [Fe](https://github.com/rxi/fe), vendored. Its changes from
 upstream Fe:
@@ -47,9 +47,9 @@ Recorded in the [CHANGELOG](https://github.com/Kinoshita-Electronics-Consortium/
 **KEC Core** is the standard library, written in KEC Lisp and loaded into every
 context before user code runs: definition macros (`defn`, `defmacro`, `define`),
 list/sequence functions, comparison (`=`, `==`, `/=`, `>`, `>=`, …), type
-predicates, control macros (`cond`, `case`, `when`, `dotimes`, …), higher-order
-functions, and string/format helpers. Its list/sequence functions are written
-iteratively. Enumerated in the
+predicates, alist helpers, control macros (`cond`, `case`, `when`, `dotimes`,
+…), quasiquote expansion, higher-order functions, and string/format helpers.
+Its list/sequence functions are written iteratively. Enumerated in the
 [Language Reference §3](/kec-lisp/language/#3-the-standard-library-core).
 
 **Host primitives** are C functions that need only the C library — `type-of`,

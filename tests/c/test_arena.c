@@ -140,10 +140,10 @@ static int bound_as_cfunc(kec_State *S, const char *name) {
 static void test_profile_gating(void) {
     static const char *gated[] = {
         "read-file", "write-file", "append-file", "file-exists?", "list-dir",
-        "getenv", "args", "exit", "load"
+        "getenv", "args", "exit", "load", "require"
     };
     static const char *removed[] = { "slurp", "spit", "spit-append" };
-    static const char *always[] = { "str", "string-length" };
+    static const char *always[] = { "str", "string-length", "provide", "provided?" };
     size_t i;
 
     kec_State *full = kec_open_with_arena(g_arena, sizeof g_arena, KEC_PROFILE_FULL);

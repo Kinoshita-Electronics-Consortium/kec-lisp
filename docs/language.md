@@ -20,8 +20,9 @@ firmware, not here.
   `:keyword`s are ordinary symbols (there is no keyword type).
 - **`nil`.** The empty list and the only false value. Read as the nil sentinel,
   not a symbol.
-- **Quote.** `'x` ≡ `(quote x)`. There is no quasiquote/unquote — macros build
-  expansions with `list`/`cons`/`append`.
+- **Quote.** `'x` ≡ `(quote x)`.
+- **Quasiquote.** `` `x `` ≡ `(quasiquote x)`, `,x` ≡ `(unquote x)`, and
+  `,@x` ≡ `(unquote-splicing x)` inside a quasiquoted list.
 
 Booleans are not a type: `nil` is false, everything else (including `0` and
 `""`) is true. Predicates return a truthy value or `nil`.
@@ -95,9 +96,20 @@ echoes something useful.)
 All iterative. `(range a b)` → `(a … b-1)`; `(nth xs i)` → `nil` past the end;
 `(member x xs)` / `(assoc k alist)` → the matching tail/pair or `nil`.
 
-### 3.3 `cmp` — comparison
-`=` `==` `/=` `>` `>=` `zero?` `positive?` `negative?` `min` `max` (variadic).
-`=`, `==`, and `is` are the same value comparison; `/=` negates it.
+### 3.3 `cmp` / `alist` — comparison and records
+`=` `==` `/=` `equal?` `>` `>=` `zero?` `positive?` `negative?` `min` `max`
+(variadic). `=`, `==`, and `is` are the same scalar/identity comparison;
+`equal?` recursively compares pair contents.
+
+Alist helpers give scripts a tiny record shape without adding a new runtime
+type: `get` `put` `has?` `keys` `values` `merge`.
+
+```lisp
+(let r (list (cons 'name "Ada") (cons 'score 42)))
+(get 'name r)                 ; "Ada"
+(get 'missing r "fallback")   ; "fallback"
+(put 'score 99 r)             ; new alist, original unchanged
+```
 
 ### 3.4 `pred` — predicates
 `nil?` `pair?` `even?` `odd?` `number?` `symbol?` `string?` `fn?`. The four type
@@ -113,15 +125,26 @@ tests use the host `type-of` primitive.
 (dotimes (i n) …)        (dolist (x xs) …)
 ```
 
-### 3.6 `hof` — higher-order
+### 3.6 `quasiquote` — macro construction
+Backquote builds data, comma evaluates a subform, and comma-at splices a list:
+
+```lisp
+(let x 7)
+`(a ,x ,@(list 'b 'c))   ; (a 7 b c)
+
+(defmacro my-when (test . body)
+  `(if ,test (do ,@body) nil))
+```
+
+### 3.7 `hof` — higher-order
 `map` `filter` `remove` `fold-left` `fold-right` `for-each` `find` `any?`
 `every?` `count`. All iterative.
 
-### 3.7 `str` — string & format
+### 3.8 `str` — string & format
 `str` (variadic stringify-concat) `join` `split` `format`. `format` directives:
 `%d`/`%u` decimal, `%x` hex, `%c` char code, `%s` any, `%%` literal.
 
-### 3.8 `sort` — ordering
+### 3.9 `sort` — ordering
 `(sort xs less?)` → a new list with the elements of `xs` ordered by the binary
 predicate `less?` (`(less? a b)` truthy when `a` precedes `b`). The input is not
 mutated. It's a **stable** sort — equal elements keep their original relative
@@ -142,8 +165,8 @@ adds the file and system primitives; `SANDBOX` leaves them out.
 | String | `string-length` `string-ref` `substring` `string-append` `char->string` `number->string` `string->number` `symbol->string` `string->symbol` | both |
 | I/O | `princ` `newline` `repr` | both |
 | Sys | `rand` `rand-int` `clock` | both |
-| Control | `try` `apply` `read-string` | both |
-| File/Sys | `load` `read-file` `write-file` `append-file` `file-exists?` `list-dir` `getenv` `args` `exit` | **FULL only** |
+| Control | `try` `apply` `read-string` `provide` `provided?` | both |
+| File/Sys | `load` `require` `read-file` `write-file` `append-file` `file-exists?` `list-dir` `getenv` `args` `exit` | **FULL only** |
 
 - `(type-of x)` → `:pair`/`:nil`/`:number`/`:symbol`/`:string`/`:fn`/`:macro`/`:prim`/`:cfunc`/`:ptr`.
 - `(number->string n [radix])` — radix defaults to 10; 2/8/16 supported.
@@ -160,6 +183,10 @@ adds the file and system primitives; `SANDBOX` leaves them out.
   form is returned as data and nothing runs (so reading a `(write-file …)` form
   writes no file). Empty input → `nil`.
 - `(load "path")` reads and evaluates a file in the current context.
+- `(provide feature)` records a feature as present and returns it.
+  `(provided? feature)` tests that registry. `(require key [path])` is
+  **FULL only**: it loads `path` once for `key`; if `path` is omitted, `key`'s
+  printed name is used as the path.
 - `(write-file path value)` writes `value` (stringified the writer's way, like
   `princ`/`str`) to `path`, creating or **overwriting** it. `(append-file path
   value)` appends instead, creating the file if absent. Both return a truthy
@@ -191,7 +218,7 @@ adds the file and system primitives; `SANDBOX` leaves them out.
 ## 6. Quick reference
 
 1. Bind with `define` / `defn` / `let`; mutate with `set`; compare with `=` / `==`.
-2. List equality is element-wise — `is` / `=` compare pairs by identity.
+2. Use `equal?` for element-wise list equality; `is` / `=` compare pairs by identity.
 3. Core is iterative; for your own deep recursion prefer `while` / `fold-left`
    (the GC-root stack is bounded, though generous on desktop builds).
 4. Numbers are single floats; mind ±2²⁴ and exact-integer expectations.

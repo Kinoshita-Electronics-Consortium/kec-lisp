@@ -80,8 +80,8 @@ kec run hello.lsp
 - `nil` is the only false value, and also the empty list. There are no other
   booleans — `0` and `""` are both true.
 - Numbers are single-precision floats; integers are exact only within ±2²⁴.
-- Lists compare element by element, but `is` / `=` on two pairs check
-  **identity**, not contents.
+- Use `equal?` for element-by-element list comparison; `is` / `=` on two pairs
+  check **identity**, not contents.
 
 The full story is in the [Language Reference](/kec-lisp/language/).
 
