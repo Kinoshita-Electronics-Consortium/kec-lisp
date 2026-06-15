@@ -21,7 +21,9 @@ kernel plus Core plus the host primitives.
 > **Kernel delta from upstream Fe.** KEC names assignment **`set`**, not `=`. That
 > frees `=` to mean **equality** (supplied by Core). If you've read upstream Fe
 > docs, this is the one thing to re-learn. See the
-> [CHANGELOG](https://github.com/Kinoshita-Electronics-Consortium/kec-lisp/blob/main/CHANGELOG.md).
+> [CHANGELOG](https://github.com/Kinoshita-Electronics-Consortium/kec-lisp/blob/main/CHANGELOG.md)
+> and [Fe Kernel — Internals](/kec-lisp/fe-kernel/) for the full delta and
+> implementation constraints.
 
 ---
 
@@ -55,8 +57,8 @@ There is no `define` / `defn` / `defmacro` in the kernel — Core supplies those
 | `(cons a b)` | `Any Any → Pair` | Construct a pair (allocated from the arena). |
 | `(car p)` | `Pair → Any` | First element. Errors if `p` is not a pair. |
 | `(cdr p)` | `Pair → Any` | Rest. Errors if `p` is not a pair. |
-| `(setcar p v)` | `Pair Any → Pair` | In-place mutation of `car`. Returns `p`. |
-| `(setcdr p v)` | `Pair Any → Pair` | In-place mutation of `cdr`. Returns `p`. |
+| `(setcar p v)` | `Pair Any → nil` | In-place mutation of `car`. Returns `nil`. |
+| `(setcdr p v)` | `Pair Any → nil` | In-place mutation of `cdr`. Returns `nil`. |
 | `(list a b …)` | `Any… → List` | Build a proper list of the evaluated arguments. |
 
 **No `nth`, `length`, `append`, `reverse`, `member`, or `assoc` in the kernel** —
