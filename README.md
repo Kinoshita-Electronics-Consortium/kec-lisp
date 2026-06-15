@@ -54,8 +54,8 @@ $ kec eval '(map (fn (x) (* x x)) (range 1 6))'
 ```
 
 Note: `kec build` isn't a compiler — Fe is a tree-walking interpreter. It
-inlines any `(load ...)`s, checks the whole thing parses, and writes a single
-self-contained `.kec` file you can `kec run`.
+inlines top-level literal `(load "...")` forms, checks the whole thing parses,
+and writes a single self-contained `.kec` file you can `kec run`.
 
 ## The language
 

@@ -132,6 +132,9 @@ add_test(NAME cli/test-default COMMAND kec test)
 set_tests_properties(cli/test-default PROPERTIES
   PASS_REGULAR_EXPRESSION "[1-9][0-9]* checks, 0 failed")
 
+add_test(NAME cli/build-reader
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/build-reader.sh $<TARGET_FILE:kec>)
+
 # ---------------------------------------------------------------------------
 # C-level embedding tests — the no-malloc arena seam the .lsp suite can't reach.
 # ---------------------------------------------------------------------------

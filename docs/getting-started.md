@@ -36,7 +36,7 @@ ctest --test-dir build --output-on-failure
 kec                      # REPL
 kec run FILE [args...]   # run a script; args reach Lisp via (args)
 kec eval "EXPR"          # evaluate one expression, print the result
-kec build FILE [-o OUT]  # inline (load ...)s, parse-check, write one .kec
+kec build FILE [-o OUT]  # inline top-level loads, parse-check, write one .kec
 kec test [FILE...]       # run the harness over FILE(s), or the whole suite
 ```
 
@@ -48,8 +48,9 @@ $ kec eval '(map (fn (x) (* x x)) (range 1 6))'
 ```
 
 > **`kec build` is not a compiler.** Fe is a tree-walking interpreter — `kec
-> build` inlines any `(load ...)`s, checks that the whole program parses, and
-> writes a single self-contained `.kec` file you can `kec run`.
+> build` inlines top-level literal `(load "...")` forms, checks that the whole
+> program parses, and writes a single self-contained `.kec` file you can
+> `kec run`.
 
 ## Your first program
 

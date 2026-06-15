@@ -5,7 +5,7 @@
 **   kec repl                 start the REPL
 **   kec run FILE [args...]   load + evaluate FILE; args reach (args)
 **   kec eval "EXPR"          evaluate EXPR, print the result
-**   kec build FILE [-o OUT]  inline (load ...)s, parse-check, write a .kec
+**   kec build FILE [-o OUT]  inline top-level loads, parse-check, write a .kec
 **   kec test [FILE...]       run the harness over FILE(s), or the whole
 **                            embedded suite when no FILE is given; exit=fails
 **   kec version | help
@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
+#include <setjmp.h>
 
 #include "fe.h"
 #include "kec.h"
@@ -47,20 +48,9 @@ static void sb_putn(Strbuf *b, const char *s, size_t n) {
 }
 static void sb_puts(Strbuf *b, const char *s) { sb_putn(b, s, strlen(s)); }
 
-static char *read_file(const char *path) {
-    FILE *fp = fopen(path, "rb");
-    long len;
-    char *buf;
-    if (!fp) { return NULL; }
-    fseek(fp, 0, SEEK_END);
-    len = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    buf = malloc((size_t)len + 1);
-    if (!buf) { fclose(fp); return NULL; }
-    if (fread(buf, 1, (size_t)len, fp) != (size_t)len) { /* tolerate */ }
-    buf[len] = '\0';
-    fclose(fp);
-    return buf;
+static void sb_writefe(fe_Context *ctx, void *udata, char chr) {
+    (void)ctx;
+    sb_putn((Strbuf *)udata, &chr, 1);
 }
 
 /* ------------------------------------------------------------------ */
@@ -241,26 +231,23 @@ static int do_test(int argc, char **argv) {
 }
 
 /* ------------------------------------------------------------------ */
-/* build — inline (load ...)s, parse-check, stamp, write.              */
+/* build — inline top-level (load ...) forms, parse-check, stamp, write. */
 /* ------------------------------------------------------------------ */
 
-/* Pull a quoted path out of a `(load "PATH")` line. Returns 1 on match. */
-static int match_load(const char *line, char *out, size_t outsz) {
-    const char *p = line;
-    const char *q, *end;
-    size_t n;
-    while (*p == ' ' || *p == '\t') { p++; }
-    if (strncmp(p, "(load", 5) != 0) { return 0; }
-    q = strchr(p, '"');
-    if (!q) { return 0; }
-    q++;
-    end = strchr(q, '"');
-    if (!end) { return 0; }
-    n = (size_t)(end - q);
-    if (n >= outsz) { n = outsz - 1; }
-    memcpy(out, q, n);
-    out[n] = '\0';
-    return 1;
+typedef struct {
+    jmp_buf recover;
+    char errmsg[256];
+} BuildReadGuard;
+
+static BuildReadGuard *g_build_read_guard = NULL;
+
+static void build_read_error(fe_Context *ctx, const char *err, fe_Object *cl) {
+    (void)ctx;
+    (void)cl;
+    if (g_build_read_guard) {
+        snprintf(g_build_read_guard->errmsg, sizeof g_build_read_guard->errmsg, "%s", err);
+        longjmp(g_build_read_guard->recover, 1);
+    }
 }
 
 /* Directory portion of a path, into `dir` (with trailing slash or empty). */
@@ -275,28 +262,84 @@ static void dir_of(const char *path, char *dir, size_t sz) {
     }
 }
 
-static int bundle(const char *path, Strbuf *out, int depth) {
-    char *src = read_file(path);
+static void path_join(const char *dir, const char *rel, char *out, size_t sz) {
+    if (rel[0] == '/') { snprintf(out, sz, "%s", rel); }
+    else { snprintf(out, sz, "%s%s", dir, rel); }
+}
+
+static int load_form_path(fe_Context *ctx, fe_Object *form, char *out, size_t outsz) {
+    fe_Object *op, *args, *path, *tail;
+    char name[64];
+    if (fe_type(ctx, form) != FE_TPAIR) { return 0; }
+    op = fe_car(ctx, form);
+    if (fe_type(ctx, op) != FE_TSYMBOL) { return 0; }
+    fe_tostring(ctx, op, name, sizeof name);
+    if (strcmp(name, "load") != 0) { return 0; }
+    args = fe_cdr(ctx, form);
+    if (fe_type(ctx, args) != FE_TPAIR) { return 0; }
+    path = fe_car(ctx, args);
+    tail = fe_cdr(ctx, args);
+    if (!fe_isnil(ctx, tail) || fe_type(ctx, path) != FE_TSTRING) { return 0; }
+    fe_tostring(ctx, path, out, (int)outsz);
+    return 1;
+}
+
+static int bundle_forms(fe_Context *ctx, const char *path, Strbuf *out, int depth) {
+    FILE *fp;
     char dir[1024];
-    char *line, *save;
-    if (!src) { fprintf(stderr, "kec build: cannot read %s\n", path); return 1; }
-    if (depth > 16) { fprintf(stderr, "kec build: (load ...) nesting too deep\n"); free(src); return 1; }
+    if (depth > 16) { fprintf(stderr, "kec build: (load ...) nesting too deep\n"); return 1; }
+    fp = fopen(path, "rb");
+    if (!fp) { fprintf(stderr, "kec build: cannot read %s\n", path); return 1; }
     dir_of(path, dir, sizeof dir);
     sb_puts(out, ";; --- begin ");
     sb_puts(out, path);
     sb_puts(out, " ---\n");
-    for (line = strtok_r(src, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+    for (;;) {
         char rel[1024], full[2048];
-        if (match_load(line, rel, sizeof rel)) {
-            snprintf(full, sizeof full, "%s%s", dir, rel);
-            if (bundle(full, out, depth + 1) != 0) { free(src); return 1; }
+        int gc = fe_savegc(ctx);
+        fe_Object *form = fe_readfp(ctx, fp);
+        if (form == NULL) {
+            fe_restoregc(ctx, gc);
+            break;
+        }
+        if (load_form_path(ctx, form, rel, sizeof rel)) {
+            path_join(dir, rel, full, sizeof full);
+            if (bundle_forms(ctx, full, out, depth + 1) != 0) {
+                fclose(fp);
+                return 1;
+            }
         } else {
-            sb_puts(out, line);
+            fe_write(ctx, form, sb_writefe, out, 1);
             sb_puts(out, "\n");
         }
+        fe_restoregc(ctx, gc);
     }
-    free(src);
+    fclose(fp);
     return 0;
+}
+
+static int bundle(const char *path, Strbuf *out) {
+    void *arena = malloc(ARENA_BYTES);
+    fe_Context *ctx;
+    BuildReadGuard guard;
+    int rc;
+    if (!arena) { fprintf(stderr, "kec build: out of memory\n"); return 1; }
+    ctx = fe_open(arena, (int)ARENA_BYTES);
+    guard.errmsg[0] = '\0';
+    g_build_read_guard = &guard;
+    fe_handlers(ctx)->error = build_read_error;
+    if (setjmp(guard.recover)) {
+        fprintf(stderr, "kec build: parse error while bundling: %s\n", guard.errmsg);
+        g_build_read_guard = NULL;
+        fe_close(ctx);
+        free(arena);
+        return 1;
+    }
+    rc = bundle_forms(ctx, path, out, 0);
+    g_build_read_guard = NULL;
+    fe_close(ctx);
+    free(arena);
+    return rc;
 }
 
 static int do_build(int argc, char **argv) {
@@ -318,7 +361,7 @@ static int do_build(int argc, char **argv) {
         snprintf(defout, sizeof defout, "%.*s.kec", (int)base, in);
         outpath = defout;
     }
-    if (bundle(in, &body, 0) != 0) { free(body.p); return 1; }
+    if (bundle(in, &body) != 0) { free(body.p); return 1; }
 
     /* Parse-check the bundled program. */
     S = kec_open(ARENA_BYTES, KEC_PROFILE_FULL);
@@ -363,7 +406,7 @@ static int usage(FILE *fp) {
         "  kec                      start the REPL\n"
         "  kec run FILE [args...]   evaluate FILE (args reach (args))\n"
         "  kec eval \"EXPR\"          evaluate EXPR and print the result\n"
-        "  kec build FILE [-o OUT]  inline loads, parse-check, write a .kec\n"
+        "  kec build FILE [-o OUT]  inline top-level loads, parse-check, write a .kec\n"
         "  kec test [FILE...]       run the suite (default: whole embedded suite)\n"
         "  kec version | help\n",
         KEC_VERSION);
