@@ -35,3 +35,25 @@
 (deftest "kernel/string-escape-eof"
   ; backslash at EOF in a string must raise "unclosed string", not overflow
   (check-err (read-string "\"\\")))
+
+;; fe_write detects cycles by borrowing GCMARKBIT, then clears it in
+;; unmarkpairs. The mark bit lives in the low byte of a pair's car field, so a
+;; *leaked* mark corrupts the car pointer — making post-print walkability a
+;; direct test of mark restoration (no GC needed). `repr` runs fe_write twice
+;; internally (measure + fill), so a stale mark would also skew the two passes.
+(deftest "kernel/circular-print"
+  ; tail-cycle: x's last cdr points back at x. Prints finite, ends in "...".
+  (set x (list 1 2 3))
+  (setcdr (cdr (cdr x)) x)
+  (check (is (repr x) "(1 2 3 ...)"))
+  ; head-cycle: car of the head is the head itself.
+  (set y (list 1 2 3))
+  (setcar y y)
+  (check (is (repr y) "(... 2 3)"))
+  ; after printing, the cycle is intact and pointers are uncorrupted —
+  ; proves unmarkpairs cleared every borrowed mark bit.
+  (check (is (cdr (cdr (cdr x))) x))      ; identity: the cycle still closes on x
+  (check (is (car (cdr (cdr (cdr x)))) 1)) ; walk through the back-edge → x[0]
+  (check (is (car x) 1))
+  ; reprʼing twice yields the same string — marks don't accumulate.
+  (check (is (repr x) (repr x))))
