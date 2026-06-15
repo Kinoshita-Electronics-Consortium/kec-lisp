@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+- **String host primitives no longer truncate at ~4 KB** (GWP-528).
+  `string-length`, `string-ref`, `substring`, `string-append`/`str`, and `repr`
+  copied through a fixed 4 KB C buffer, so any string past ~4095 bytes was
+  silently clipped — even though `slurp` reads larger files. They now stream the
+  value through `fe_write` to measure its real length, then size a heap buffer to
+  fit. Core `split`/`join` (built on these) are fixed as a consequence.
+
 ### Changed
 - **`kec test` with no file arguments now runs the whole conformance suite**
   baked into the binary, instead of reporting `0 checks, 0 failed`. The suite
