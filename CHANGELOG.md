@@ -3,6 +3,25 @@
 ## Unreleased
 
 ### Changed
+- **`defn` / `define` / `defmacro` now return the value they define** instead of
+  `nil` (GWP-534). `set` returns `nil`, so the macros previously echoed `nil`;
+  they now hand back the function, macro, or value, so definitions chain and the
+  REPL shows something useful. The underlying `set` keeps its exact scoping.
+- **`try` now surfaces the error message** (GWP-532). On failure it returns the
+  pair `(:error . "message")` instead of a bare `:error` symbol — `car` is the
+  `:error` symbol (failure stays recognizable) and `cdr` is the captured error
+  string. Success still returns the thunk's value. The test harness's `check-err`
+  is updated to key off the `:error` car, so the suite stays green.
+
+### Fixed
+- **String host primitives no longer truncate at ~4 KB** (GWP-528).
+  `string-length`, `string-ref`, `substring`, `string-append`/`str`, and `repr`
+  copied through a fixed 4 KB C buffer, so any string past ~4095 bytes was
+  silently clipped — even though `slurp` reads larger files. They now stream the
+  value through `fe_write` to measure its real length, then size a heap buffer to
+  fit. Core `split`/`join` (built on these) are fixed as a consequence.
+
+### Changed
 - **`kec test` with no file arguments now runs the whole conformance suite**
   baked into the binary, instead of reporting `0 checks, 0 failed`. The suite
   is embedded the same way Core and the harness are, so `kec test` works from
@@ -11,6 +30,27 @@
   same source list the binary embeds, so the two can't drift.
 
 ### Added
+- **`sort`** — a Core function: `(sort xs less?)` returns a new list ordered by
+  the binary predicate, leaving the input unmutated (GWP-532). Stable, iterative,
+  bottom-up merge sort — GC-stack-safe on a 1000+ element list. Lives in the new
+  `core/70-sort.lsp` module.
+- **`apply` / `read-string`** — language-level, available in every profile
+  (GWP-531). `(apply f arglist)` calls `f` with the elements of `arglist`; it's
+  built by synthesizing a quoted call form and `fe_eval`-ing it, so the frozen
+  kernel is untouched. `(read-string s)` parses the first s-expression of `s`
+  with the existing reader and returns it **unevaluated** — a reader, not `eval`,
+  preserving the "no eval from Lisp" stance.
+- **`file-exists?` / `list-dir` / `getenv`** — filesystem and environment
+  introspection (GWP-530). `(file-exists? path)` → truthy/nil via `stat`;
+  `(list-dir path)` → entry names (excluding `.`/`..`) via `readdir`, raising a
+  catchable error on an unopenable directory; `(getenv name)` → string or nil.
+  **FULL profile only**, gated and asserted like the rest of the file/sys set.
+- **`spit` / `spit-append`** — file output, the write-side counterpart to
+  `slurp` (GWP-529). `(spit path value)` creates/overwrites; `(spit-append path
+  value)` appends. The value is stringified the writer's way (like `princ`/`str`),
+  writes past 4 KB are byte-exact, and I/O failures raise a catchable error
+  rather than calling `exit`. **FULL profile only** — gated exactly like `slurp`,
+  asserted by the C profile-gating test.
 - **`kec_open_with_arena(buf, size, profile)`** — open an interpreter on a
   caller-provided arena with no malloc of the arena, for embedders that avoid
   the heap (the KN-86 device). Same lifecycle as `kec_open`; returns NULL

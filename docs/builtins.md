@@ -101,8 +101,10 @@ from Core; `mod` / `abs` / `sqrt` and friends are host primitives (see the
 | `(print x …)` | Write each `x` to the configured write function, then a newline. |
 
 `print` is the kernel's only I/O. The host adds `princ` / `newline` / `repr`
-(and, in the `FULL` profile, `load` / `slurp`). There is no file I/O, socket
-I/O, or `read`-from-string at the kernel level, and no `eval` from Lisp.
+(and, in the `FULL` profile, file I/O — `load` / `slurp` / `spit` /
+`spit-append`). `read-string` parses a value from text in any profile, but it is
+a *reader*, not `eval` — there is still no `eval` from Lisp, and no socket I/O at
+the kernel level.
 
 ---
 

@@ -8,17 +8,21 @@
 ** C name `h_foo`  ->  KEC Lisp symbol `foo-bar` (kebab-case). The Lisp name is
 ** what callers use; the C name is internal.
 */
+#define _POSIX_C_SOURCE 200809L /* scandir / alphasort / stat / struct dirent */
+
 #include "host.h"
 
+#include <dirent.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
-/* Generous scratch buffer for string ops. KEC strings are short by
-** construction (7-byte cons-chains); 4 KB is far past any realistic glyph
-** string and keeps these primitives allocation-free on the C side. */
+/* Scratch buffer for the *short, bounded* conversions (number radix, single
+** char). The string primitives below do NOT use this: they size to the real
+** string length so nothing past ~4 KB is silently truncated (GWP-528). */
 #define KEC_STRBUF 4096
 
 /* ------------------------------------------------------------------ */
@@ -41,10 +45,64 @@ static fe_Number arg_num(fe_Context *ctx, fe_Object **args) {
     return fe_tonumber(ctx, fe_nextarg(ctx, args));
 }
 
-/* Pull the next arg as a C string into a caller buffer; returns length. */
+/* Pull the next arg as a C string into a caller buffer; returns length.
+** For the short, bounded conversions (a number's radix form, a path). The
+** length-aware helpers below replace this for arbitrary user strings. */
 static int arg_str(fe_Context *ctx, fe_Object **args, char *buf, int size) {
     return fe_tostring(ctx, fe_nextarg(ctx, args), buf, size);
 }
+
+/* ------------------------------------------------------------------ */
+/* Length-aware stringify (GWP-528).                                   */
+/*                                                                     */
+/* fe_tostring copies into a caller-fixed buffer and truncates at      */
+/* size-1, so any value whose printed form is longer was silently      */
+/* clipped — the old 4 KB ceiling. fe_write streams every byte through */
+/* a callback with no limit, so we measure first, then fill a buffer   */
+/* sized to the real length. Heap-backed: a glyph string is small, but */
+/* nothing here imposes a ceiling.                                     */
+/* ------------------------------------------------------------------ */
+
+/* Counting writer: discards bytes, just tallies them. */
+static void count_writefn(fe_Context *ctx, void *udata, char chr) {
+    (void)ctx;
+    (void)chr;
+    (*(size_t *)udata)++;
+}
+
+/* Exact printed length of obj in bytes — no allocation. `qt` selects quoted
+** (write-style) vs raw (princ-style) rendering, matching fe_write. */
+static size_t host_strlen_qt(fe_Context *ctx, fe_Object *obj, int qt) {
+    size_t n = 0;
+    fe_write(ctx, obj, count_writefn, &n, qt);
+    return n;
+}
+#define host_strlen(ctx, obj) host_strlen_qt((ctx), (obj), 0)
+
+/* Filling writer: append into a FillBuf with a hard capacity guard. */
+typedef struct { char *p; size_t n, cap; } FillBuf;
+static void fill_writefn(fe_Context *ctx, void *udata, char chr) {
+    FillBuf *b = udata;
+    (void)ctx;
+    if (b->n < b->cap) { b->p[b->n++] = chr; }
+}
+
+/* Stringify obj into a freshly malloc'd, NUL-terminated buffer sized to the
+** real length. `qt` selects quoted vs raw. *len_out (if non-NULL) receives the
+** byte length. Returns NULL only on OOM; callers route that through fe_error.
+** The buffer is the caller's to free(). */
+static char *host_strdup_qt(fe_Context *ctx, fe_Object *obj, int qt, size_t *len_out) {
+    size_t len = host_strlen_qt(ctx, obj, qt);
+    char *buf = malloc(len + 1);
+    FillBuf b;
+    if (!buf) { return NULL; }
+    b.p = buf; b.n = 0; b.cap = len;
+    fe_write(ctx, obj, fill_writefn, &b, qt);
+    buf[b.n] = '\0';
+    if (len_out) { *len_out = b.n; }
+    return buf;
+}
+#define host_strdup_obj(ctx, obj, len_out) host_strdup_qt((ctx), (obj), 0, (len_out))
 
 /* ------------------------------------------------------------------ */
 /* Reflection — type-of, which Core's number?/string?/etc. need.       */
@@ -111,49 +169,72 @@ static fe_Object *h_pow(fe_Context *ctx, fe_Object *args) {
 /* ------------------------------------------------------------------ */
 
 static fe_Object *h_string_length(fe_Context *ctx, fe_Object *args) {
-    char buf[KEC_STRBUF];
-    int n = arg_str(ctx, &args, buf, sizeof buf);
+    /* No allocation: just stream-count the bytes (GWP-528). */
+    size_t n = host_strlen(ctx, fe_nextarg(ctx, &args));
     return fe_number(ctx, (fe_Number)n);
 }
 
 static fe_Object *h_string_ref(fe_Context *ctx, fe_Object *args) {
-    char buf[KEC_STRBUF];
     fe_Object *s = fe_nextarg(ctx, &args);
     int i = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
-    int n = fe_tostring(ctx, s, buf, sizeof buf);
-    if (i < 0 || i >= n) { return fe_bool(ctx, 0); }
-    return fe_number(ctx, (fe_Number)(unsigned char)buf[i]);
+    size_t len;
+    char *buf;
+    fe_Object *res;
+    if (i < 0) { return fe_bool(ctx, 0); }
+    buf = host_strdup_obj(ctx, s, &len);
+    if (!buf) { fe_error(ctx, "string-ref: out of memory"); }
+    if ((size_t)i >= len) { free(buf); return fe_bool(ctx, 0); }
+    res = fe_number(ctx, (fe_Number)(unsigned char)buf[i]);
+    free(buf);
+    return res;
 }
 
 static fe_Object *h_substring(fe_Context *ctx, fe_Object *args) {
-    char buf[KEC_STRBUF], out[KEC_STRBUF];
     fe_Object *s = fe_nextarg(ctx, &args);
     int a = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
     int b = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
-    int n = fe_tostring(ctx, s, buf, sizeof buf);
-    int i, j = 0;
+    size_t len;
+    char *buf, save;
+    fe_Object *res;
+    buf = host_strdup_obj(ctx, s, &len);
+    if (!buf) { fe_error(ctx, "substring: out of memory"); }
     if (a < 0) { a = 0; }
-    if (b > n) { b = n; }
+    if (b > (int)len) { b = (int)len; }
     if (b < a) { b = a; }
-    for (i = a; i < b && j < KEC_STRBUF - 1; i++) { out[j++] = buf[i]; }
-    out[j] = '\0';
-    return fe_string(ctx, out);
+    /* fe_string copies up to the NUL; clip in place at b, slice from a. */
+    save = buf[b];
+    buf[b] = '\0';
+    res = fe_string(ctx, buf + a);
+    buf[b] = save;
+    free(buf);
+    return res;
 }
 
 /* Variadic concat. Each arg is stringified the same way the writer prints
 ** it (numbers via %.7g, symbols by name, strings raw) — so this doubles as
-** the engine for Core `str`. */
+** the engine for Core `str`. Sized to the real total length (GWP-528): a
+** single fe_write pass per arg into one buffer grown to fit, no 4 KB clip. */
 static fe_Object *h_string_append(fe_Context *ctx, fe_Object *args) {
-    char out[KEC_STRBUF];
-    int j = 0;
-    while (!fe_isnil(ctx, args)) {
-        char buf[KEC_STRBUF];
-        int n = fe_tostring(ctx, fe_nextarg(ctx, &args), buf, sizeof buf);
-        int i;
-        for (i = 0; i < n && j < KEC_STRBUF - 1; i++) { out[j++] = buf[i]; }
+    /* Pass 1: measure the total length without allocating. */
+    size_t total = 0;
+    fe_Object *p = args;
+    char *out;
+    FillBuf b;
+    fe_Object *res;
+    while (!fe_isnil(ctx, p)) {
+        total += host_strlen(ctx, fe_nextarg(ctx, &p));
     }
-    out[j] = '\0';
-    return fe_string(ctx, out);
+    out = malloc(total + 1);
+    if (!out) { fe_error(ctx, "string-append: out of memory"); }
+    /* Pass 2: fill. */
+    b.p = out; b.n = 0; b.cap = total;
+    while (!fe_isnil(ctx, args)) {
+        fe_write(ctx, fe_nextarg(ctx, &args), fill_writefn, &b, 0);
+    }
+    out[b.n] = '\0';
+    res = fe_string(ctx, out);
+    free(out);
+    return res;
 }
 
 static fe_Object *h_char_to_string(fe_Context *ctx, fe_Object *args) {
@@ -223,22 +304,16 @@ static fe_Object *h_newline(fe_Context *ctx, fe_Object *args) {
     return fe_bool(ctx, 0);
 }
 
-/* Buffer writer for fe_write (quoted rendering into a C string). */
-typedef struct { char *p; int n; } HostBuf;
-static void host_writebuf(fe_Context *ctx, void *udata, char chr) {
-    HostBuf *b = udata;
-    (void)ctx;
-    if (b->n > 0) { *b->p++ = chr; b->n--; }
-}
-
 /* repr: render a value the way `write` would (strings quoted). Used by the
-** test harness to label a failing check with its source form. */
+** test harness to label a failing check with its source form. Length-aware
+** (GWP-528) so a long form isn't clipped in the failure message. */
 static fe_Object *h_repr(fe_Context *ctx, fe_Object *args) {
-    char buf[KEC_STRBUF];
-    HostBuf b = { buf, (int)sizeof buf - 1 };
-    fe_write(ctx, fe_nextarg(ctx, &args), host_writebuf, &b, 1);
-    *b.p = '\0';
-    return fe_string(ctx, buf);
+    char *buf = host_strdup_qt(ctx, fe_nextarg(ctx, &args), 1, NULL);
+    fe_Object *res;
+    if (!buf) { fe_error(ctx, "repr: out of memory"); }
+    res = fe_string(ctx, buf);
+    free(buf);
+    return res;
 }
 
 /* ------------------------------------------------------------------ */
@@ -301,6 +376,83 @@ static fe_Object *h_slurp(fe_Context *ctx, fe_Object *args) {
     return res;
 }
 
+/* (spit path value) / (spit-append path value) — write value to a file.
+** The value is stringified the writer's way (raw, like princ / str), so any
+** value works, not just strings. Length-aware so writes past the old 4 KB
+** ceiling are byte-exact (GWP-528/529). Failures route through fe_error
+** (catchable by try); never exit(). FULL profile only. */
+static fe_Object *h_spit_mode(fe_Context *ctx, fe_Object *args, const char *mode) {
+    char path[KEC_STRBUF];
+    fe_Object *val;
+    size_t len;
+    char *body;
+    FILE *fp;
+    size_t wrote;
+    arg_str(ctx, &args, path, sizeof path);
+    val = fe_nextarg(ctx, &args);
+    body = host_strdup_obj(ctx, val, &len);
+    if (!body) { fe_error(ctx, "spit: out of memory"); }
+    fp = fopen(path, mode);
+    if (!fp) { free(body); fe_error(ctx, "spit: cannot open file for writing"); }
+    wrote = fwrite(body, 1, len, fp);
+    fclose(fp);
+    free(body);
+    if (wrote != len) { fe_error(ctx, "spit: short write"); }
+    return fe_bool(ctx, 1); /* truthy on success */
+}
+
+static fe_Object *h_spit(fe_Context *ctx, fe_Object *args) {
+    return h_spit_mode(ctx, args, "wb");
+}
+
+static fe_Object *h_spit_append(fe_Context *ctx, fe_Object *args) {
+    return h_spit_mode(ctx, args, "ab");
+}
+
+/* (file-exists? path) -> truthy if path exists (any type), else nil. */
+static fe_Object *h_file_exists(fe_Context *ctx, fe_Object *args) {
+    char path[KEC_STRBUF];
+    struct stat st;
+    arg_str(ctx, &args, path, sizeof path);
+    return fe_bool(ctx, stat(path, &st) == 0);
+}
+
+/* (list-dir path) -> list of entry names in path, excluding "." and "..".
+** Errors (catchable) if the directory cannot be opened. Order is unspecified
+** (we build the list in reverse of readdir order). */
+static fe_Object *h_list_dir(fe_Context *ctx, fe_Object *args) {
+    char path[KEC_STRBUF];
+    DIR *d;
+    struct dirent *e;
+    fe_Object *res = fe_bool(ctx, 0); /* nil */
+    int gc;
+    arg_str(ctx, &args, path, sizeof path);
+    d = opendir(path);
+    if (!d) { fe_error(ctx, "list-dir: cannot open directory"); }
+    gc = fe_savegc(ctx);
+    while ((e = readdir(d)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) {
+            continue;
+        }
+        res = fe_cons(ctx, fe_string(ctx, e->d_name), res);
+        /* Keep only the growing list rooted across the GC reset. */
+        fe_restoregc(ctx, gc);
+        fe_pushgc(ctx, res);
+    }
+    closedir(d);
+    return res;
+}
+
+/* (getenv name) -> the environment variable's value as a string, or nil. */
+static fe_Object *h_getenv(fe_Context *ctx, fe_Object *args) {
+    char name[KEC_STRBUF];
+    const char *v;
+    arg_str(ctx, &args, name, sizeof name);
+    v = getenv(name);
+    if (!v) { return fe_bool(ctx, 0); } /* unset -> nil */
+    return fe_string(ctx, v);
+}
+
 static fe_Object *h_exit(fe_Context *ctx, fe_Object *args) {
     int code = 0;
     if (!fe_isnil(ctx, args)) { code = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args)); }
@@ -346,6 +498,11 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     if (profile == KEC_PROFILE_FULL) {
         kec_bind_fe(ctx, "args", h_args);
         kec_bind_fe(ctx, "slurp", h_slurp);
+        kec_bind_fe(ctx, "spit", h_spit);
+        kec_bind_fe(ctx, "spit-append", h_spit_append);
+        kec_bind_fe(ctx, "file-exists?", h_file_exists);
+        kec_bind_fe(ctx, "list-dir", h_list_dir);
+        kec_bind_fe(ctx, "getenv", h_getenv);
         kec_bind_fe(ctx, "exit", h_exit);
     }
 }

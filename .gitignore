@@ -7,6 +7,9 @@
 # Compiled bundles
 *.kec
 
+# Transient output written by examples/csv-roundtrip.lsp at runtime
+/csv-roundtrip-*.csv
+
 # Editor / OS
 .DS_Store
 *.swp

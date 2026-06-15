@@ -86,6 +86,10 @@ string ops). Loaded before your code runs.
 | `(define name value)` | `(set name value)` |
 | `(define (f args…) body…)` | `(set f (fn (args…) body…))` (Scheme-style sugar) |
 
+Each form **returns the value it defines** — the function, macro, or value — not
+`nil`. (Bare `set` returns `nil`; these wrap it so definitions chain and the REPL
+echoes something useful.)
+
 ### 3.2 `list` — list & sequence
 `nth` `length` `reverse` `append` `last` `member` `assoc` `take` `drop` `range`.
 All iterative. `(range a b)` → `(a … b-1)`; `(nth xs i)` → `nil` past the end;
@@ -117,6 +121,13 @@ tests use the host `type-of` primitive.
 `str` (variadic stringify-concat) `join` `split` `format`. `format` directives:
 `%d`/`%u` decimal, `%x` hex, `%c` char code, `%s` any, `%%` literal.
 
+### 3.8 `sort` — ordering
+`(sort xs less?)` → a new list with the elements of `xs` ordered by the binary
+predicate `less?` (`(less? a b)` truthy when `a` precedes `b`). The input is not
+mutated. It's a **stable** sort — equal elements keep their original relative
+order — implemented as an iterative, bottom-up merge sort, so a long list (1000+
+elements) won't exhaust the GC root stack.
+
 ---
 
 ## 4. C primitives (host)
@@ -131,14 +142,35 @@ adds the file and system primitives; `SANDBOX` leaves them out.
 | String | `string-length` `string-ref` `substring` `string-append` `char->string` `number->string` `string->number` `symbol->string` `string->symbol` | both |
 | I/O | `princ` `newline` `repr` | both |
 | Sys | `rand` `rand-int` `clock` | both |
-| Control | `try` | both |
-| File/Sys | `load` `slurp` `args` `exit` | **FULL only** |
+| Control | `try` `apply` `read-string` | both |
+| File/Sys | `load` `slurp` `spit` `spit-append` `file-exists?` `list-dir` `getenv` `args` `exit` | **FULL only** |
 
 - `(type-of x)` → `:pair`/`:nil`/`:number`/`:symbol`/`:string`/`:fn`/`:macro`/`:prim`/`:cfunc`/`:ptr`.
 - `(number->string n [radix])` — radix defaults to 10; 2/8/16 supported.
-- `(try thunk)` → the value of `(thunk)`, or `:error` if it raised. `check-err`
-  in the test harness is built on it.
+- `(try thunk)` → the value of `(thunk)` on success, or the pair
+  `(:error . "message")` if it raised — `car` is the `:error` symbol (so failure
+  is recognizable via `(car r)`) and `cdr` is the captured error string.
+  `check-err` in the test harness keys off the `:error` car.
+- `(apply f arglist)` calls `f` with the elements of `arglist` as its arguments
+  — `(apply + (list 1 2 3))` → `6`. `f` may be a closure, a host primitive, or a
+  kernel primitive; `arglist` may be `nil` (call with no args).
+- `(read-string s)` parses the **first** s-expression of `s` and returns it
+  **without evaluating** — `(read-string "(1 2 3)")` → the list `(1 2 3)`,
+  `"42"` → `42`, `"foo"` → the symbol `foo`. It is the reader, not `eval`: the
+  form is returned as data and nothing runs (so reading a `(spit …)` form writes
+  no file). Empty input → `nil`.
 - `(load "path")` reads and evaluates a file in the current context.
+- `(spit path value)` writes `value` (stringified the writer's way, like
+  `princ`/`str`) to `path`, creating or **overwriting** it. `(spit-append path
+  value)` appends instead, creating the file if absent. Both return a truthy
+  value on success and raise a catchable error (never `exit`) on an I/O failure.
+  Round-trips with `slurp`. **FULL only** — a sandboxed context cannot write
+  files.
+- `(file-exists? path)` → truthy if `path` exists, else `nil`. `(list-dir path)`
+  → a list of the directory's entry names (`.` and `..` excluded; order
+  unspecified), raising a catchable error if the directory can't be opened.
+  `(getenv name)` → the environment variable's value as a string, or `nil` if
+  unset. All three are **FULL only**.
 
 ---
 
@@ -149,7 +181,10 @@ adds the file and system primitives; `SANDBOX` leaves them out.
   and is re-evaluated.
 - **Errors** route through `fe_error`. The runtime installs a recovery handler
   that unwinds to the nearest guard (the REPL prompt, a script boundary, or a
-  `(try …)`) instead of exiting. `(try …)` is the Lisp-visible catch.
+  `(try …)`) instead of exiting. `(try …)` is the Lisp-visible catch: it returns
+  the thunk's value on success, or `(:error . "message")` on failure — detect a
+  failure with `(and (pair? r) (is (car r) ':error))` and read the message from
+  `(cdr r)`.
 
 ---
 

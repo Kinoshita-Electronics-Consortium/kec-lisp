@@ -37,7 +37,8 @@ set(CORE_SRCS
   ${CMAKE_SOURCE_DIR}/core/30-pred.lsp
   ${CMAKE_SOURCE_DIR}/core/40-ctrl.lsp
   ${CMAKE_SOURCE_DIR}/core/50-hof.lsp
-  ${CMAKE_SOURCE_DIR}/core/60-str.lsp)
+  ${CMAKE_SOURCE_DIR}/core/60-str.lsp
+  ${CMAKE_SOURCE_DIR}/core/70-sort.lsp)
 
 add_custom_command(
   OUTPUT ${GEN_DIR}/kec_core_embed.h
@@ -63,7 +64,13 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/pred.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/ctrl.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/hof.lsp
-  ${CMAKE_SOURCE_DIR}/tests/core/str.lsp)
+  ${CMAKE_SOURCE_DIR}/tests/core/str.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/bigstr.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/spit.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/fsenv.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/applyread.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/sort.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/trymsg.lsp)
 
 add_custom_command(
   OUTPUT ${GEN_DIR}/kec_suite_embed.h
