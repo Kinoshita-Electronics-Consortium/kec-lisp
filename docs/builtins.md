@@ -1,6 +1,6 @@
 ---
 title: Built-ins
-description: The 26 compiled-in kernel primitives of KEC Lisp, with one-line semantics — distinct from the Lisp-authored Core library and the C host primitives.
+description: The 26 compiled-in kernel primitives of KEC Lisp, with one-line semantics — distinct from the Lisp-authored Core library and the C runtime/host primitives.
 ---
 
 The KEC Lisp kernel (vendored [Fe](https://github.com/rxi/fe)) ships
@@ -11,12 +11,12 @@ Everything else you call comes from one of the two layers above the kernel:
 | Source | Fe type | Defined where | Examples |
 |---|---|---|---|
 | **Kernel built-in** (this page) | `FE_TPRIM` | compiled into `kernel/` | `set`, `cons`, `if` |
-| **Host primitive** | `FE_TCFUNC` | C in `host/`, bound via `kec_bind_fe` | `type-of`, `mod`, `princ` |
+| **Runtime / host primitive** | `FE_TCFUNC` | C in `runtime/` or `host/`, bound via `kec_bind_fe` | `try`, `type-of`, `mod`, `princ` |
 | **Core / user** | `FE_TFUNC` / `FE_TMACRO` | KEC Lisp in `core/` (or your code) | `map`, `cond`, `defn`, `=` |
 
 So `=`, `map`, `cond`, and `defn` are **not** kernel built-ins — they live in
 [Core](/kec-lisp/language/#3-the-standard-library-core). The language is the
-kernel plus Core plus the host primitives.
+kernel plus Core plus the runtime/host primitives.
 
 > **Kernel delta from upstream Fe.** KEC names assignment **`set`**, not `=`. That
 > frees `=` to mean **equality** (supplied by Core). If you've read upstream Fe
@@ -94,7 +94,7 @@ variadic arithmetic forms fold left.
 
 No `>`, `>=`, `=`, `mod`, `abs`, or `sqrt` in the kernel: `>` / `>=` / `=` come
 from Core; `mod` / `abs` / `sqrt` and friends are host primitives (see the
-[Language Reference §4](/kec-lisp/language/#4-c-primitives-host)).
+[Language Reference §4](/kec-lisp/language/#4-c-primitives-runtime--host)).
 
 ## I/O
 
@@ -102,9 +102,10 @@ from Core; `mod` / `abs` / `sqrt` and friends are host primitives (see the
 |---|---|
 | `(print x …)` | Write each `x` to the configured write function, then a newline. |
 
-`print` is the kernel's only I/O. The host adds `princ` / `newline` / `repr`
-(and, in the `FULL` profile, file I/O — `load` / `read-file` / `write-file` /
-`append-file`, plus `require`). `read-string` parses a value from text in any
+`print` is the kernel's only I/O. The runtime/host layers add `princ` /
+`newline` / `repr` (and, in the `FULL` profile, file I/O — `load` /
+`read-file` / `write-file` / `append-file`, plus `require`). `try` / `raise`
+are catchable error control. `read-string` parses a value from text in any
 profile, but it is a *reader*, not `eval` — there is still no `eval` from Lisp,
 and no socket I/O at the kernel level.
 
@@ -120,6 +121,6 @@ cons  car  cdr  setcar  setcdr  list  not  is  atom  print
 
 26 entries. Anything you call that isn't in this list is coming from
 [Core](/kec-lisp/language/#3-the-standard-library-core) (Lisp) or a
-[host primitive](/kec-lisp/language/#4-c-primitives-host) (C) — or, in the
-KN-86 firmware, from a device primitive bound through the
+[runtime/host primitive](/kec-lisp/language/#4-c-primitives-runtime--host)
+(C) — or, in the KN-86 firmware, from a device primitive bound through the
 [FFI bridge](/kec-lisp/ffi-bridge/).

@@ -65,8 +65,8 @@
 
 (deftest "file/preferred-name-errors"
   (let r (try (fn nil (read-file "kec-no-such-file-xyzzy.tmp"))))
-  (check (is (car r) ':error))
-  (check (is (cdr r) "read-file: cannot open file"))
+  (check (error? r))
+  (check (is (error-message r) "read-file: cannot open file"))
   (let w (try (fn nil (write-file "kec-no-such-dir-xyzzy/out.tmp" "x"))))
-  (check (is (car w) ':error))
-  (check (is (cdr w) "write-file: cannot open file for writing")))
+  (check (error? w))
+  (check (is (error-message w) "write-file: cannot open file for writing")))

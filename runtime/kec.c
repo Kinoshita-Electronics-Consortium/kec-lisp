@@ -1,6 +1,6 @@
 /*
 ** kec.c — KEC Lisp runtime: arena + Fe context lifecycle, error recovery,
-** KEC Core injection, and the two kec-level primitives `load` and `try`.
+** KEC Core injection, and the kec-level primitives `load`, `try`, and `raise`.
 **
 ** Error model: every C-side failure routes through fe_error. Fe's default
 ** handler prints a traceback and exit()s; we replace it with a
@@ -28,7 +28,7 @@ struct kec_State {
     int depth; /* number of active guards */
 };
 
-/* Single-threaded interpreter: the error handler and the `try`/`load`
+/* Single-threaded interpreter: the error handler and runtime primitives
 ** primitives reach the live State through this. */
 static kec_State *g_state = NULL;
 
@@ -259,6 +259,14 @@ static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
     return form;
 }
 
+/* (raise message) — raise a catchable script-level error. */
+static fe_Object *h_raise(fe_Context *ctx, fe_Object *args) {
+    char msg[256];
+    fe_tostring(ctx, fe_nextarg(ctx, &args), msg, sizeof msg);
+    fe_error(ctx, msg);
+    return fe_bool(ctx, 0);
+}
+
 /* (try thunk) — call (thunk); return its value, or, if it raised, the pair
 ** (:error . "message") — car is the :error symbol (so failure stays recognizable
 ** via (car r)) and cdr is the message the error handler captured in S->errmsg
@@ -327,6 +335,7 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
     ** string ops call type-of / mod / gensym / string-*. */
     kec_host_register(S->ctx, profile);
     kec_bind_fe(S->ctx, "try", h_try);
+    kec_bind_fe(S->ctx, "raise", h_raise);
     kec_bind_fe(S->ctx, "apply", h_apply);
     kec_bind_fe(S->ctx, "read-string", h_read_string);
     kec_bind_fe(S->ctx, "provide", h_provide);

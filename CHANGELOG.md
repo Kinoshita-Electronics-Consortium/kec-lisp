@@ -60,6 +60,9 @@
   same source list the binary embeds, so the two can't drift.
 
 ### Added
+- **Small error vocabulary** — Core now exposes `error`, `error?`, and
+  `error-message` for the tagged error values returned by `try`; the runtime
+  adds catchable `(raise message)` for script-authored failures.
 - **`equal?` and alist helpers** — structural list/pair equality plus
   record-like helpers over association lists: `get`, `put`, `has?`, `keys`,
   `values`, and `merge`. `=` / `is` keep their pair-identity semantics;

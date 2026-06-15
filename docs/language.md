@@ -1,11 +1,11 @@
 ---
 title: Language Reference
-description: The KEC Lisp kernel, the standard library (core/), and the C host primitives this repo ships.
+description: The KEC Lisp kernel, the standard library (core/), and the C runtime/host primitives this repo ships.
 ---
 
 Reference for KEC Lisp: the kernel, the standard library (`core/`), and the C
-primitives (`host/`) this repo ships. The KN-86 device primitives live in the
-firmware, not here.
+primitives (`runtime/` and `host/`) this repo ships. The KN-86 device
+primitives live in the firmware, not here.
 
 ---
 
@@ -118,7 +118,17 @@ type: `get` `put` `has?` `keys` `values` `merge`.
 `nil?` `pair?` `even?` `odd?` `number?` `symbol?` `string?` `fn?`. The four type
 tests use the host `type-of` primitive.
 
-### 3.5 `ctrl` — control macros
+### 3.5 `error` — error values
+`error` `error?` `error-message`. `(error "msg")` constructs the same tagged
+pair shape returned by `try` failures: `(:error . "msg")`. Use `error?` to test
+that shape and `error-message` to read the payload.
+
+```lisp
+(let r (try (fn () (raise "bad input"))))
+(if (error? r) (error-message r) r)
+```
+
+### 3.6 `ctrl` — control macros
 `when` `unless` `cond` `case` `let*` `letrec` `dotimes` `dolist` `begin`.
 
 ```lisp
@@ -128,7 +138,7 @@ tests use the host `type-of` primitive.
 (dotimes (i n) …)        (dolist (x xs) …)
 ```
 
-### 3.6 `quasiquote` — macro construction
+### 3.7 `quasiquote` — macro construction
 Backquote builds data, comma evaluates a subform, and comma-at splices a list:
 
 ```lisp
@@ -139,15 +149,15 @@ Backquote builds data, comma evaluates a subform, and comma-at splices a list:
   `(if ,test (do ,@body) nil))
 ```
 
-### 3.7 `hof` — higher-order
+### 3.8 `hof` — higher-order
 `map` `filter` `remove` `fold-left` `fold-right` `for-each` `find` `any?`
 `every?` `count`. All iterative.
 
-### 3.8 `str` — string & format
+### 3.9 `str` — string & format
 `str` (variadic stringify-concat) `join` `split` `format`. `format` directives:
 `%d`/`%u` decimal, `%x` hex, `%c` char code, `%s` any, `%%` literal.
 
-### 3.9 `sort` — ordering
+### 3.10 `sort` — ordering
 `(sort xs less?)` → a new list with the elements of `xs` ordered by the binary
 predicate `less?` (`(less? a b)` truthy when `a` precedes `b`). The input is not
 mutated. It's a **stable** sort — equal elements keep their original relative
@@ -156,10 +166,11 @@ elements) won't exhaust the GC root stack.
 
 ---
 
-## 4. C primitives (host)
+## 4. C primitives (runtime / host)
 
-C functions that only need the C library. Two profiles: `FULL` (used by the CLI)
-adds the file and system primitives; `SANDBOX` leaves them out.
+C functions bound by the runtime and portable host layer. Two profiles: `FULL`
+(used by the CLI) adds the file and system primitives; `SANDBOX` leaves them
+out.
 
 | Group | Primitives | Profile |
 |---|---|---|
@@ -168,15 +179,16 @@ adds the file and system primitives; `SANDBOX` leaves them out.
 | String | `string-length` `string-ref` `substring` `string-append` `char->string` `number->string` `string->number` `symbol->string` `string->symbol` | both |
 | I/O | `princ` `newline` `repr` | both |
 | Sys | `rand` `rand-int` `clock` | both |
-| Control | `try` `apply` `read-string` `provide` `provided?` | both |
+| Control | `try` `raise` `apply` `read-string` `provide` `provided?` | both |
 | File/Sys | `load` `require` `read-file` `write-file` `append-file` `file-exists?` `list-dir` `getenv` `args` `exit` | **FULL only** |
 
 - `(type-of x)` → `:pair`/`:nil`/`:number`/`:symbol`/`:string`/`:fn`/`:macro`/`:prim`/`:cfunc`/`:ptr`.
 - `(number->string n [radix])` — radix defaults to 10; 2/8/16 supported.
-- `(try thunk)` → the value of `(thunk)` on success, or the pair
-  `(:error . "message")` if it raised — `car` is the `:error` symbol (so failure
-  is recognizable via `(car r)`) and `cdr` is the captured error string.
-  `check-err` in the test harness keys off the `:error` car.
+- `(try thunk)` → the value of `(thunk)` on success, or an error value
+  `(:error . "message")` if it raised. Use `error?` and `error-message` to
+  inspect it. `check-err` in the test harness uses the same public predicate.
+- `(raise message)` raises a catchable script-level error. `message` is
+  stringified before it reaches the runtime error handler.
 - `(apply f arglist)` calls `f` with the elements of `arglist` as its arguments
   — `(apply + (list 1 2 3))` → `6`. `f` may be a closure, a host primitive, or a
   kernel primitive; `arglist` may be `nil` (call with no args).
@@ -212,9 +224,9 @@ adds the file and system primitives; `SANDBOX` leaves them out.
 - **Errors** route through `fe_error`. The runtime installs a recovery handler
   that unwinds to the nearest guard (the REPL prompt, a script boundary, or a
   `(try …)`) instead of exiting. `(try …)` is the Lisp-visible catch: it returns
-  the thunk's value on success, or `(:error . "message")` on failure — detect a
-  failure with `(and (pair? r) (is (car r) ':error))` and read the message from
-  `(cdr r)`.
+  the thunk's value on success, or an error value on failure. Detect failures
+  with `error?`, read messages with `error-message`, and raise your own
+  catchable script errors with `raise`.
 
 ---
 

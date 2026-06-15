@@ -1,6 +1,6 @@
 ---
 title: Language Standard
-description: How KEC Lisp is layered — the Fe kernel, KEC Core, and host primitives — and where the KN-86 firmware's device layer sits on top.
+description: How KEC Lisp is layered — the Fe kernel, KEC Core, and runtime/host primitives — and where the KN-86 firmware's device layer sits on top.
 ---
 
 KEC Lisp is built in layers. This page describes them and links to the reference
@@ -12,7 +12,7 @@ pages that enumerate each layer's forms.
 |---|---|---|---|
 | **Fe Kernel** | 26 compiled-in primitives + reader + evaluator + arena/GC. | Vendored `rxi/fe` 1.0 with the changes in [The Fe kernel](#the-fe-kernel) below. | [Built-ins](/kec-lisp/builtins/) |
 | **KEC Core** | The standard library — `map`, `filter`, `fold-left`, `cond`, `when`, `defn`, … — written in KEC Lisp, loaded into every context before user code runs. | `core/*.lsp`, baked into the `kec` binary at build time. | [Language Reference §3](/kec-lisp/language/#3-the-standard-library-core) |
-| **Host primitives** | Portable C exposed to KEC Lisp — `type-of`, math, string ops, I/O, a few system calls. | `host/host.c`, registered via `kec_host_register`. | [Language Reference §4](/kec-lisp/language/#4-c-primitives-host) |
+| **Runtime / host primitives** | Portable C exposed to KEC Lisp — error control, `type-of`, math, string ops, I/O, a few system calls. | `runtime/kec.c` and `host/host.c`, registered through `kec_bind_fe`. | [Language Reference §4](/kec-lisp/language/#4-c-primitives-runtime--host) |
 | **Device primitives + cart grammar** | The KN-86 runtime FFI (graphics, audio, save, missions, CIPHER) and the `defcell`/`defmission` macros. | Not in this repo — in the firmware. | [The KN-86 firmware](#the-kn-86-firmware) |
 
 Which primitives a context is created with determines what it can call; see the
@@ -42,29 +42,31 @@ upstream Fe:
 
 Recorded in the [CHANGELOG](https://github.com/Kinoshita-Electronics-Consortium/kec-lisp/blob/main/CHANGELOG.md). For the full kernel implementation — object encoding, GC mechanics, and known constraints — see [Fe Kernel — Internals](/kec-lisp/fe-kernel/).
 
-## Core and host primitives
+## Core and runtime / host primitives
 
 **KEC Core** is the standard library, written in KEC Lisp and loaded into every
 context before user code runs: definition macros (`defn`, `defmacro`, `define`),
 list/sequence functions, comparison (`=`, `==`, `/=`, `>`, `>=`, …), type
-predicates, alist helpers, control macros (`cond`, `case`, `when`, `dotimes`,
-…), quasiquote expansion, higher-order functions, and string/format helpers.
+predicates, alist helpers, error value helpers, control macros (`cond`, `case`,
+`when`, `dotimes`, …), quasiquote expansion, higher-order functions, and
+string/format helpers.
 Its list/sequence functions are written iteratively. Enumerated in the
 [Language Reference §3](/kec-lisp/language/#3-the-standard-library-core).
 
-**Host primitives** are C functions that need only the C library — `type-of`,
-math, string ops, I/O, and a few system calls — bound per
+**Runtime / host primitives** are C functions that need only the runtime or C
+library — error control, `type-of`, math, string ops, I/O, and a few system
+calls — bound per
 [profile](/kec-lisp/ffi-bridge/#4-capability-tiers): `SANDBOX` is the portable
 set; `FULL` adds `load`, file I/O, environment, `args`, and `exit`. Enumerated
-in the [Language Reference §4](/kec-lisp/language/#4-c-primitives-host).
+in the [Language Reference §4](/kec-lisp/language/#4-c-primitives-runtime--host).
 
 ## The FFI bridge
 
 A C function becomes a KEC Lisp symbol through `kec_bind_fe(ctx, "name", fn)`.
 Registration, the C↔Lisp type table, opaque handles, profiles, error
 propagation, and arena discipline are on the [FFI Bridge](/kec-lisp/ffi-bridge/)
-page. This is how both this repo's host primitives and the firmware's device
-primitives are added.
+page. This is how both this repo's runtime/host primitives and the firmware's
+device primitives are added.
 
 ## The KN-86 firmware
 
