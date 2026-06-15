@@ -1,6 +1,7 @@
 /*
 ** kec.c — KEC Lisp runtime: arena + Fe context lifecycle, error recovery,
-** KEC Core injection, and the kec-level primitives `load`, `try`, and `raise`.
+** KEC Core injection, and the kec-level primitives `load`, `try`, `raise`,
+** and `macroexpand-1`.
 **
 ** Error model: every C-side failure routes through fe_error. Fe's default
 ** handler prints a traceback and exit()s; we replace it with a
@@ -28,8 +29,8 @@ struct kec_State {
     int depth; /* number of active guards */
 };
 
-/* Single-threaded interpreter: the error handler and runtime primitives
-** primitives reach the live State through this. */
+/* Single-threaded interpreter: the error handler and runtime primitives reach
+** the live State through this. */
 static kec_State *g_state = NULL;
 
 /* ------------------------------------------------------------------ */
@@ -259,6 +260,11 @@ static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
     return form;
 }
 
+/* (macroexpand-1 form) — expand one symbolic macro call, or return form. */
+static fe_Object *h_macroexpand_1(fe_Context *ctx, fe_Object *args) {
+    return fe_macroexpand1(ctx, fe_nextarg(ctx, &args));
+}
+
 /* (raise message) — raise a catchable script-level error. */
 static fe_Object *h_raise(fe_Context *ctx, fe_Object *args) {
     char msg[256];
@@ -338,6 +344,7 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
     kec_bind_fe(S->ctx, "raise", h_raise);
     kec_bind_fe(S->ctx, "apply", h_apply);
     kec_bind_fe(S->ctx, "read-string", h_read_string);
+    kec_bind_fe(S->ctx, "macroexpand-1", h_macroexpand_1);
     kec_bind_fe(S->ctx, "provide", h_provide);
     kec_bind_fe(S->ctx, "provided?", h_provided_p);
     if (profile == KEC_PROFILE_FULL) {

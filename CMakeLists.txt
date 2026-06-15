@@ -69,6 +69,7 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/error.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/ctrl.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/quasiquote.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/macroexpand.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/hof.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/str.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/bigstr.lsp
