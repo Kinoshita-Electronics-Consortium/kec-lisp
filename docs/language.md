@@ -86,6 +86,10 @@ string ops). Loaded before your code runs.
 | `(define name value)` | `(set name value)` |
 | `(define (f args…) body…)` | `(set f (fn (args…) body…))` (Scheme-style sugar) |
 
+Each form **returns the value it defines** — the function, macro, or value — not
+`nil`. (Bare `set` returns `nil`; these wrap it so definitions chain and the REPL
+echoes something useful.)
+
 ### 3.2 `list` — list & sequence
 `nth` `length` `reverse` `append` `last` `member` `assoc` `take` `drop` `range`.
 All iterative. `(range a b)` → `(a … b-1)`; `(nth xs i)` → `nil` past the end;

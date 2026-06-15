@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Changed
+- **`defn` / `define` / `defmacro` now return the value they define** instead of
+  `nil` (GWP-534). `set` returns `nil`, so the macros previously echoed `nil`;
+  they now hand back the function, macro, or value, so definitions chain and the
+  REPL shows something useful. The underlying `set` keeps its exact scoping.
 - **`try` now surfaces the error message** (GWP-532). On failure it returns the
   pair `(:error . "message")` instead of a bare `:error` symbol — `car` is the
   `:error` symbol (failure stays recognizable) and `cdr` is the captured error
