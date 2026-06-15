@@ -102,6 +102,7 @@ export default defineConfig({
           label: 'Internals',
           items: [
             { label: 'Memory Model', slug: 'memory-model' },
+            { label: 'Fe Kernel — Internals', slug: 'fe-kernel' },
             { label: 'Bytecode VM (deferred)', slug: 'bytecode-vm' },
           ],
         },

@@ -76,6 +76,9 @@ won't exhaust the stack. For your own deep work, prefer `while` or `fold-left`
 over hand-rolled recursion. Numbers are single-precision floats, so counters and
 indices are exact only within ±2²⁴.
 
+For the GC implementation — mark-sweep mechanics, the CAR-recursion constraint,
+and the full list of inherited constraints — see [Fe Kernel — Internals](/kec-lisp/fe-kernel/#garbage-collector).
+
 ## Profiles control capability, not size
 
 A context's [profile](/kec-lisp/ffi-bridge/#4-capability-tiers) (`KEC_PROFILE_FULL`

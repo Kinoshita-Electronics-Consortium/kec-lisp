@@ -40,7 +40,7 @@ upstream Fe:
 - **`GCSTACKSIZE` is compile-time configurable** — default 256, raised to 8192 on
   the desktop build.
 
-Recorded in the [CHANGELOG](https://github.com/Kinoshita-Electronics-Consortium/kec-lisp/blob/main/CHANGELOG.md).
+Recorded in the [CHANGELOG](https://github.com/Kinoshita-Electronics-Consortium/kec-lisp/blob/main/CHANGELOG.md). For the full kernel implementation — object encoding, GC mechanics, and known constraints — see [Fe Kernel — Internals](/kec-lisp/fe-kernel/).
 
 ## Core and host primitives
 

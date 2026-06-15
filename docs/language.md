@@ -72,6 +72,9 @@ A few things the kernel doesn't have, that Core or the host fill in:
   builds), so recursion depth is bounded; long library traversals use `while`.
 - No tail-call optimization, no `eval` from Lisp, no vectors/hash-tables/records.
 
+For the full implementation — object encoding, GC mechanics, symbol limits, and all
+known constraints — see [Fe Kernel — Internals](/kec-lisp/fe-kernel/).
+
 ---
 
 ## 3. The standard library (Core)
