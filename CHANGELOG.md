@@ -27,6 +27,9 @@
   with `setcar`/`setcdr`; the old code followed the cycle forever, causing a
   stack overflow or hang. The fix borrows `GCMARKBIT` during traversal to detect
   cycles and prints `...` in their place, then immediately clears the marks.
+  Covered by the `kernel/circular-print` test, which also pins mark restoration
+  (a leaked mark bit corrupts the pair's car pointer, so post-print walkability
+  is a direct check).
 - **Comments terminated by `\r` now parse correctly** (upstream rxi/fe PR #25
   partial). Source files with Windows-style `\r\n` line endings had their `\r`
   swallowed into the next token after a `;` comment, corrupting the parse. The
