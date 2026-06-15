@@ -17,9 +17,9 @@
 - **String host primitives no longer truncate at ~4 KB** (GWP-528).
   `string-length`, `string-ref`, `substring`, `string-append`/`str`, and `repr`
   copied through a fixed 4 KB C buffer, so any string past ~4095 bytes was
-  silently clipped — even though `slurp` reads larger files. They now stream the
-  value through `fe_write` to measure its real length, then size a heap buffer to
-  fit. Core `split`/`join` (built on these) are fixed as a consequence.
+  silently clipped — even though `read-file` reads larger files. They now stream
+  the value through `fe_write` to measure its real length, then size a heap
+  buffer to fit. Core `split`/`join` (built on these) are fixed as a consequence.
 
 ### Changed
 - **`kec test` with no file arguments now runs the whole conformance suite**
@@ -45,12 +45,12 @@
   `(list-dir path)` → entry names (excluding `.`/`..`) via `readdir`, raising a
   catchable error on an unopenable directory; `(getenv name)` → string or nil.
   **FULL profile only**, gated and asserted like the rest of the file/sys set.
-- **`spit` / `spit-append`** — file output, the write-side counterpart to
-  `slurp` (GWP-529). `(spit path value)` creates/overwrites; `(spit-append path
-  value)` appends. The value is stringified the writer's way (like `princ`/`str`),
-  writes past 4 KB are byte-exact, and I/O failures raise a catchable error
-  rather than calling `exit`. **FULL profile only** — gated exactly like `slurp`,
-  asserted by the C profile-gating test.
+- **`write-file` / `append-file`** — file output, the write-side counterpart to
+  `read-file` (GWP-529). `(write-file path value)` creates/overwrites;
+  `(append-file path value)` appends. The value is stringified the writer's way
+  (like `princ`/`str`), writes past 4 KB are byte-exact, and I/O failures raise
+  a catchable error rather than calling `exit`. **FULL profile only** — gated
+  exactly like `read-file`, asserted by the C profile-gating test.
 - **`kec_open_with_arena(buf, size, profile)`** — open an interpreter on a
   caller-provided arena with no malloc of the arena, for embedders that avoid
   the heap (the KN-86 device). Same lifecycle as `kec_open`; returns NULL

@@ -66,7 +66,7 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/hof.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/str.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/bigstr.lsp
-  ${CMAKE_SOURCE_DIR}/tests/core/spit.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/fileio.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fsenv.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/applyread.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/sort.lsp

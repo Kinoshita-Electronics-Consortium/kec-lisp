@@ -1,10 +1,10 @@
 ;; csv-roundtrip — end-to-end proof for the standalone-scripting essentials
 ;; (GWP-527): generate a CSV larger than the old 4 KB string ceiling, write it
-;; with spit, read it back with slurp, parse rows with split, sort the rows by a
-;; numeric column with the new Core sort, add a derived column, and write the
-;; result back out — then read THAT back and verify.
+;; with write-file, read it back with read-file, parse rows with split, sort the
+;; rows by a numeric column with the new Core sort, add a derived column, and
+;; write the result back out — then read THAT back and verify.
 ;;
-;; Exercises together: GWP-528 (no 4 KB truncation), GWP-529 (spit), and
+;; Exercises together: GWP-528 (no 4 KB truncation), GWP-529 (write-file), and
 ;; GWP-532 (sort). Run with:  kec run examples/csv-roundtrip.lsp
 
 (let nl "\n")
@@ -28,9 +28,9 @@
 (princ "generated CSV bytes: ") (princ (string-length csv)) (newline)
 
 ;; --- 2. Write it out, then read it back. The size proves no 4 KB clip. ---
-(spit in-path csv)
-(let back (slurp in-path))
-(princ "slurped back bytes:  ") (princ (string-length back)) (newline)
+(write-file in-path csv)
+(let back (read-file in-path))
+(princ "read back bytes:      ") (princ (string-length back)) (newline)
 (if (is (string-length back) (string-length csv))
     (princ "round-trip byte count: OK")
     (princ "round-trip byte count: MISMATCH"))
@@ -61,10 +61,10 @@
 
 ;; --- 6. Write the transformed CSV out. ---
 (let out-csv (str "id,score,label,rank" nl (join ranked nl) nl))
-(spit out-path out-csv)
+(write-file out-path out-csv)
 
 ;; --- 7. Read the result back and verify the transform. ---
-(let result (slurp out-path))
+(let result (read-file out-path))
 (let result-lines (split result nl))
 (let first-data (split (nth result-lines 1) ","))   ; first data row after header
 (let last-idx (- (length ranked) 1))

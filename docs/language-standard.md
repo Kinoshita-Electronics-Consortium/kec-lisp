@@ -55,8 +55,8 @@ iteratively. Enumerated in the
 **Host primitives** are C functions that need only the C library — `type-of`,
 math, string ops, I/O, and a few system calls — bound per
 [profile](/kec-lisp/ffi-bridge/#4-capability-tiers): `SANDBOX` is the portable
-set; `FULL` adds `load` / `slurp` / `args` / `exit`. Enumerated in the
-[Language Reference §4](/kec-lisp/language/#4-c-primitives-host).
+set; `FULL` adds `load`, file I/O, environment, `args`, and `exit`. Enumerated
+in the [Language Reference §4](/kec-lisp/language/#4-c-primitives-host).
 
 ## The FFI bridge
 

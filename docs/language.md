@@ -143,7 +143,7 @@ adds the file and system primitives; `SANDBOX` leaves them out.
 | I/O | `princ` `newline` `repr` | both |
 | Sys | `rand` `rand-int` `clock` | both |
 | Control | `try` `apply` `read-string` | both |
-| File/Sys | `load` `slurp` `spit` `spit-append` `file-exists?` `list-dir` `getenv` `args` `exit` | **FULL only** |
+| File/Sys | `load` `read-file` `write-file` `append-file` `file-exists?` `list-dir` `getenv` `args` `exit` | **FULL only** |
 
 - `(type-of x)` → `:pair`/`:nil`/`:number`/`:symbol`/`:string`/`:fn`/`:macro`/`:prim`/`:cfunc`/`:ptr`.
 - `(number->string n [radix])` — radix defaults to 10; 2/8/16 supported.
@@ -157,14 +157,14 @@ adds the file and system primitives; `SANDBOX` leaves them out.
 - `(read-string s)` parses the **first** s-expression of `s` and returns it
   **without evaluating** — `(read-string "(1 2 3)")` → the list `(1 2 3)`,
   `"42"` → `42`, `"foo"` → the symbol `foo`. It is the reader, not `eval`: the
-  form is returned as data and nothing runs (so reading a `(spit …)` form writes
-  no file). Empty input → `nil`.
+  form is returned as data and nothing runs (so reading a `(write-file …)` form
+  writes no file). Empty input → `nil`.
 - `(load "path")` reads and evaluates a file in the current context.
-- `(spit path value)` writes `value` (stringified the writer's way, like
-  `princ`/`str`) to `path`, creating or **overwriting** it. `(spit-append path
+- `(write-file path value)` writes `value` (stringified the writer's way, like
+  `princ`/`str`) to `path`, creating or **overwriting** it. `(append-file path
   value)` appends instead, creating the file if absent. Both return a truthy
   value on success and raise a catchable error (never `exit`) on an I/O failure.
-  Round-trips with `slurp`. **FULL only** — a sandboxed context cannot write
+  Round-trips with `read-file`. **FULL only** — a sandboxed context cannot write
   files.
 - `(file-exists? path)` → truthy if `path` exists, else `nil`. `(list-dir path)`
   → a list of the directory's entry names (`.` and `..` excluded; order

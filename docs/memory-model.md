@@ -80,5 +80,5 @@ indices are exact only within ±2²⁴.
 
 A context's [profile](/kec-lisp/ffi-bridge/#4-capability-tiers) (`KEC_PROFILE_FULL`
 vs `KEC_PROFILE_SANDBOX`) decides *which primitives* are bound into it — e.g.
-`FULL` adds `load` / `slurp` / `args` / `exit`. It does not change the arena
-model: every profile is one context, one arena, the same reset semantics.
+`FULL` adds file and system primitives. It does not change the arena model:
+every profile is one context, one arena, the same reset semantics.

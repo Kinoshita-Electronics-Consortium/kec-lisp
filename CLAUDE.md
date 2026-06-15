@@ -84,9 +84,8 @@ suite can't reach.
 ### Profiles = capability tiers
 
 `kec_Profile` (`host/host.h`) is which primitives a context gets:
-`KEC_PROFILE_FULL` adds file/system primitives (`load`, `slurp`, `exit`, `args`)
-on top of `KEC_PROFILE_SANDBOX`. What you bind into a context is what it's
-allowed to do.
+`KEC_PROFILE_FULL` adds file/system primitives on top of
+`KEC_PROFILE_SANDBOX`. What you bind into a context is what it's allowed to do.
 
 ### Extending with C primitives (the FFI seam)
 
