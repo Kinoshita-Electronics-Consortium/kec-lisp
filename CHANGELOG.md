@@ -14,6 +14,14 @@
   is updated to key off the `:error` car, so the suite stays green.
 
 ### Fixed
+- **Buffer overflow in string escape handler at EOF** (upstream rxi/fe issue #34).
+  A backslash at the very end of input (e.g. `(read-string "\"\\")` or a
+  truncated cart file) caused `strchr("nrt", '\0')` to match the NUL terminator
+  of the lookup string, then `strchr("n\nr\rt\t", '\0')[1]` to read one byte past
+  the end of that global string. Added an explicit `fe_error("unclosed string")`
+  check after the inner `chr = fn()` call, consistent with the guard already
+  present at the top of the string-reading loop. Covered by a new
+  `kernel/string-escape-eof` test.
 - **`fe_write()` no longer crashes or loops infinitely on circular structures**
   (upstream rxi/fe PR #22). A user at the REPL can construct a circular list
   with `setcar`/`setcdr`; the old code followed the cycle forever, causing a
@@ -111,6 +119,7 @@ First standalone release, split out from the KN-86 emulator.
 - `fe_write()` is safe on circular structures (upstream PR #22).
 - Comment parser terminates on `\r` as well as `\n` (upstream PR #25).
 - `fe_savegc` in `fe_open()` precedes the `t` symbol allocation (upstream PR #25).
+- String escape handler guards against EOF after backslash (upstream issue #34).
 
 ### Notes
 - `kec build` isn't a compiler — Fe is a tree-walking interpreter. It inlines

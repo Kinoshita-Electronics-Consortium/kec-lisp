@@ -31,3 +31,7 @@
 
 (deftest "kernel/error-recovers"
   (check-err (car 5)))            ; calling car on a non-pair raises
+
+(deftest "kernel/string-escape-eof"
+  ; backslash at EOF in a string must raise "unclosed string", not overflow
+  (check-err (read-string "\"\\")))
