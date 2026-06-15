@@ -121,6 +121,11 @@ foreach(t ${SUITE_SRCS})
   add_test(NAME ${name} COMMAND kec test ${t})
 endforeach()
 
+add_test(NAME tests/examples/black-ice-trace.lsp
+  COMMAND kec test ${CMAKE_SOURCE_DIR}/tests/examples/black-ice-trace.lsp)
+set_tests_properties(tests/examples/black-ice-trace.lsp PROPERTIES
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 # `kec test` with no arguments runs the whole suite baked into the binary.
 # The regex doubles as the assertion: at least one check ran, none failed.
 add_test(NAME cli/test-default COMMAND kec test)
