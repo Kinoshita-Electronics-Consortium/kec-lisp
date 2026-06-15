@@ -354,7 +354,7 @@ static void writestr(fe_Context *ctx, fe_WriteFn fn, void *udata, const char *s)
   while (*s) { fn(ctx, udata, *s++); }
 }
 
-void fe_write(fe_Context *ctx, fe_Object *obj, fe_WriteFn fn, void *udata, int qt) {
+static void write_(fe_Context *ctx, fe_Object *obj, fe_WriteFn fn, void *udata, int qt) {
   char buf[32];
 
   switch (type(obj)) {
@@ -368,22 +368,26 @@ void fe_write(fe_Context *ctx, fe_Object *obj, fe_WriteFn fn, void *udata, int q
       break;
 
     case FE_TPAIR:
+      if (tag(obj) & GCMARKBIT) { writestr(ctx, fn, udata, "..."); break; }
       fn(ctx, udata, '(');
       for (;;) {
-        fe_write(ctx, car(obj), fn, udata, 1);
+        fe_Object *tmp = car(obj);
+        tag(obj) |= GCMARKBIT;
+        write_(ctx, tmp, fn, udata, 1);
         obj = cdr(obj);
         if (type(obj) != FE_TPAIR) { break; }
         fn(ctx, udata, ' ');
+        if (tag(obj) & GCMARKBIT) { writestr(ctx, fn, udata, "..."); break; }
       }
-      if (!isnil(obj)) {
+      if (!isnil(obj) && !(tag(obj) & GCMARKBIT)) {
         writestr(ctx, fn, udata, " . ");
-        fe_write(ctx, obj, fn, udata, 1);
+        write_(ctx, obj, fn, udata, 1);
       }
       fn(ctx, udata, ')');
       break;
 
     case FE_TSYMBOL:
-      fe_write(ctx, car(cdr(obj)), fn, udata, 0);
+      write_(ctx, car(cdr(obj)), fn, udata, 0);
       break;
 
     case FE_TSTRING:
@@ -404,6 +408,18 @@ void fe_write(fe_Context *ctx, fe_Object *obj, fe_WriteFn fn, void *udata, int q
       writestr(ctx, fn, udata, buf);
       break;
   }
+}
+
+static void unmarkpairs(fe_Object *obj) {
+  for (; !isnil(obj) && (tag(obj) & GCMARKBIT); obj = cdr(obj)) {
+    tag(obj) &= ~GCMARKBIT;
+    unmarkpairs(car(obj));
+  }
+}
+
+void fe_write(fe_Context *ctx, fe_Object *obj, fe_WriteFn fn, void *udata, int qt) {
+  write_(ctx, obj, fn, udata, qt);
+  unmarkpairs(obj);
 }
 
 
@@ -485,7 +501,7 @@ static fe_Object* read_(fe_Context *ctx, fe_ReadFn fn, void *udata) {
       return NULL;
 
     case ';':
-      while (chr && chr != '\n') { chr = fn(ctx, udata); }
+      while (chr && chr != '\n' && chr != '\r') { chr = fn(ctx, udata); }
       return read_(ctx, fn, udata);
 
     case ')':
@@ -868,11 +884,11 @@ fe_Context* fe_open(void *ptr, int size) {
   }
 
   /* init objects */
+  save = fe_savegc(ctx);
   ctx->t = fe_symbol(ctx, "t");
   fe_set(ctx, ctx->t, ctx->t);
 
   /* register built in primitives */
-  save = fe_savegc(ctx);
   for (i = 0; i < P_MAX; i++) {
     fe_Object *v = object(ctx);
     settype(v, FE_TPRIM);

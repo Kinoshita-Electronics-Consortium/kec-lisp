@@ -14,6 +14,20 @@
   is updated to key off the `:error` car, so the suite stays green.
 
 ### Fixed
+- **`fe_write()` no longer crashes or loops infinitely on circular structures**
+  (upstream rxi/fe PR #22). A user at the REPL can construct a circular list
+  with `setcar`/`setcdr`; the old code followed the cycle forever, causing a
+  stack overflow or hang. The fix borrows `GCMARKBIT` during traversal to detect
+  cycles and prints `...` in their place, then immediately clears the marks.
+- **Comments terminated by `\r` now parse correctly** (upstream rxi/fe PR #25
+  partial). Source files with Windows-style `\r\n` line endings had their `\r`
+  swallowed into the next token after a `;` comment, corrupting the parse. The
+  comment-skip loop now stops on either `\n` or `\r`.
+- **GC save in `fe_open()` now covers the `t` symbol** (upstream rxi/fe PR #25
+  partial). `fe_savegc` was called after `fe_symbol(ctx, "t")`, so a GC cycle
+  triggered by that allocation could theoretically collect the freshly created
+  `t` object before it was stored in `ctx->t`. The save now precedes the
+  allocation.
 - **String host primitives no longer truncate at ~4 KB** (GWP-528).
   `string-length`, `string-ref`, `substring`, `string-append`/`str`, and `repr`
   copied through a fixed 4 KB C buffer, so any string past ~4095 bytes was
@@ -94,6 +108,9 @@ First standalone release, split out from the KN-86 emulator.
 - `GCSTACKSIZE` is compile-time configurable (default 256). The desktop build
   raises it to 8192 so recursive code has headroom; hosts that vendor the
   kernel can keep 256.
+- `fe_write()` is safe on circular structures (upstream PR #22).
+- Comment parser terminates on `\r` as well as `\n` (upstream PR #25).
+- `fe_savegc` in `fe_open()` precedes the `t` symbol allocation (upstream PR #25).
 
 ### Notes
 - `kec build` isn't a compiler — Fe is a tree-walking interpreter. It inlines
