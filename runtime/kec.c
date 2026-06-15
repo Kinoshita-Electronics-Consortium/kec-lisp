@@ -124,6 +124,66 @@ static fe_Object *h_load(fe_Context *ctx, fe_Object *args) {
     return fe_bool(ctx, 0);
 }
 
+/* (apply f arglist) — call f with the elements of arglist as its arguments.
+**
+** Built at the Lisp level, not by patching the frozen kernel: we synthesize the
+** call form (f (quote a1) (quote a2) ...) and fe_eval it. Quoting each element
+** makes the already-evaluated argument values pass through unevaluated, and
+** putting the function object itself in operator position works because eval of
+** a non-symbol / non-pair returns it as-is — so f may be a cfunc, a closure, or
+** a kernel primitive uniformly. No kernel change required. */
+static fe_Object *h_apply(fe_Context *ctx, fe_Object *args) {
+    fe_Object *fn = fe_nextarg(ctx, &args);
+    fe_Object *arglist = fe_nextarg(ctx, &args);
+    fe_Object *quote = fe_symbol(ctx, "quote");
+    fe_Object *nil = fe_bool(ctx, 0);
+    fe_Object *rev = nil;   /* quoted args, reversed */
+    fe_Object *call = nil;  /* the final (fn (quote a1) ...) form */
+    int gc = fe_savegc(ctx);
+
+    /* Pass 1: build the quoted-arg list, reversed. cons grows at the head, so
+    ** no cdr mutation is needed (fe.h exposes no public setcdr). */
+    fe_pushgc(ctx, rev);
+    while (!fe_isnil(ctx, arglist)) {
+        /* (quote elem) keeps the already-evaluated value from re-evaluating. */
+        fe_Object *q = fe_cons(ctx, quote,
+                               fe_cons(ctx, fe_nextarg(ctx, &arglist), nil));
+        rev = fe_cons(ctx, q, rev);
+        fe_restoregc(ctx, gc);
+        fe_pushgc(ctx, rev);
+    }
+    /* Pass 2: reverse rev back to source order, then cons fn on the front.
+    ** Result: (fn (quote a1) (quote a2) ...). Putting the function object itself
+    ** in operator position works because eval of a non-symbol / non-pair returns
+    ** it as-is — so fn may be a cfunc, a closure, or a kernel primitive. */
+    while (!fe_isnil(ctx, rev)) {
+        call = fe_cons(ctx, fe_car(ctx, rev), call);
+        rev = fe_cdr(ctx, rev);
+    }
+    call = fe_cons(ctx, fn, call);
+    {
+        fe_Object *res = fe_eval(ctx, call);
+        fe_restoregc(ctx, gc);
+        fe_pushgc(ctx, res);
+        return res;
+    }
+}
+
+/* (read-string s) — parse the FIRST s-expression of s and return it, WITHOUT
+** evaluating it. Pure reader: the deliberate "no eval from Lisp" stance holds —
+** this hands back the parsed datum, nothing runs. Empty / blank input -> nil. */
+static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
+    char buf[4096];
+    StrReader r;
+    fe_Object *form;
+    fe_tostring(ctx, fe_nextarg(ctx, &args), buf, sizeof buf);
+    r.s = buf;
+    r.i = 0;
+    form = fe_read(ctx, str_readfn, &r);
+    if (form == NULL) { return fe_bool(ctx, 0); } /* EOF -> nil */
+    return form;
+}
+
 /* (try thunk) — call (thunk); return its value, or :error if it raised. */
 static fe_Object *h_try(fe_Context *ctx, fe_Object *args) {
     fe_Object *thunk = fe_nextarg(ctx, &args);
@@ -188,6 +248,8 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
     ** string ops call type-of / mod / gensym / string-*. */
     kec_host_register(S->ctx, profile);
     kec_bind_fe(S->ctx, "try", h_try);
+    kec_bind_fe(S->ctx, "apply", h_apply);
+    kec_bind_fe(S->ctx, "read-string", h_read_string);
     if (profile == KEC_PROFILE_FULL) { kec_bind_fe(S->ctx, "load", h_load); }
 
     /* Load Core (the standard library, written in KEC Lisp). A failure here

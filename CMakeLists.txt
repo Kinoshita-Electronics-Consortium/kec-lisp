@@ -66,7 +66,8 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/str.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/bigstr.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/spit.lsp
-  ${CMAKE_SOURCE_DIR}/tests/core/fsenv.lsp)
+  ${CMAKE_SOURCE_DIR}/tests/core/fsenv.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/applyread.lsp)
 
 add_custom_command(
   OUTPUT ${GEN_DIR}/kec_suite_embed.h

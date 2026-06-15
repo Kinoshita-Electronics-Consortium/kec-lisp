@@ -131,13 +131,21 @@ adds the file and system primitives; `SANDBOX` leaves them out.
 | String | `string-length` `string-ref` `substring` `string-append` `char->string` `number->string` `string->number` `symbol->string` `string->symbol` | both |
 | I/O | `princ` `newline` `repr` | both |
 | Sys | `rand` `rand-int` `clock` | both |
-| Control | `try` | both |
+| Control | `try` `apply` `read-string` | both |
 | File/Sys | `load` `slurp` `spit` `spit-append` `file-exists?` `list-dir` `getenv` `args` `exit` | **FULL only** |
 
 - `(type-of x)` → `:pair`/`:nil`/`:number`/`:symbol`/`:string`/`:fn`/`:macro`/`:prim`/`:cfunc`/`:ptr`.
 - `(number->string n [radix])` — radix defaults to 10; 2/8/16 supported.
 - `(try thunk)` → the value of `(thunk)`, or `:error` if it raised. `check-err`
   in the test harness is built on it.
+- `(apply f arglist)` calls `f` with the elements of `arglist` as its arguments
+  — `(apply + (list 1 2 3))` → `6`. `f` may be a closure, a host primitive, or a
+  kernel primitive; `arglist` may be `nil` (call with no args).
+- `(read-string s)` parses the **first** s-expression of `s` and returns it
+  **without evaluating** — `(read-string "(1 2 3)")` → the list `(1 2 3)`,
+  `"42"` → `42`, `"foo"` → the symbol `foo`. It is the reader, not `eval`: the
+  form is returned as data and nothing runs (so reading a `(spit …)` form writes
+  no file). Empty input → `nil`.
 - `(load "path")` reads and evaluates a file in the current context.
 - `(spit path value)` writes `value` (stringified the writer's way, like
   `princ`/`str`) to `path`, creating or **overwriting** it. `(spit-append path

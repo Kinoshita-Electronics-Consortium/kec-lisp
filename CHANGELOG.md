@@ -19,6 +19,12 @@
   same source list the binary embeds, so the two can't drift.
 
 ### Added
+- **`apply` / `read-string`** — language-level, available in every profile
+  (GWP-531). `(apply f arglist)` calls `f` with the elements of `arglist`; it's
+  built by synthesizing a quoted call form and `fe_eval`-ing it, so the frozen
+  kernel is untouched. `(read-string s)` parses the first s-expression of `s`
+  with the existing reader and returns it **unevaluated** — a reader, not `eval`,
+  preserving the "no eval from Lisp" stance.
 - **`file-exists?` / `list-dir` / `getenv`** — filesystem and environment
   introspection (GWP-530). `(file-exists? path)` → truthy/nil via `stat`;
   `(list-dir path)` → entry names (excluding `.`/`..`) via `readdir`, raising a
