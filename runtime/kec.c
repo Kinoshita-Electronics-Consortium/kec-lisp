@@ -184,7 +184,10 @@ static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
     return form;
 }
 
-/* (try thunk) — call (thunk); return its value, or :error if it raised. */
+/* (try thunk) — call (thunk); return its value, or, if it raised, the pair
+** (:error . "message") — car is the :error symbol (so failure stays recognizable
+** via (car r)) and cdr is the message the error handler captured in S->errmsg
+** (GWP-532). check-err in the test harness keys off the :error car. */
 static fe_Object *h_try(fe_Context *ctx, fe_Object *args) {
     fe_Object *thunk = fe_nextarg(ctx, &args);
     kec_State *S = g_state;
@@ -194,7 +197,8 @@ static fe_Object *h_try(fe_Context *ctx, fe_Object *args) {
     if (setjmp(S->recover[slot])) {
         S->depth = slot;
         fe_restoregc(ctx, gc);
-        return fe_symbol(ctx, ":error");
+        /* errmsg was just set by on_error before it longjmp'd here. */
+        return fe_cons(ctx, fe_symbol(ctx, ":error"), fe_string(ctx, S->errmsg));
     }
     S->depth = slot + 1;
     {

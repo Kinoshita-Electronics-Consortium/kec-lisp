@@ -117,6 +117,13 @@ tests use the host `type-of` primitive.
 `str` (variadic stringify-concat) `join` `split` `format`. `format` directives:
 `%d`/`%u` decimal, `%x` hex, `%c` char code, `%s` any, `%%` literal.
 
+### 3.8 `sort` — ordering
+`(sort xs less?)` → a new list with the elements of `xs` ordered by the binary
+predicate `less?` (`(less? a b)` truthy when `a` precedes `b`). The input is not
+mutated. It's a **stable** sort — equal elements keep their original relative
+order — implemented as an iterative, bottom-up merge sort, so a long list (1000+
+elements) won't exhaust the GC root stack.
+
 ---
 
 ## 4. C primitives (host)
@@ -136,8 +143,10 @@ adds the file and system primitives; `SANDBOX` leaves them out.
 
 - `(type-of x)` → `:pair`/`:nil`/`:number`/`:symbol`/`:string`/`:fn`/`:macro`/`:prim`/`:cfunc`/`:ptr`.
 - `(number->string n [radix])` — radix defaults to 10; 2/8/16 supported.
-- `(try thunk)` → the value of `(thunk)`, or `:error` if it raised. `check-err`
-  in the test harness is built on it.
+- `(try thunk)` → the value of `(thunk)` on success, or the pair
+  `(:error . "message")` if it raised — `car` is the `:error` symbol (so failure
+  is recognizable via `(car r)`) and `cdr` is the captured error string.
+  `check-err` in the test harness keys off the `:error` car.
 - `(apply f arglist)` calls `f` with the elements of `arglist` as its arguments
   — `(apply + (list 1 2 3))` → `6`. `f` may be a closure, a host primitive, or a
   kernel primitive; `arglist` may be `nil` (call with no args).
@@ -168,7 +177,10 @@ adds the file and system primitives; `SANDBOX` leaves them out.
   and is re-evaluated.
 - **Errors** route through `fe_error`. The runtime installs a recovery handler
   that unwinds to the nearest guard (the REPL prompt, a script boundary, or a
-  `(try …)`) instead of exiting. `(try …)` is the Lisp-visible catch.
+  `(try …)`) instead of exiting. `(try …)` is the Lisp-visible catch: it returns
+  the thunk's value on success, or `(:error . "message")` on failure — detect a
+  failure with `(and (pair? r) (is (car r) ':error))` and read the message from
+  `(cdr r)`.
 
 ---
 

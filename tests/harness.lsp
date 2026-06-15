@@ -30,9 +30,13 @@
   (list '%check expr (repr expr))))
 
 ;; (check-err expr) — expr must raise an error.
+;; (try ...) returns the value on success, or (:error . "message") on failure
+;; (GWP-532). Failure is "a pair whose car is :error", which never collides with
+;; a successfully-returned value (a bare :error symbol is an atom, not a pair).
+(set %error? (fn (r) (and (pair? r) (is (car r) ':error))))
 (set check-err (mac (expr)
   (list '%check
-        (list 'is (list 'try (list 'fn nil expr)) '':error)
+        (list '%error? (list 'try (list 'fn nil expr)))
         (str "expected error: " (repr expr)))))
 
 (defn test-report ()

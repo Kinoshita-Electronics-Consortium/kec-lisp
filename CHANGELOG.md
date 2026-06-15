@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+- **`try` now surfaces the error message** (GWP-532). On failure it returns the
+  pair `(:error . "message")` instead of a bare `:error` symbol — `car` is the
+  `:error` symbol (failure stays recognizable) and `cdr` is the captured error
+  string. Success still returns the thunk's value. The test harness's `check-err`
+  is updated to key off the `:error` car, so the suite stays green.
+
 ### Fixed
 - **String host primitives no longer truncate at ~4 KB** (GWP-528).
   `string-length`, `string-ref`, `substring`, `string-append`/`str`, and `repr`
@@ -19,6 +26,10 @@
   same source list the binary embeds, so the two can't drift.
 
 ### Added
+- **`sort`** — a Core function: `(sort xs less?)` returns a new list ordered by
+  the binary predicate, leaving the input unmutated (GWP-532). Stable, iterative,
+  bottom-up merge sort — GC-stack-safe on a 1000+ element list. Lives in the new
+  `core/70-sort.lsp` module.
 - **`apply` / `read-string`** — language-level, available in every profile
   (GWP-531). `(apply f arglist)` calls `f` with the elements of `arglist`; it's
   built by synthesizing a quoted call form and `fe_eval`-ing it, so the frozen
