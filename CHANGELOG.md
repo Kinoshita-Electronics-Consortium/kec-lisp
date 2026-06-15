@@ -60,6 +60,8 @@
   same source list the binary embeds, so the two can't drift.
 
 ### Added
+- **`macroexpand-1`** — inspect one symbolic macro call without evaluating or
+  recursively expanding the result. Non-macro forms are returned unchanged.
 - **Small error vocabulary** — Core now exposes `error`, `error?`, and
   `error-message` for the tagged error values returned by `try`; the runtime
   adds catchable `(raise message)` for script-authored failures.

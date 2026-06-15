@@ -145,7 +145,7 @@ static void test_profile_gating(void) {
     static const char *removed[] = { "slurp", "spit", "spit-append" };
     static const char *always[] = {
         "str", "string-length", "try", "raise", "apply", "read-string",
-        "provide", "provided?"
+        "macroexpand-1", "provide", "provided?"
     };
     size_t i;
 

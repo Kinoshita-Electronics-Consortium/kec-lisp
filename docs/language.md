@@ -179,7 +179,7 @@ out.
 | String | `string-length` `string-ref` `substring` `string-append` `char->string` `number->string` `string->number` `symbol->string` `string->symbol` | both |
 | I/O | `princ` `newline` `repr` | both |
 | Sys | `rand` `rand-int` `clock` | both |
-| Control | `try` `raise` `apply` `read-string` `provide` `provided?` | both |
+| Control | `try` `raise` `apply` `read-string` `macroexpand-1` `provide` `provided?` | both |
 | File/Sys | `load` `require` `read-file` `write-file` `append-file` `file-exists?` `list-dir` `getenv` `args` `exit` | **FULL only** |
 
 - `(type-of x)` → `:pair`/`:nil`/`:number`/`:symbol`/`:string`/`:fn`/`:macro`/`:prim`/`:cfunc`/`:ptr`.
@@ -197,6 +197,10 @@ out.
   `"42"` → `42`, `"foo"` → the symbol `foo`. It is the reader, not `eval`: the
   form is returned as data and nothing runs (so reading a `(write-file …)` form
   writes no file). Empty input → `nil`.
+- `(macroexpand-1 form)` expands one symbolic macro call and returns the
+  expansion, or returns `form` unchanged if it is not a macro call. Quote the
+  form you want to inspect: `(macroexpand-1 '(when 1 2))`. It does **not**
+  recursively expand macros in the expansion.
 - `(load "path")` reads and evaluates a file in the current context.
 - `(provide feature)` records a feature as present and returns it.
   `(provided? feature)` tests that registry. `(require key [path])` is

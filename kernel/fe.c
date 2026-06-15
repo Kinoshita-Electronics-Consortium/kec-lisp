@@ -842,6 +842,36 @@ fe_Object* fe_eval(fe_Context *ctx, fe_Object *obj) {
 }
 
 
+fe_Object* fe_macroexpand1(fe_Context *ctx, fe_Object *obj) {
+  fe_Object *fn, *va, *vb, *res;
+  fe_Object cl;
+  int gc;
+
+  if (type(obj) != FE_TPAIR || type(car(obj)) != FE_TSYMBOL) {
+    return obj;
+  }
+
+  car(&cl) = obj, cdr(&cl) = ctx->calllist;
+  ctx->calllist = &cl;
+
+  gc = fe_savegc(ctx);
+  fe_pushgc(ctx, obj);
+  fn = eval(ctx, car(obj), &nil, NULL);
+  res = obj;
+
+  if (type(fn) == FE_TMACRO) {
+    va = cdr(fn); /* (env params ...) */
+    vb = cdr(va); /* (params ...) */
+    res = dolist(ctx, cdr(vb), argstoenv(ctx, car(vb), cdr(obj), car(va)));
+  }
+
+  fe_restoregc(ctx, gc);
+  fe_pushgc(ctx, res);
+  ctx->calllist = cdr(&cl);
+  return res;
+}
+
+
 /* ---------- GWP-248: instruction-budget API (default-off) ----------- */
 
 void fe_set_instr_budget(fe_Context *ctx, int budget) {

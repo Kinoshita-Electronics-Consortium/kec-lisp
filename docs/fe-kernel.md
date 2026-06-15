@@ -104,6 +104,10 @@ Macros expand **in-place**: `eval` overwrites the call-site `fe_Object` with the
 
 Practical consequence: a macro called inside a loop expands on the first iteration and the loop then runs the expanded code with no further macro overhead. The original source list at the call site is destroyed by the expansion.
 
+`macroexpand-1` uses the same macro closure representation but does **not**
+mutate the form it receives. It expands only one symbolic macro call and returns
+non-macro forms unchanged.
+
 ---
 
 ## Known constraints (inherited from upstream Fe)
