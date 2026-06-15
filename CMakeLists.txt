@@ -36,6 +36,7 @@ set(CORE_SRCS
   ${CMAKE_SOURCE_DIR}/core/20-cmp.lsp
   ${CMAKE_SOURCE_DIR}/core/25-alist.lsp
   ${CMAKE_SOURCE_DIR}/core/30-pred.lsp
+  ${CMAKE_SOURCE_DIR}/core/35-error.lsp
   ${CMAKE_SOURCE_DIR}/core/40-ctrl.lsp
   ${CMAKE_SOURCE_DIR}/core/45-quasiquote.lsp
   ${CMAKE_SOURCE_DIR}/core/50-hof.lsp
@@ -65,6 +66,7 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/cmp.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/alist.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/pred.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/error.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/ctrl.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/quasiquote.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/hof.lsp

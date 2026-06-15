@@ -143,7 +143,10 @@ static void test_profile_gating(void) {
         "getenv", "args", "exit", "load", "require"
     };
     static const char *removed[] = { "slurp", "spit", "spit-append" };
-    static const char *always[] = { "str", "string-length", "provide", "provided?" };
+    static const char *always[] = {
+        "str", "string-length", "try", "raise", "apply", "read-string",
+        "provide", "provided?"
+    };
     size_t i;
 
     kec_State *full = kec_open_with_arena(g_arena, sizeof g_arena, KEC_PROFILE_FULL);
