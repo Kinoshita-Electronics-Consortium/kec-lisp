@@ -57,6 +57,7 @@ void fe_set(fe_Context *ctx, fe_Object *sym, fe_Object *v);
 fe_Object* fe_read(fe_Context *ctx, fe_ReadFn fn, void *udata);
 fe_Object* fe_readfp(fe_Context *ctx, FILE *fp);
 fe_Object* fe_eval(fe_Context *ctx, fe_Object *obj);
+fe_Object* fe_macroexpand1(fe_Context *ctx, fe_Object *obj);
 
 /*
  * GWP-248: Optional instruction-budget enforcement.

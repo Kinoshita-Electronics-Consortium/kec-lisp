@@ -297,7 +297,7 @@ The `kec` CLI uses `FULL`.
 | String | `string-length`, `string-ref`, `substring`, `string-append`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` | both |
 | I/O | `princ`, `newline`, `repr` | both |
 | System | `rand`, `rand-int`, `clock` | both |
-| Control | `try`, `raise`, `apply`, `read-string`, `provide`, `provided?` | both |
+| Control | `try`, `raise`, `apply`, `read-string`, `macroexpand-1`, `provide`, `provided?` | both |
 | File/System | `load`, `require`, `read-file`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` | `FULL` only |
 
 Common host forms:
@@ -306,17 +306,18 @@ Common host forms:
 |---|---|
 | `(type-of x)` | Return `:pair`, `:nil`, `:number`, `:symbol`, `:string`, `:fn`, `:macro`, `:prim`, `:cfunc`, or `:ptr`. |
 | `(number->string n [radix])` | Convert a number to a string. Radix defaults to 10; 2, 8, and 16 are supported. |
-| `(try thunk)` | Run `(thunk)`. Return its value, or an error value on failure. |
-| `(raise message)` | Raise a catchable script error. |
-| `(apply f arglist)` | Call `f` with the elements of `arglist`. |
-| `(read-string s)` | Parse the first s-expression in `s` and return it as data. |
+| `(try thunk)` | Run `(thunk)`. Return its value, or an error value `(:error . "message")` on failure. |
+| `(raise message)` | Raise a catchable script error. `message` is stringified before it reaches the runtime error handler. |
+| `(apply f arglist)` | Call `f` with the elements of `arglist`; `f` may be a closure, host primitive, or kernel primitive. |
+| `(read-string s)` | Parse the first s-expression in `s` and return it as data, without evaluating it. Empty input returns `nil`. |
+| `(macroexpand-1 form)` | Expand one symbolic macro call, or return `form` unchanged. Quote the form to inspect: `(macroexpand-1 '(when 1 2))`. |
 | `(load path)` | Read and evaluate a file. `FULL` only. |
 | `(provide feature)` / `(provided? feature)` | Mark and query loaded features. |
 | `(require key [path])` | Load a feature once. `FULL` only. |
 | `(read-file path)` | Return file contents as a string. `FULL` only. |
-| `(write-file path value)` / `(append-file path value)` | Write or append a stringified value. `FULL` only. |
+| `(write-file path value)` / `(append-file path value)` | Write or append a stringified value. Both raise a catchable error on I/O failure. `FULL` only. |
 | `(file-exists? path)` | Truthy if a path exists. `FULL` only. |
-| `(list-dir path)` | Return directory entry names. `FULL` only. |
+| `(list-dir path)` | Return directory entry names, excluding `.` and `..`; order is unspecified. `FULL` only. |
 | `(getenv name)` | Return an environment value or `nil`. `FULL` only. |
 
 ## Errors
@@ -362,5 +363,5 @@ and [Memory Model](/kec-lisp/memory-model/).
 | Comparison/predicates | `=`, `==`, `/=`, `equal?`, `>`, `>=`, `zero?`, `positive?`, `negative?`, `nil?`, `pair?`, `even?`, `odd?`, `number?`, `symbol?`, `string?`, `fn?` |
 | Higher-order | `map`, `filter`, `remove`, `fold-left`, `fold-right`, `for-each`, `find`, `any?`, `every?`, `count` |
 | Strings | `str`, `join`, `split`, `format`, `string-length`, `string-ref`, `substring`, `string-append`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` |
-| Errors/loading | `try`, `raise`, `error`, `error?`, `error-message`, `provide`, `provided?`, `require`, `load` |
+| Errors/loading | `try`, `raise`, `macroexpand-1`, `error`, `error?`, `error-message`, `provide`, `provided?`, `require`, `load` |
 | Full-profile file/system | `read-file`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` |
