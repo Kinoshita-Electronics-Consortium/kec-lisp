@@ -36,12 +36,15 @@ hero:
 
 ## What it is
 
-KEC Lisp is [Fe](https://github.com/rxi/fe) — rxi's tiny Lisp — plus a standard
-library written in Lisp (`core/`) and a handful of portable C primitives
-(`host/`). It ships as the interpreter, the library, a `kec` command-line tool,
-and a test suite. The KN-86 firmware vendors it as a library and registers the
-device primitives (graphics, sound, save state, missions, the CIPHER voice) on
-top through the same FFI seam — none of that is here. This is just the language.
+KEC Lisp is built on [Fe](https://github.com/rxi/fe) — rxi's tiny Lisp — plus a
+standard library written in Lisp (`core/`) and a handful of portable C
+primitives (`host/`). It ships as the interpreter, the library, a `kec`
+command-line tool, and a test suite.
+
+The syntax is small and Lisp-shaped: code is written as s-expressions, calls are
+prefix forms, and lists are the main data structure. Bind names with `define`,
+`defn`, and `let`; mutate them with `set`; branch with `if` and `cond`; pass
+functions around with `fn`, `map`, `filter`, and folds.
 
 ## Documentation
 

@@ -109,6 +109,7 @@ export default defineConfig({
         {
           label: 'Project',
           items: [
+            { label: 'FAQ', slug: 'faq' },
             { label: 'Changelog', link: `${REPO}/blob/main/CHANGELOG.md`, attrs: { target: '_blank' } },
             { label: 'Source (GitHub)', link: REPO, attrs: { target: '_blank' } },
           ],

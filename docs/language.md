@@ -1,239 +1,366 @@
 ---
 title: Language Reference
-description: The KEC Lisp kernel, the standard library (core/), and the C runtime/host primitives this repo ships.
+description: Syntax, values, evaluation, standard library, and host primitives for KEC Lisp.
 ---
 
-Reference for KEC Lisp: the kernel, the standard library (`core/`), and the C
-primitives (`runtime/` and `host/`) this repo ships. The KN-86 device
-primitives live in the firmware, not here.
+KEC Lisp is a small Lisp built on the Fe kernel, a Lisp-authored standard
+library called Core, and a portable C host layer. This page is the day-to-day
+language reference: syntax first, then evaluation rules, built-in forms, Core,
+host primitives, errors, and limits.
 
----
+```lisp
+(define (squares n)
+  (map (fn (x) (* x x)) (range 1 (+ n 1))))
 
-## 1. Lexical structure
-
-- **S-expressions.** Atoms or parenthesized lists. `(a . b)` is a cons cell.
-- **Comments.** `;` to end of line. No block comments.
-- **Numbers.** `fe_Number` is a single-precision `float`. `123`, `-4.5`, `3.14`.
-  Integers are exact only within ±2²⁴.
-- **Strings.** `"text"`, immutable. `\"` and `\\` escapes in the reader.
-- **Symbols.** `foo`, `kebab-case`, `+`, `<=`, `:keyword`. Case-sensitive.
-  `:keyword`s are ordinary symbols (there is no keyword type).
-- **`nil`.** The empty list and the only false value. Read as the nil sentinel,
-  not a symbol.
-- **Quote.** `'x` ≡ `(quote x)`.
-- **Quasiquote.** `` `x `` ≡ `(quasiquote x)`, `,x` ≡ `(unquote x)`, and
-  `,@x` ≡ `(unquote-splicing x)` inside a quasiquoted list.
-
-Booleans are not a type: `nil` is false, everything else (including `0` and
-`""`) is true. Predicates return a truthy value or `nil`.
-
----
-
-## 2. The kernel
-
-KEC Lisp's kernel is rxi's [Fe](https://github.com/rxi/fe), vendored. Most new
-things get added in Core (Lisp) or as a C primitive; the kernel itself gets
-patched when there's a reason to. It has 26 primitives:
-
-```
-let  set  if  fn  mac  while  quote  and  or  do
-cons  car  cdr  setcar  setcdr  list  not  is  atom  print
-<  <=  +  -  *  /
+(squares 5)  ; => (1 4 9 16 25)
 ```
 
-(KEC names assignment `set` rather than Fe's `=`, which leaves `=` free to mean
-equality.)
+## Language Layers
+
+| Layer | What it provides | Defined in |
+|---|---|---|
+| Kernel | Reader, evaluator, arena/GC, and 26 compiled-in primitives. | `kernel/` |
+| Core | Definition macros, control macros, list helpers, predicates, alists, higher-order functions, strings, and sort. | `core/*.lsp` |
+| Runtime / host | Portable C primitives for errors, reflection, math, strings, I/O, loading, and file/system access. | `runtime/`, `host/` |
+
+The KN-86 device primitives live in the firmware, not this repository.
+
+## Syntax
+
+KEC Lisp programs are made of s-expressions: atoms or parenthesized lists. A
+list in call position is evaluated as a function, macro, special form, or host
+primitive call.
+
+```lisp
+(+ 1 2 3)
+(print "hello")
+(map (fn (x) (* x x)) (range 1 6))
+```
+
+| Syntax | Meaning |
+|---|---|
+| `; comment` | Comment to the end of the line. There are no block comments. |
+| `123`, `-4.5`, `3.14` | Numbers. The runtime stores them as single-precision floats. |
+| `"text"` | String literal. The reader supports `\"` and `\\` escapes. |
+| `foo`, `kebab-case`, `+`, `:tag` | Symbols. Symbols are case-sensitive; `:tag` is an ordinary symbol, not a separate keyword type. |
+| `nil` | The empty list and the only false value. |
+| `(a . b)` | A single cons pair. |
+| `'x` | Reader sugar for `(quote x)`. |
+| `` `x `` | Reader sugar for `(quasiquote x)`. |
+| `,x`, `,@x` | Unquote and unquote-splicing inside quasiquote. |
+
+## Values And Truth
+
+`nil` is false. Every other value is true, including `0`, empty strings, empty
+symbols, functions, and pairs.
+
+| Value kind | Notes |
+|---|---|
+| `nil` | Empty list and false value. |
+| Number | Single-precision `float`; exact integer expectations are safe only within +/-2^24. |
+| String | Immutable and null-terminated by the Fe kernel. |
+| Symbol | Interned name. `:name` is a naming convention, not a separate type. |
+| Pair / list | Built with `cons` or `list`; a proper list ends in `nil`. |
+| Function | Lexical closure made by `fn` or `defn`. |
+| Macro | Expansion function made by `mac` or `defmacro`; receives unevaluated forms. |
+| Primitive | Kernel primitive or C function bound through the host/FFI layer. |
+
+Equality has two useful levels:
+
+| Form | Use |
+|---|---|
+| `(is a b)` | Kernel equality: numbers by value, strings structurally, pairs and most other atoms by identity. |
+| `(= a b)` / `(== a b)` | Core aliases for `is`; good for scalar comparison. |
+| `(equal? a b)` | Recursive pair/list comparison. |
+
+## Evaluation
+
+Evaluation follows the usual Lisp shape:
+
+1. A literal number, string, or `nil` evaluates to itself.
+2. A symbol evaluates to its current binding.
+3. A list evaluates its operator, then applies it according to what the operator
+   is.
+4. Function and C primitive arguments are evaluated left to right before the
+   call.
+5. Macros receive their arguments unevaluated; the macro result replaces the
+   call and is evaluated again.
+6. Special forms such as `if`, `let`, `set`, `fn`, `mac`, `quote`, `and`, `or`,
+   `while`, and `do` control their own evaluation rules.
+
+There is no Lisp-level `eval`. `(read-string s)` parses one s-expression and
+returns it as data; it does not run it.
+
+## Binding And Functions
+
+The kernel provides the small core of binding and callable construction. Core
+adds the definition forms most programs use.
 
 | Form | Meaning |
 |---|---|
-| `(let sym val)` | Bind `sym`. Inside a body → a local for the rest of that body; at the top level → a global. |
-| `(set sym val)` | Assignment to an existing binding (or a top-level global). |
-| `(if c a b…)` | Conditional; supports cond-style chaining `(if c1 t1 c2 t2 else)`. |
-| `(fn (params…) body…)` | Lambda (lexical closure). `(fn (a . rest) …)` and `(fn args …)` bind variadic/rest args. |
-| `(mac (params…) body…)` | Macro; args unevaluated, expansion re-evaluated. |
-| `(while c body…)` | Loop while `c` is truthy; returns `nil`. |
-| `(quote x)` / `'x` | Suppress evaluation. |
-| `(and …)` / `(or …)` | Short-circuit. |
-| `(do …)` | Sequence; returns last. |
-| `cons car cdr setcar setcdr list` | Pair construction / access / mutation. |
-| `(not x)` | `x` is `nil`. |
-| `(is a b)` | Equality: numbers by value, strings structurally, pairs and other atoms by identity. |
-| `(atom x)` | `x` is not a pair. |
-| `(print …)` | Write args to stdout + newline. |
-| `< <= + - * /` | Numeric (variadic for arithmetic). |
+| `(let name value)` | Bind `name`. Inside a body it creates a local for the rest of that body; at the top level it creates a global. Returns `value`. |
+| `(set name value)` | Assign an existing binding, or a top-level global. Returns `nil`. |
+| `(fn (params...) body...)` | Create a lexical closure. |
+| `(fn (a . rest) body...)` | Create a closure with rest arguments. |
+| `(fn args body...)` | Bind all arguments as one list. |
+| `(mac (params...) body...)` | Create a macro. Arguments are not evaluated before the macro runs. |
+| `(define name value)` | Define a value and return it. |
+| `(define (name params...) body...)` | Scheme-style function definition. |
+| `(defn name (params...) body...)` | Define a function and return it. |
+| `(defmacro name (params...) body...)` | Define a macro and return it. |
 
-A few things the kernel doesn't have, that Core or the host fill in:
+```lisp
+(define greeting "hello")
 
-- No `define`/`defun`/`defmacro`/`cond`/`>` — Core adds these. `=` isn't a
-  kernel primitive; it's value-equality from Core (assignment is `set`).
-- `is` compares lists by identity, not contents — `(is (list 1) (list 1))` is
-  `nil`. Compare element by element.
-- The GC root stack is small and fixed (256 by default, larger on desktop
-  builds), so recursion depth is bounded; long library traversals use `while`.
-- No tail-call optimization, no `eval` from Lisp, no vectors/hash-tables/records.
+(defn greet (name)
+  (str greeting ", " name))
 
-For the full implementation — object encoding, GC mechanics, symbol limits, and all
-known constraints — see [Fe Kernel — Internals](/kec-lisp/fe-kernel/).
+(defn sum (xs)
+  (fold-left + 0 xs))
+```
 
----
+## Control Flow
 
-## 3. The standard library (Core)
+| Form | Meaning |
+|---|---|
+| `(if test then else)` | Conditional. Only the selected branch is evaluated. |
+| `(if c1 t1 c2 t2 else)` | Cond-style kernel chaining. |
+| `(cond (test body...) ... (else body...))` | First truthy test wins. |
+| `(case key (value body...) ... (else body...))` | Match `key` against a value or list of values with `member`. |
+| `(when test body...)` | Run body when `test` is truthy. |
+| `(unless test body...)` | Run body when `test` is false. |
+| `(and a b ...)` | Short-circuit AND; returns the last truthy value or `nil`. |
+| `(or a b ...)` | Short-circuit OR; returns the first truthy value or `nil`. |
+| `(while test body...)` | Loop while `test` is truthy; returns `nil`. |
+| `(dotimes (i n) body...)` | Loop `i` from `0` to `n - 1`. |
+| `(dolist (x xs) body...)` | Loop over a list. |
+| `(do body...)` / `(begin body...)` | Sequence; returns the last value. |
+| `(let* ((name value) ...) body...)` | Sequential local bindings. |
+| `(letrec ((name value) ...) body...)` | Mutually recursive local bindings. |
 
-Written in KEC Lisp (with a few C helpers: `type-of`, `mod`, `gensym`, the
-string ops). Loaded before your code runs.
+```lisp
+(cond
+  ((< n 0) 'negative)
+  ((is n 0) 'zero)
+  (else 'positive))
+```
 
-### 3.1 `def` — definitions
+## Data Structures
+
+Pairs and lists are the primary data structure. Use `cons` for one pair and
+`list` for proper lists.
+
+| Form | Meaning |
+|---|---|
+| `(cons a b)` | Allocate a pair. |
+| `(car pair)` | Read the first slot. |
+| `(cdr pair)` | Read the second slot. |
+| `(setcar pair value)` | Mutate the first slot. |
+| `(setcdr pair value)` | Mutate the second slot. |
+| `(list a b ...)` | Build a proper list. |
+| `(nth xs i)` | Element at index `i`, or `nil` past the end. |
+| `(length xs)` | List length. |
+| `(reverse xs)` | Reversed copy. |
+| `(append a b)` | Append two lists. |
+| `(take xs n)` / `(drop xs n)` | Prefix or suffix by count. |
+| `(range a b)` | Numbers from `a` through `b - 1`. |
+| `(member x xs)` | Matching tail, or `nil`. |
+| `(assoc key alist)` | Matching pair in an association list, or `nil`. |
+
+Association lists are the built-in record shape:
+
+| Form | Meaning |
+|---|---|
+| `(get key alist [default])` | Value for `key`, or `default`/`nil`. |
+| `(put key value alist)` | Return a new alist with `key` updated. |
+| `(has? key alist)` | Truthy when `key` exists. |
+| `(keys alist)` / `(values alist)` | Extract keys or values. |
+| `(merge a b)` | Return a new alist with `b` overlaid on `a`. |
+
+```lisp
+(let user (list (cons 'name "Ada") (cons 'score 42)))
+(get 'name user)       ; => "Ada"
+(put 'score 99 user)   ; returns a new alist
+```
+
+## Standard Library (Core)
+
+Core is written in KEC Lisp and loaded before user code. Its files load in
+numeric filename order.
+
+### Definitions
+
 | Form | Expands to |
 |---|---|
-| `(defn name (params…) body…)` | `(set name (fn (params…) body…))` |
-| `(defmacro name (params…) body…)` | `(set name (mac (params…) body…))` |
+| `(defn name (params...) body...)` | `(set name (fn (params...) body...))` |
+| `(defmacro name (params...) body...)` | `(set name (mac (params...) body...))` |
 | `(define name value)` | `(set name value)` |
-| `(define (f args…) body…)` | `(set f (fn (args…) body…))` (Scheme-style sugar) |
+| `(define (f args...) body...)` | `(set f (fn (args...) body...))` |
 
-Each form **returns the value it defines** — the function, macro, or value — not
-`nil`. (Bare `set` returns `nil`; these wrap it so definitions chain and the REPL
-echoes something useful.)
+Each definition form returns the value it defines, which makes REPL output and
+definition chaining more useful than bare `set`.
 
-### 3.2 `list` — list & sequence
-`nth` `length` `reverse` `append` `last` `member` `assoc` `take` `drop` `range`.
-All iterative. `(range a b)` → `(a … b-1)`; `(nth xs i)` → `nil` past the end;
-`(member x xs)` / `(assoc k alist)` → the matching tail/pair or `nil`.
+### Lists
 
-### 3.3 `cmp` / `alist` — comparison and records
-`=` `==` `/=` `equal?` `>` `>=` `zero?` `positive?` `negative?` `min` `max`
-(variadic). `=`, `==`, and `is` are the same scalar/identity comparison;
-`equal?` recursively compares pair contents.
+| Function | Summary |
+|---|---|
+| `nth`, `length`, `reverse`, `append`, `last` | Basic list access and construction. |
+| `member`, `assoc` | Search lists and alists. |
+| `take`, `drop`, `range` | Sequence construction and slicing. |
 
-Alist helpers give scripts a tiny record shape without adding a new runtime
-type: `get` `put` `has?` `keys` `values` `merge`.
+Core list functions are iterative, which avoids exhausting the bounded GC root
+stack on ordinary list work.
 
-```lisp
-(let r (list (cons 'name "Ada") (cons 'score 42)))
-(get 'name r)                 ; "Ada"
-(get 'missing r "fallback")   ; "fallback"
-(put 'score 99 r)             ; new alist, original unchanged
-```
+### Comparison And Numbers
 
-### 3.4 `pred` — predicates
-`nil?` `pair?` `even?` `odd?` `number?` `symbol?` `string?` `fn?`. The four type
-tests use the host `type-of` primitive.
+| Function | Summary |
+|---|---|
+| `=`, `==`, `/=` | Scalar/identity equality and inequality. |
+| `equal?` | Recursive list equality. |
+| `>`, `>=` | Greater-than comparisons. |
+| `zero?`, `positive?`, `negative?` | Numeric predicates. |
+| `min`, `max` | Variadic extrema. |
 
-### 3.5 `error` — error values
-`error` `error?` `error-message`. `(error "msg")` constructs the same tagged
-pair shape returned by `try` failures: `(:error . "msg")`. Use `error?` to test
-that shape and `error-message` to read the payload.
+### Predicates
 
-```lisp
-(let r (try (fn () (raise "bad input"))))
-(if (error? r) (error-message r) r)
-```
+| Function | Summary |
+|---|---|
+| `nil?`, `pair?` | List shape tests. |
+| `even?`, `odd?` | Numeric parity using host `mod`. |
+| `number?`, `symbol?`, `string?`, `fn?` | Type tests using host `type-of`. |
 
-### 3.6 `ctrl` — control macros
-`when` `unless` `cond` `case` `let*` `letrec` `dotimes` `dolist` `begin`.
+### Errors
 
-```lisp
-(cond ((< n 0) 'neg) ((is n 0) 'zero) (else 'pos))
-(case k (1 'one) ((2 3) 'few) (else 'many))   ; value or list of values
-(let* ((a 2) (b (* a 3))) (+ a b))
-(dotimes (i n) …)        (dolist (x xs) …)
-```
+| Function | Summary |
+|---|---|
+| `(error message)` | Build an error value, `(:error . message)`. |
+| `(error? value)` | Test for that error shape. |
+| `(error-message err)` | Read the message from an error value. |
 
-### 3.7 `quasiquote` — macro construction
+### Control Macros
+
+| Macro | Summary |
+|---|---|
+| `when`, `unless` | Conditional bodies. |
+| `cond`, `case` | Multi-way branching. |
+| `let*`, `letrec` | Sequential and recursive local bindings. |
+| `dotimes`, `dolist` | Iteration helpers. |
+| `begin` | Alias for `do`. |
+
+### Quasiquote
+
 Backquote builds data, comma evaluates a subform, and comma-at splices a list:
 
 ```lisp
 (let x 7)
-`(a ,x ,@(list 'b 'c))   ; (a 7 b c)
+`(a ,x ,@(list 'b 'c))   ; => (a 7 b c)
 
 (defmacro my-when (test . body)
   `(if ,test (do ,@body) nil))
 ```
 
-### 3.8 `hof` — higher-order
-`map` `filter` `remove` `fold-left` `fold-right` `for-each` `find` `any?`
-`every?` `count`. All iterative.
+### Higher-Order Functions
 
-### 3.9 `str` — string & format
-`str` (variadic stringify-concat) `join` `split` `format`. `format` directives:
-`%d`/`%u` decimal, `%x` hex, `%c` char code, `%s` any, `%%` literal.
+| Function | Summary |
+|---|---|
+| `map`, `filter`, `remove` | Transform and select list elements. |
+| `fold-left`, `fold-right` | Reduce a list. |
+| `for-each` | Apply a function for side effects. |
+| `find`, `any?`, `every?`, `count` | Predicate-based search and counting. |
 
-### 3.10 `sort` — ordering
-`(sort xs less?)` → a new list with the elements of `xs` ordered by the binary
-predicate `less?` (`(less? a b)` truthy when `a` precedes `b`). The input is not
-mutated. It's a **stable** sort — equal elements keep their original relative
-order — implemented as an iterative, bottom-up merge sort, so a long list (1000+
-elements) won't exhaust the GC root stack.
+### Strings And Formatting
 
----
+| Function | Summary |
+|---|---|
+| `(str value...)` | Stringify and concatenate values. |
+| `(join xs sep)` | Join strings with a separator. |
+| `(split s sep)` | Split a string on a separator. |
+| `(format fmt args...)` | Format using `%d`, `%u`, `%x`, `%c`, `%s`, and `%%`. |
 
-## 4. C primitives (runtime / host)
+### Sorting
 
-C functions bound by the runtime and portable host layer. Two profiles: `FULL`
-(used by the CLI) adds the file and system primitives; `SANDBOX` leaves them
-out.
+`(sort xs less?)` returns a new stable sorted list. The predicate is called as
+`(less? a b)` and should return truthy when `a` belongs before `b`. The input
+list is not mutated.
+
+## Runtime / Host Primitives
+
+Runtime and host primitives are C functions registered into a KEC Lisp context.
+Two profiles are available: `SANDBOX` gets the portable non-file primitives, and
+`FULL` adds loading, file I/O, environment access, process arguments, and exit.
+The `kec` CLI uses `FULL`.
 
 | Group | Primitives | Profile |
 |---|---|---|
-| Reflection | `type-of` `gensym` | both |
-| Math | `mod` `floor` `ceil` `round` `abs` `sqrt` `pow` | both |
-| String | `string-length` `string-ref` `substring` `string-append` `char->string` `number->string` `string->number` `symbol->string` `string->symbol` | both |
-| I/O | `princ` `newline` `repr` | both |
-| Sys | `rand` `rand-int` `clock` | both |
-| Control | `try` `raise` `apply` `read-string` `provide` `provided?` | both |
-| File/Sys | `load` `require` `read-file` `write-file` `append-file` `file-exists?` `list-dir` `getenv` `args` `exit` | **FULL only** |
+| Reflection | `type-of`, `gensym` | both |
+| Math | `mod`, `floor`, `ceil`, `round`, `abs`, `sqrt`, `pow` | both |
+| String | `string-length`, `string-ref`, `substring`, `string-append`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` | both |
+| I/O | `princ`, `newline`, `repr` | both |
+| System | `rand`, `rand-int`, `clock` | both |
+| Control | `try`, `raise`, `apply`, `read-string`, `provide`, `provided?` | both |
+| File/System | `load`, `require`, `read-file`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` | `FULL` only |
 
-- `(type-of x)` → `:pair`/`:nil`/`:number`/`:symbol`/`:string`/`:fn`/`:macro`/`:prim`/`:cfunc`/`:ptr`.
-- `(number->string n [radix])` — radix defaults to 10; 2/8/16 supported.
-- `(try thunk)` → the value of `(thunk)` on success, or an error value
-  `(:error . "message")` if it raised. Use `error?` and `error-message` to
-  inspect it. `check-err` in the test harness uses the same public predicate.
-- `(raise message)` raises a catchable script-level error. `message` is
-  stringified before it reaches the runtime error handler.
-- `(apply f arglist)` calls `f` with the elements of `arglist` as its arguments
-  — `(apply + (list 1 2 3))` → `6`. `f` may be a closure, a host primitive, or a
-  kernel primitive; `arglist` may be `nil` (call with no args).
-- `(read-string s)` parses the **first** s-expression of `s` and returns it
-  **without evaluating** — `(read-string "(1 2 3)")` → the list `(1 2 3)`,
-  `"42"` → `42`, `"foo"` → the symbol `foo`. It is the reader, not `eval`: the
-  form is returned as data and nothing runs (so reading a `(write-file …)` form
-  writes no file). Empty input → `nil`.
-- `(load "path")` reads and evaluates a file in the current context.
-- `(provide feature)` records a feature as present and returns it.
-  `(provided? feature)` tests that registry. `(require key [path])` is
-  **FULL only**: it loads `path` once for `key`; if `path` is omitted, `key`'s
-  printed name is used as the path.
-- `(write-file path value)` writes `value` (stringified the writer's way, like
-  `princ`/`str`) to `path`, creating or **overwriting** it. `(append-file path
-  value)` appends instead, creating the file if absent. Both return a truthy
-  value on success and raise a catchable error (never `exit`) on an I/O failure.
-  Round-trips with `read-file`. **FULL only** — a sandboxed context cannot write
-  files.
-- `(file-exists? path)` → truthy if `path` exists, else `nil`. `(list-dir path)`
-  → a list of the directory's entry names (`.` and `..` excluded; order
-  unspecified), raising a catchable error if the directory can't be opened.
-  `(getenv name)` → the environment variable's value as a string, or `nil` if
-  unset. All three are **FULL only**.
+Common host forms:
 
----
+| Form | Meaning |
+|---|---|
+| `(type-of x)` | Return `:pair`, `:nil`, `:number`, `:symbol`, `:string`, `:fn`, `:macro`, `:prim`, `:cfunc`, or `:ptr`. |
+| `(number->string n [radix])` | Convert a number to a string. Radix defaults to 10; 2, 8, and 16 are supported. |
+| `(try thunk)` | Run `(thunk)`. Return its value, or an error value on failure. |
+| `(raise message)` | Raise a catchable script error. |
+| `(apply f arglist)` | Call `f` with the elements of `arglist`. |
+| `(read-string s)` | Parse the first s-expression in `s` and return it as data. |
+| `(load path)` | Read and evaluate a file. `FULL` only. |
+| `(provide feature)` / `(provided? feature)` | Mark and query loaded features. |
+| `(require key [path])` | Load a feature once. `FULL` only. |
+| `(read-file path)` | Return file contents as a string. `FULL` only. |
+| `(write-file path value)` / `(append-file path value)` | Write or append a stringified value. `FULL` only. |
+| `(file-exists? path)` | Truthy if a path exists. `FULL` only. |
+| `(list-dir path)` | Return directory entry names. `FULL` only. |
+| `(getenv name)` | Return an environment value or `nil`. `FULL` only. |
 
-## 5. Evaluation & errors
+## Errors
 
-- **Application** evaluates the operator, then arguments left-to-right.
-- **Macros** receive unevaluated forms; the expansion replaces the call site
-  and is re-evaluated.
-- **Errors** route through `fe_error`. The runtime installs a recovery handler
-  that unwinds to the nearest guard (the REPL prompt, a script boundary, or a
-  `(try …)`) instead of exiting. `(try …)` is the Lisp-visible catch: it returns
-  the thunk's value on success, or an error value on failure. Detect failures
-  with `error?`, read messages with `error-message`, and raise your own
-  catchable script errors with `raise`.
+Runtime errors route through `fe_error`. The KEC runtime installs a recovery
+handler so errors unwind to the nearest guard: a REPL prompt, script boundary,
+or `(try ...)`.
 
----
+```lisp
+(let r (try (fn () (raise "bad input"))))
+(if (error? r)
+    (error-message r)
+    r)
+```
 
-## 6. Quick reference
+`try` returns the thunk value on success. On failure, it returns the same
+`(:error . "message")` shape produced by Core's `error` helper.
 
-1. Bind with `define` / `defn` / `let`; mutate with `set`; compare with `=` / `==`.
-2. Use `equal?` for element-wise list equality; `is` / `=` compare pairs by identity.
-3. Core is iterative; for your own deep recursion prefer `while` / `fold-left`
-   (the GC-root stack is bounded, though generous on desktop builds).
-4. Numbers are single floats; mind ±2²⁴ and exact-integer expectations.
+## Limits And Portability
+
+| Limit | Practical effect |
+|---|---|
+| Single-precision numbers | Treat numbers as floats; exact integer work is limited to +/-2^24. |
+| Bounded GC root stack | Prefer `while`, `dotimes`, `dolist`, or `fold-left` for deep traversals. |
+| No tail-call optimization | Deep recursive code can overflow. Core list functions are iterative for this reason. |
+| No vectors, hash tables, records, or keyword args | Use lists and alists. |
+| No Lisp-level `eval` | Use macros for code generation and `read-string` for parsing data. |
+| Strings are null-terminated | Strings are not binary-safe. |
+
+For implementation details, see [Fe Kernel - Internals](/kec-lisp/fe-kernel/)
+and [Memory Model](/kec-lisp/memory-model/).
+
+## Quick Lookup
+
+| Category | Names |
+|---|---|
+| Kernel binding/forms | `let`, `set`, `fn`, `mac`, `quote`, `if`, `and`, `or`, `while`, `do` |
+| Kernel data | `cons`, `car`, `cdr`, `setcar`, `setcdr`, `list`, `atom`, `not`, `is` |
+| Kernel numbers/I/O | `<`, `<=`, `+`, `-`, `*`, `/`, `print` |
+| Definitions | `define`, `defn`, `defmacro` |
+| Control | `cond`, `case`, `when`, `unless`, `begin`, `let*`, `letrec`, `dotimes`, `dolist` |
+| Lists/alists | `nth`, `length`, `reverse`, `append`, `last`, `member`, `assoc`, `take`, `drop`, `range`, `get`, `put`, `has?`, `keys`, `values`, `merge` |
+| Comparison/predicates | `=`, `==`, `/=`, `equal?`, `>`, `>=`, `zero?`, `positive?`, `negative?`, `nil?`, `pair?`, `even?`, `odd?`, `number?`, `symbol?`, `string?`, `fn?` |
+| Higher-order | `map`, `filter`, `remove`, `fold-left`, `fold-right`, `for-each`, `find`, `any?`, `every?`, `count` |
+| Strings | `str`, `join`, `split`, `format`, `string-length`, `string-ref`, `substring`, `string-append`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` |
+| Errors/loading | `try`, `raise`, `error`, `error?`, `error-message`, `provide`, `provided?`, `require`, `load` |
+| Full-profile file/system | `read-file`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` |
