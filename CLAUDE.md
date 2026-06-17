@@ -11,6 +11,10 @@ primitives (graphics, sound, save state, missions, CIPHER voice) are **not**
 here — the firmware vendors this repo as a library and registers those on top
 through the same FFI seam. See `docs/boundary.md` for the in/out boundary.
 
+This is the standalone language; it is vendored into the **nOSh runtime**. The
+wider KN-86 multi-repo ecosystem map lives in the `jschairb/kn86-deckline`
+monorepo CLAUDE.md ("Repository Topology") and `kn86-docs` ADR-0039.
+
 ## Commands
 
 ```sh
