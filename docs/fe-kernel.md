@@ -88,7 +88,7 @@ A **mark-and-sweep collector** over a freelist:
 | Default / device | **256** |
 | KEC desktop build | **8192** |
 
-Overflow calls `fe_error("gc stack overflow")`. Because the stack is bounded, [Core](/kec-lisp/language/#3-the-standard-library-core) writes its list/sequence functions iteratively, and the [Language Reference](/kec-lisp/language/#6-quick-reference) recommends `while` / `fold-left` for deep work over your own data.
+Overflow calls `fe_error("gc stack overflow")`. Because the stack is bounded, [Core](/kec-lisp/language/#standard-library-core) writes its list/sequence functions iteratively, and the [Language Reference](/kec-lisp/language/#quick-lookup) recommends `while` / `fold-left` for deep work over your own data.
 
 ### `car` recursion in the mark phase
 

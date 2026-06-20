@@ -11,8 +11,8 @@ pages that enumerate each layer's forms.
 | Layer | What it is | In this repo | Reference |
 |---|---|---|---|
 | **Fe Kernel** | 26 compiled-in primitives + reader + evaluator + arena/GC. | Vendored `rxi/fe` 1.0 with the changes in [The Fe kernel](#the-fe-kernel) below. | [Built-ins](/kec-lisp/builtins/) |
-| **KEC Core** | The standard library — `map`, `filter`, `fold-left`, `cond`, `when`, `defn`, … — written in KEC Lisp, loaded into every context before user code runs. | `core/*.lsp`, baked into the `kec` binary at build time. | [Language Reference §3](/kec-lisp/language/#3-the-standard-library-core) |
-| **Runtime / host primitives** | Portable C exposed to KEC Lisp — error control, `type-of`, math, string ops, I/O, a few system calls. | `runtime/kec.c` and `host/host.c`, registered through `kec_bind_fe`. | [Language Reference §4](/kec-lisp/language/#4-c-primitives-runtime--host) |
+| **KEC Core** | The standard library — `map`, `filter`, `fold-left`, `cond`, `when`, `defn`, … — written in KEC Lisp, loaded into every context before user code runs. | `core/*.lsp`, baked into the `kec` binary at build time. | [Language Reference](/kec-lisp/language/#standard-library-core) |
+| **Runtime / host primitives** | Portable C exposed to KEC Lisp — error control, `type-of`, math, string ops, I/O, a few system calls. | `runtime/kec.c` and `host/host.c`, registered through `kec_bind_fe`. | [Language Reference](/kec-lisp/language/#runtime--host-primitives) |
 | **Device primitives + cart grammar** | The KN-86 runtime FFI (graphics, audio, save, missions, CIPHER) and the `defcell`/`defmission` macros. | Not in this repo — in the firmware. | [The KN-86 firmware](#the-kn-86-firmware) |
 
 Which primitives a context is created with determines what it can call; see the
@@ -51,14 +51,14 @@ predicates, alist helpers, error value helpers, control macros (`cond`, `case`,
 `when`, `dotimes`, …), quasiquote expansion, higher-order functions, and
 string/format helpers.
 Its list/sequence functions are written iteratively. Enumerated in the
-[Language Reference §3](/kec-lisp/language/#3-the-standard-library-core).
+[Language Reference](/kec-lisp/language/#standard-library-core).
 
 **Runtime / host primitives** are C functions that need only the runtime or C
 library — error control, `type-of`, math, string ops, I/O, and a few system
 calls — bound per
 [profile](/kec-lisp/ffi-bridge/#4-capability-tiers): `SANDBOX` is the portable
 set; `FULL` adds `load`, file I/O, environment, `args`, and `exit`. Enumerated
-in the [Language Reference §4](/kec-lisp/language/#4-c-primitives-runtime--host).
+in the [Language Reference](/kec-lisp/language/#runtime--host-primitives).
 
 ## The FFI bridge
 

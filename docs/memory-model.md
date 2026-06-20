@@ -25,7 +25,7 @@ kec_close(S);
 Fe is a mark-sweep collector over a **fixed-size object pool** carved from that
 arena. The GC runs *inside* a context: it reclaims dead objects but does not grow
 the pool. Exhausting the arena is a runtime error (see
-[Evaluation & Errors](/kec-lisp/language/#5-evaluation--errors)).
+[Errors](/kec-lisp/language/#errors)).
 
 ## The no-malloc entry point
 

@@ -15,7 +15,7 @@ Everything else you call comes from one of the two layers above the kernel:
 | **Core / user** | `FE_TFUNC` / `FE_TMACRO` | KEC Lisp in `core/` (or your code) | `map`, `cond`, `defn`, `=` |
 
 So `=`, `map`, `cond`, and `defn` are **not** kernel built-ins — they live in
-[Core](/kec-lisp/language/#3-the-standard-library-core). The language is the
+[Core](/kec-lisp/language/#standard-library-core). The language is the
 kernel plus Core plus the runtime/host primitives.
 
 > **Kernel delta from upstream Fe.** KEC names assignment **`set`**, not `=`. That
@@ -62,7 +62,7 @@ There is no `define` / `defn` / `defmacro` in the kernel — Core supplies those
 | `(list a b …)` | `Any… → List` | Build a proper list of the evaluated arguments. |
 
 **No `nth`, `length`, `append`, `reverse`, `member`, or `assoc` in the kernel** —
-[Core](/kec-lisp/language/#32-list--list--sequence) supplies those, written
+[Core](/kec-lisp/language/#lists) supplies those, written
 iteratively. Performance-sensitive traversal uses `while` + `setcar`/`setcdr`
 rather than deep recursion (the GC-root stack is bounded).
 
@@ -94,7 +94,7 @@ variadic arithmetic forms fold left.
 
 No `>`, `>=`, `=`, `mod`, `abs`, or `sqrt` in the kernel: `>` / `>=` / `=` come
 from Core; `mod` / `abs` / `sqrt` and friends are host primitives (see the
-[Language Reference §4](/kec-lisp/language/#4-c-primitives-runtime--host)).
+[Language Reference](/kec-lisp/language/#runtime--host-primitives)).
 
 ## I/O
 
@@ -120,7 +120,7 @@ cons  car  cdr  setcar  setcdr  list  not  is  atom  print
 ```
 
 26 entries. Anything you call that isn't in this list is coming from
-[Core](/kec-lisp/language/#3-the-standard-library-core) (Lisp) or a
-[runtime/host primitive](/kec-lisp/language/#4-c-primitives-runtime--host)
+[Core](/kec-lisp/language/#standard-library-core) (Lisp) or a
+[runtime/host primitive](/kec-lisp/language/#runtime--host-primitives)
 (C) — or, in the KN-86 firmware, from a device primitive bound through the
 [FFI bridge](/kec-lisp/ffi-bridge/).
