@@ -2,8 +2,19 @@
 ;;
 ;; Kernel ships if/and/or/do/while. Core adds the macros every real program
 ;; reaches for. This module loads before quasiquote, so its expansions are still
-;; built by hand with list/cons/append; gensym (a host primitive) keeps loop
+;; built by hand with list/cons; gensym (a host primitive) keeps loop
 ;; temporaries from capturing user names.
+;;
+;; ROBUSTNESS CONTRACT (AMOP §4.2.2, "Overriding the Standard Method", pp.
+;; 112-113): a Core macro must bottom out on FROZEN KERNEL primitives only —
+;; both in the code it *emits* and in its own *expander* — never on a shadowable
+;; public Core function (member / nth / append / nil? / pair? / ...). Otherwise a
+;; cart redefining such a name would silently corrupt the macro. So the
+;; expanders below use only kernel prims (cons car cdr list if not is atom
+;; < + quote do let set while or) plus gensym: they index with car/cdr (not
+;; `nth`), thread accumulators (not `append`), and test emptiness with `not`
+;; (not `nil?`). See tests/core/macro-robustness.lsp and docs/language.md
+;; "Load-bearing prelude (do not shadow)".
 
 ;; (when test body...)   -> (if test (do body...) nil)
 (set when (mac (test . body)
@@ -15,7 +26,7 @@
 
 ;; (cond (test body...)... ) — first truthy test wins; `else` = catch-all.
 (set %cond-expand (fn (clauses)
-  (if (nil? clauses)
+  (if (not clauses)
       nil
       (do
         (let clause (car clauses))
@@ -26,10 +37,17 @@
             (list 'if test body (%cond-expand (cdr clauses))))))))
 (set cond (mac clauses (%cond-expand clauses)))
 
-;; (case key (vals body...)... ) — is-match key against each clause's
-;; value(s); a clause value may be one datum or a list of data. `else` wins.
-(set %case-expand (fn (kv clauses)
-  (if (nil? clauses)
+;; (case key (vals body...)... ) — is-match key against each clause's value(s);
+;; a clause value may be one datum or a list of data. `else` wins. Expands to an
+;; (or (is tmp 'v1) (is tmp 'v2) ...) chain rather than calling `member`, so the
+;; expansion never rides on a shadowable function.
+(set %case-tests (fn (tmp vals)
+  (if (not vals)
+      nil
+      (cons (list 'is tmp (list 'quote (car vals)))
+            (%case-tests tmp (cdr vals))))))
+(set %case-expand (fn (tmp clauses)
+  (if (not clauses)
       nil
       (do
         (let clause (car clauses))
@@ -38,62 +56,64 @@
         (if (is vals 'else)
             body
             (do
-              (let valset (if (pair? vals) vals (list vals)))
+              (let valset (if (atom vals) (list vals) vals))
               (list 'if
-                    (list 'member kv (list 'quote valset))
+                    (cons 'or (%case-tests tmp valset))
                     body
-                    (%case-expand kv (cdr clauses)))))))))
+                    (%case-expand tmp (cdr clauses)))))))))
 (set case (mac (key . clauses)
-  (let kv (gensym))
+  (let tmp (gensym))
   (list 'do
-    (list 'let kv key)
-    (%case-expand kv clauses))))
+    (list 'let tmp key)
+    (%case-expand tmp clauses))))
 
 ;; (let* ((s v)...) body...) — sequential bindings (kernel let is single-pair).
-(set %let*-binds (fn (binds)
-  (if (nil? binds)
-      nil
-      (cons (list 'let (car (car binds)) (nth (car binds) 1))
-            (%let*-binds (cdr binds))))))
+;; The body is threaded into the recursion tail, so no `append` is needed.
+(set %let*-binds (fn (binds body)
+  (if (not binds)
+      body
+      (cons (list 'let (car (car binds)) (car (cdr (car binds))))
+            (%let*-binds (cdr binds) body)))))
 (set let* (mac (binds . body)
-  (cons 'do (append (%let*-binds binds) body))))
+  (cons 'do (%let*-binds binds body))))
 
 ;; (letrec ((s v)...) body...) — mutually-recursive locals: declare all to
-;; nil, then assign (so each value form can reference the others).
-(set %letrec-decls (fn (binds)
-  (if (nil? binds)
-      nil
+;; nil, then assign (so each value form can reference the others). Both phases
+;; thread their tail, so no `append` is needed.
+(set %letrec-sets (fn (binds tail)
+  (if (not binds)
+      tail
+      (cons (list 'set (car (car binds)) (car (cdr (car binds))))
+            (%letrec-sets (cdr binds) tail)))))
+(set %letrec-decls (fn (binds tail)
+  (if (not binds)
+      tail
       (cons (list 'let (car (car binds)) nil)
-            (%letrec-decls (cdr binds))))))
-(set %letrec-sets (fn (binds)
-  (if (nil? binds)
-      nil
-      (cons (list 'set (car (car binds)) (nth (car binds) 1))
-            (%letrec-sets (cdr binds))))))
+            (%letrec-decls (cdr binds) tail)))))
 (set letrec (mac (binds . body)
-  (cons 'do (append (%letrec-decls binds) (append (%letrec-sets binds) body)))))
+  (cons 'do (%letrec-decls binds (%letrec-sets binds body)))))
 
-;; (dotimes (i n) body...) — i from 0 to n-1.
+;; (dotimes (i n) body...) — i from 0 to n-1. The body is wrapped in one `do`
+;; so the emitted `while` has a fixed shape and needs no `append`.
 (set dotimes (mac (spec . body)
   (let var (car spec))
-  (let cnt (nth spec 1))
   (let lim (gensym))
   (list 'do
-    (list 'let lim cnt)
+    (list 'let lim (car (cdr spec)))
     (list 'let var 0)
-    (append (list 'while (list '< var lim))
-            (append body (list (list 'set var (list '+ var 1))))))))
+    (list 'while (list '< var lim)
+          (cons 'do body)
+          (list 'set var (list '+ var 1))))))
 
 ;; (dolist (x xs) body...) — bind x over xs.
 (set dolist (mac (spec . body)
   (let var (car spec))
-  (let lst (nth spec 1))
   (let cur (gensym))
   (list 'do
-    (list 'let cur lst)
-    (append (list 'while cur)
-            (append (list (list 'let var (list 'car cur)))
-                    (append body (list (list 'set cur (list 'cdr cur)))))))))
+    (list 'let cur (car (cdr spec)))
+    (list 'while cur
+          (cons 'do (cons (list 'let var (list 'car cur)) body))
+          (list 'set cur (list 'cdr cur))))))
 
 ;; (begin body...) — alias for the kernel do sequence.
 (set begin (mac body (cons 'do body)))

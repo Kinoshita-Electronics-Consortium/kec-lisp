@@ -137,6 +137,7 @@ Changes applied on top of rxi/fe 1.0, in `kernel/fe.c` and `kernel/fe.h`:
 | **`fe_savegc` order in `fe_open`** | CHANGELOG 0.1.0 / upstream PR #25 | `fe_savegc` now precedes the `t` symbol allocation so a GC triggered during that allocation cannot collect `t`. |
 | **Instruction budget API** | GWP-248 | `fe_set_instr_budget` / `fe_get_instr_count` / `fe_reset_instr_count` — sandbox evaluation time limit, off by default (`budget == 0`). |
 | **Arena introspection API** | GWP-233 | `fe_arena_stats` / `fe_object_size` / `fe_min_arena_bytes` — inspect live/total object counts and minimum safe arena size. |
+| **Symbol-list accessor** | CHANGELOG Unreleased | `fe_symbols` — read-only view of the interned-symbol list, for host introspection (the `bound?` / `globals` primitives). Returns live internal structure; the host builds a fresh list from it and never hands it to Lisp. |
 
 ---
 

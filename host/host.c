@@ -136,6 +136,50 @@ static fe_Object *h_gensym(fe_Context *ctx, fe_Object *args) {
     return fe_symbol(ctx, buf);
 }
 
+/* (bound? sym) -> truthy if sym has a non-nil global binding, else nil. Reads
+** the binding the way evaluation would (a plain lookup, no side effect). nil is
+** absence in this Lisp, so a symbol bound to nil reads as unbound. Errors if the
+** argument isn't a symbol. Read-only — safe in any profile (AMOP "fair use"). */
+static fe_Object *h_bound_p(fe_Context *ctx, fe_Object *args) {
+    fe_Object *sym = fe_nextarg(ctx, &args);
+    if (fe_type(ctx, sym) != FE_TSYMBOL) { fe_error(ctx, "bound?: expected a symbol"); }
+    return fe_bool(ctx, !fe_isnil(ctx, fe_eval(ctx, sym)));
+}
+
+/* (globals) / (globals prefix) -> a FRESH list of the interned symbols that
+** have a non-nil global binding, optionally filtered to those whose name starts
+** with `prefix`. Order is unspecified. The list is the caller's to keep; the
+** symbols are interned singletons (their identity is the public contract), but
+** the runtime never hands out its internal symbol list (AMOP "fair use rules"):
+** we build a new list here. Read-only — safe in any profile. */
+static fe_Object *h_globals(fe_Context *ctx, fe_Object *args) {
+    char prefix[KEC_STRBUF];
+    char name[KEC_STRBUF];
+    int has_prefix = 0;
+    size_t plen = 0;
+    fe_Object *res, *p;
+    int gc;
+    if (!fe_isnil(ctx, args)) {
+        plen = (size_t)arg_str(ctx, &args, prefix, sizeof prefix);
+        has_prefix = 1;
+    }
+    res = fe_bool(ctx, 0); /* nil */
+    gc = fe_savegc(ctx);
+    for (p = fe_symbols(ctx); !fe_isnil(ctx, p); p = fe_cdr(ctx, p)) {
+        fe_Object *sym = fe_car(ctx, p);
+        if (fe_isnil(ctx, fe_eval(ctx, sym))) { continue; } /* unbound */
+        if (has_prefix) {
+            fe_tostring(ctx, sym, name, sizeof name);
+            if (strncmp(name, prefix, plen) != 0) { continue; }
+        }
+        res = fe_cons(ctx, sym, res);
+        /* Keep only the growing result rooted across the GC reset (see h_list_dir). */
+        fe_restoregc(ctx, gc);
+        fe_pushgc(ctx, res);
+    }
+    return res;
+}
+
 /* ------------------------------------------------------------------ */
 /* Math — the kernel ships only + - * / < <= ; these fill the gap.     */
 /* ------------------------------------------------------------------ */
@@ -479,9 +523,11 @@ static fe_Object *h_exit(fe_Context *ctx, fe_Object *args) {
 /* ------------------------------------------------------------------ */
 
 void kec_host_register(fe_Context *ctx, kec_Profile profile) {
-    /* Reflection */
+    /* Reflection (read-only — safe in any profile) */
     kec_bind_fe(ctx, "type-of", h_type_of);
     kec_bind_fe(ctx, "gensym", h_gensym);
+    kec_bind_fe(ctx, "bound?", h_bound_p);
+    kec_bind_fe(ctx, "globals", h_globals);
     /* Math */
     kec_bind_fe(ctx, "mod", h_mod);
     kec_bind_fe(ctx, "floor", h_floor);

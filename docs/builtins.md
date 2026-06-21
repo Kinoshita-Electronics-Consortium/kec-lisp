@@ -107,7 +107,9 @@ from Core; `mod` / `abs` / `sqrt` and friends are host primitives (see the
 `read-file` / `write-file` / `append-file`, plus `require`). `try` / `raise`
 are catchable error control. `read-string` parses a value from text in any
 profile, and `macroexpand-1` expands one quoted macro call for inspection.
-There is still no `eval` from Lisp, and no socket I/O at the kernel level.
+`bound?` and `globals` are read-only reflection over the global environment
+(safe in any profile). There is still no `eval` from Lisp, and no socket I/O at
+the kernel level.
 
 ---
 
