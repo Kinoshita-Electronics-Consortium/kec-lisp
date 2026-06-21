@@ -23,3 +23,23 @@ jobs:
         run: |
           ./build/kec eval '(map (fn (x) (* x x)) (range 1 6))'
           ./build/kec run examples/fizzbuzz.lsp
+
+  emacs-mode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build kec (for the Flymake integration tests)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+      - name: Install Emacs
+        run: sudo apt-get update && sudo apt-get install -y emacs-nox
+      - name: Byte-compile (warnings are errors)
+        working-directory: editors/emacs
+        run: |
+          emacs -Q --batch --eval '(setq byte-compile-error-on-warn t)' \
+            -f batch-byte-compile kec-lisp-mode.el
+      - name: ERT
+        working-directory: editors/emacs
+        run: |
+          export PATH="$GITHUB_WORKSPACE/build:$PATH"
+          emacs -Q --batch -L . -l kec-lisp-mode.el -l kec-lisp-mode-tests.el \
+            -f ert-run-tests-batch-and-exit
