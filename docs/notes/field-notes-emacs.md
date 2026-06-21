@@ -1,4 +1,7 @@
-# Field Notes from the GNU Emacs Manual
+---
+title: "Field Notes: GNU Emacs Manual"
+description: Reading notes from the GNU Emacs Manual mined for nEmacs (the KN-86 on-device editor) and a future desktop kec-lisp Emacs mode.
+---
 
 > Reading notes on the *GNU Emacs Manual* (17th ed., Emacs 24.5; Stallman et al.),
 > mined for two KEC projects:

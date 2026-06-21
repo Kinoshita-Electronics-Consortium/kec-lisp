@@ -40,6 +40,35 @@ top-level literal `(load "...")` forms, checks the whole program parses, and
 writes a self-contained `.kec` file. CI (`.github/workflows/ci.yml`) builds +
 tests on ubuntu and macos and smoke-runs an `eval` and `fizzbuzz`.
 
+## Docs site (`docs/` → `website/`)
+
+The Starlight site in `website/` loads its content collection straight from the
+top-level `docs/` tree (`website/src/content.config.ts`: `glob({ base: '../docs' })`,
+`schema: docsSchema()`). **Every `.md`/`.mdx` under `docs/` is a Starlight page and
+MUST start with YAML frontmatter carrying at least a `title:`** (add a `description:`
+too, by convention). Do **not** open with an in-body `# H1` — Starlight renders the
+title from frontmatter, so an H1 just duplicates it. Skeleton:
+
+```md
+---
+title: My Page
+description: One-line summary.
+---
+
+Body starts here — no H1.
+```
+
+**This is a CI blind spot.** `ctest` and the `CI` workflow build/test the language
+only — they never touch `website/`. A `docs/` file with missing or malformed
+frontmatter therefore passes `CI` green and only breaks the separate **`Docs`**
+workflow (`.github/workflows/docs.yml`), which builds + deploys the site and runs
+**only on push to `main`** — so the failure surfaces *after* merge, not on the PR.
+Before merging any `docs/` change, validate the site build locally:
+
+```sh
+cd website && npm install && npm run build   # fails loudly on bad/missing frontmatter
+```
+
 ## Architecture
 
 Strict bottom-up layering — each layer only depends on the ones below it:

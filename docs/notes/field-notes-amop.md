@@ -1,4 +1,7 @@
-# Field Notes from *The Art of the Metaobject Protocol*
+---
+title: "Field Notes: The Art of the Metaobject Protocol"
+description: Transferable design lessons for KEC Lisp mined from Kiczales, des Rivières & Bobrow's AMOP — open implementation, protocol design, reflection, and metacircular bootstrapping.
+---
 
 > Reading notes on Kiczales, des Rivières & Bobrow, *The Art of the Metaobject
 > Protocol* (MIT Press, 1991), mined for **transferable design lessons for KEC
