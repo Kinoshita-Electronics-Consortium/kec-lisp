@@ -81,7 +81,16 @@ runtime/  the embedding API
 cli/      the kec command
 tests/    a test harness (written in KEC Lisp) and the test suite
 examples/ runnable scripts
+editors/  editor support — emacs/ is a GNU Emacs major mode (kec-lisp-mode)
 ```
+
+## Editor support
+
+[`editors/emacs/`](editors/emacs/) is a GNU Emacs major mode (`kec-lisp-mode`)
+for `.lsp` files: syntax highlighting, KEC-aware indentation, Flymake
+(structural paren-check + `kec build`), completion-at-point over the standard
+library and the live interpreter, and an inferior `kec` REPL. See its
+[README](editors/emacs/README.md).
 
 ## Hacking on Core
 

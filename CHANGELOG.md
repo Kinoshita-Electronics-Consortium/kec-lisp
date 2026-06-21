@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- **GNU Emacs major mode** (`editors/emacs/kec-lisp-mode.el`) for editing `.lsp`
+  KEC Lisp: file detection, font-lock, KEC-aware indentation, completion-at-point
+  (standard library + buffer definitions + the live interpreter's `(globals)`),
+  Flymake (a precise local paren-balance check plus an optional `kec build`
+  parse-check), and an inferior `kec` REPL. 18 ERT tests under
+  `editors/emacs/kec-lisp-mode-tests.el`.
 - **`eval` — evaluate a data form in the live image** (`FULL` profile only).
   `(eval form)` runs an already-read form and returns its value; with
   `read-string` / `read-all` it gives `eval-defun`, a scratch REPL, and
