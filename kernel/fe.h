@@ -116,4 +116,10 @@ int fe_min_arena_bytes(void);
  * to Lisp directly; build a fresh list from it instead. */
 fe_Object* fe_symbols(fe_Context *ctx);
 
+/* Parameter list of a Lisp closure (FE_TFUNC) or macro (FE_TMACRO), for
+ * host-side introspection (e.g. a `fn-params` primitive). Returns nil for a
+ * built-in (cfunc/prim) or non-function. The returned list is LIVE internal
+ * structure — copy it before handing it to Lisp. */
+fe_Object* fe_fn_params(fe_Context *ctx, fe_Object *fn);
+
 #endif

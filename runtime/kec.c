@@ -246,8 +246,10 @@ static fe_Object *h_apply(fe_Context *ctx, fe_Object *args) {
 }
 
 /* (read-string s) — parse the FIRST s-expression of s and return it, WITHOUT
-** evaluating it. Pure reader: the deliberate "no eval from Lisp" stance holds —
-** this hands back the parsed datum, nothing runs. Empty / blank input -> nil. */
+** evaluating it. Pure reader, available in any profile: it hands back the parsed
+** datum, nothing runs. To then evaluate it, use `eval` (a FULL-tier capability,
+** so SANDBOX contexts can read forms without being able to run them). Empty /
+** blank input -> nil. */
 static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
     char buf[4096];
     StrReader r;
@@ -258,6 +260,74 @@ static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
     form = fe_read(ctx, str_readfn, &r);
     if (form == NULL) { return fe_bool(ctx, 0); } /* EOF -> nil */
     return form;
+}
+
+/* (eval form) — evaluate an already-read data form in the live image and
+** return its value. The keystone the editor model (nEmacs) needs: evaluate a
+** form read from a buffer (eval-defun), a scratch-REPL line, or config-as-code.
+** Pairs with read-string: (eval (read-string s)) reads and runs one form.
+** fe_eval runs in the global environment, so defs/sets land as top-level
+** bindings. FULL-tier only (bound beside `load`) — the deliberate "no eval in
+** the sandbox" stance is preserved by *not* binding it into SANDBOX contexts. */
+static fe_Object *h_eval(fe_Context *ctx, fe_Object *args) {
+    return fe_eval(ctx, fe_nextarg(ctx, &args));
+}
+
+/* Counting / filling writers for the length-aware string dup below. */
+static void count_writefn(fe_Context *ctx, void *udata, char chr) {
+    (void)ctx; (void)chr;
+    (*(size_t *)udata)++;
+}
+typedef struct { char *p; size_t n, cap; } FillBuf;
+static void fill_writefn(fe_Context *ctx, void *udata, char chr) {
+    FillBuf *b = udata;
+    (void)ctx;
+    if (b->n < b->cap) { b->p[b->n++] = chr; }
+}
+
+/* (read-all s) — parse EVERY top-level form of s and return them as a list, in
+** source order (comments/whitespace skipped). The multi-form companion to
+** read-string: (for-each eval (read-all src)) runs a whole config string. Like
+** read-string it only reads — nothing is evaluated. Empty/blank input -> nil.
+** Length-aware (no 4 KB clip; GWP-528 stance). */
+static fe_Object *h_read_all(fe_Context *ctx, fe_Object *args) {
+    fe_Object *src = fe_nextarg(ctx, &args);
+    size_t len = 0;
+    char *buf;
+    StrReader r;
+    fe_Object *form, *rev, *res;
+    int gc;
+    FillBuf b;
+
+    fe_write(ctx, src, count_writefn, &len, 0);   /* measure */
+    buf = malloc(len + 1);
+    if (!buf) { fe_error(ctx, "read-all: out of memory"); }
+    b.p = buf; b.n = 0; b.cap = len;
+    fe_write(ctx, src, fill_writefn, &b, 0);      /* fill */
+    buf[b.n] = '\0';
+
+    /* Pass 1: read forms, accumulating reversed (cons grows at the head). */
+    r.s = buf; r.i = 0;
+    rev = fe_bool(ctx, 0); /* nil */
+    gc = fe_savegc(ctx);
+    fe_pushgc(ctx, rev);
+    while ((form = fe_read(ctx, str_readfn, &r)) != NULL) {
+        rev = fe_cons(ctx, form, rev);
+        fe_restoregc(ctx, gc);
+        fe_pushgc(ctx, rev);
+    }
+    free(buf);
+
+    /* Pass 2: reverse into source order. rev stays rooted (reachable via the
+    ** pushed head); each new res cons is rooted before the next allocation. */
+    res = fe_bool(ctx, 0);
+    fe_pushgc(ctx, res);
+    while (!fe_isnil(ctx, rev)) {
+        res = fe_cons(ctx, fe_car(ctx, rev), res);
+        fe_pushgc(ctx, res);
+        rev = fe_cdr(ctx, rev);
+    }
+    return res;
 }
 
 /* (macroexpand-1 form) — expand one symbolic macro call, or return form. */
@@ -344,12 +414,17 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
     kec_bind_fe(S->ctx, "raise", h_raise);
     kec_bind_fe(S->ctx, "apply", h_apply);
     kec_bind_fe(S->ctx, "read-string", h_read_string);
+    kec_bind_fe(S->ctx, "read-all", h_read_all);
     kec_bind_fe(S->ctx, "macroexpand-1", h_macroexpand_1);
     kec_bind_fe(S->ctx, "provide", h_provide);
     kec_bind_fe(S->ctx, "provided?", h_provided_p);
     if (profile == KEC_PROFILE_FULL) {
         kec_bind_fe(S->ctx, "load", h_load);
         kec_bind_fe(S->ctx, "require", h_require);
+        /* eval is a FULL/editor-REPL-tier capability — it evaluates arbitrary
+        ** constructed forms, so the deliberate "no eval in the sandbox" stance
+        ** is kept by binding it only here, alongside load (see docs/builtins). */
+        kec_bind_fe(S->ctx, "eval", h_eval);
     }
 
     /* Load Core (the standard library, written in KEC Lisp). A failure here

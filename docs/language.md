@@ -305,6 +305,20 @@ Backquote builds data, comma evaluates a subform, and comma-at splices a list:
 | `(join xs sep)` | Join strings with a separator. |
 | `(split s sep)` | Split a string on a separator. |
 | `(format fmt args...)` | Format using `%d`, `%u`, `%x`, `%c`, `%s`, and `%%`. |
+| `char-whitespace?`, `char-digit?`, `char-alpha?`, `char-alphanumeric?` | Character-class predicates over char codes (as returned by `string-ref`). |
+
+### Symbol Properties
+
+A side registry for per-symbol metadata (Fe symbols have no property slot).
+Named `*-prop` because `get`/`put` already operate on association lists.
+
+| Function | Summary |
+|---|---|
+| `(put-prop sym key val)` | Store or overwrite property `key` of `sym`; returns `val`. |
+| `(get-prop sym key)` | Read the stored value, or `nil` if absent. |
+
+Useful for the kind of per-symbol metadata an editor wants — indentation rules,
+docstrings, a `disabled` flag — keyed by symbol identity.
 
 ### Sorting
 
@@ -321,13 +335,13 @@ The `kec` CLI uses `FULL`.
 
 | Group | Primitives | Profile |
 |---|---|---|
-| Reflection | `type-of`, `gensym`, `bound?`, `globals` | both |
+| Reflection | `type-of`, `gensym`, `bound?`, `globals`, `fn-params` | both |
 | Math | `mod`, `floor`, `ceil`, `round`, `abs`, `sqrt`, `pow` | both |
-| String | `string-length`, `string-ref`, `substring`, `string-append`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` | both |
+| String | `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` | both |
 | I/O | `princ`, `newline`, `repr` | both |
 | System | `rand`, `rand-int`, `clock` | both |
-| Control | `try`, `raise`, `apply`, `read-string`, `macroexpand-1`, `provide`, `provided?` | both |
-| File/System | `load`, `require`, `read-file`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` | `FULL` only |
+| Control | `try`, `raise`, `apply`, `read-string`, `read-all`, `macroexpand-1`, `provide`, `provided?` | both |
+| File/System | `load`, `require`, `eval`, `read-file`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` | `FULL` only |
 
 Common host forms:
 
@@ -342,6 +356,10 @@ Common host forms:
 | `(macroexpand-1 form)` | Expand one symbolic macro call, or return `form` unchanged. Quote the form to inspect: `(macroexpand-1 '(when 1 2))`. |
 | `(bound? sym)` | Truthy if `sym` has a non-nil global binding. `nil` is absence here, so a symbol bound to `nil` reads as unbound. Errors if the argument is not a symbol: `(bound? 'car)`. |
 | `(globals [prefix])` | A fresh list of the globally-bound symbols, optionally filtered to names starting with `prefix`. Order is unspecified; treat the list as read-only (it is yours to keep, but the symbols are interned). `(globals "string-")`. |
+| `(fn-params f)` | The parameter list of a closure or macro (a fresh copy), `nil` for a built-in (no Lisp parameters), or an error if `f` is not a function. For `describe-function`-style help. |
+| `(read-all s)` | Parse **every** top-level form of `s` and return them as a list in source order (the multi-form companion to `read-string`). Nothing is evaluated. Empty/blank input returns `nil`. |
+| `(string-search haystack needle)` | 0-based index of the first occurrence of `needle` in `haystack`, or `nil` if absent. |
+| `(eval form)` | Evaluate an already-read data form in the live image and return its value. `(eval (read-string s))` reads and runs one form; `(for-each eval (read-all s))` runs a whole config string. **`FULL` only** — a privileged editor/REPL-tier capability, deliberately not in `SANDBOX`. |
 | `(load path)` | Read and evaluate a file. `FULL` only. |
 | `(provide feature)` / `(provided? feature)` | Mark and query loaded features. |
 | `(require key [path])` | Load a feature once. `FULL` only. |

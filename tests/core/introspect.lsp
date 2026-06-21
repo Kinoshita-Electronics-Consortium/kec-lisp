@@ -43,3 +43,25 @@
   ;; fair-use: each call returns a distinct, caller-owned list (pairs compare by
   ;; identity, so two non-empty results are never `is`-equal).
   (check (not (is (globals) (globals)))))
+
+(deftest "introspect/fn-params"
+  ;; the parameter list of a closure, for describe-function-style help
+  (defn two-args (a b) (+ a b))
+  (check (equal? (fn-params two-args) '(a b)))
+  ;; a variadic closure: params is a single symbol (rest binding)
+  (set %variadic (fn args args))
+  (check (is (fn-params %variadic) 'args))
+  ;; a macro's parameter list is readable too
+  (check (equal? (fn-params when) '(test . body)))
+  ;; built-ins have no Lisp parameter list -> nil (not an error)
+  (check (not (fn-params car)))           ; kernel primitive
+  (check (not (fn-params type-of))))      ; host cfunc
+
+(deftest "introspect/fn-params-fresh"
+  ;; fair-use: the returned list is a copy, not a handle into the closure
+  (defn probe (x y) x)
+  (check (not (is (fn-params probe) (fn-params probe)))))
+
+(deftest "introspect/fn-params-needs-a-function"
+  (check-err (fn-params 42))
+  (check-err (fn-params "nope")))

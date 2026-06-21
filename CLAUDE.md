@@ -98,8 +98,8 @@ convenience only (CLI subcommands repl/run/eval/test); the embedded Core is what
 ships and what the firmware vendors.
 
 **`core/` load order is dependency order** and is hardcoded in `CMakeLists.txt`
-(`CORE_SRCS`): `00-def → 10-list → 20-cmp → 25-alist → 30-pred → 35-error →
-40-ctrl → 45-quasiquote → 50-hof → 60-str → 70-sort`. A new Core module must
+(`CORE_SRCS`): `00-def → 10-list → 20-cmp → 25-alist → 26-plist → 30-pred →
+35-error → 40-ctrl → 45-quasiquote → 50-hof → 60-str → 70-sort`. A new Core module must
 be slotted into that list at the right position. The list/sequence functions
 are written **iteratively** on purpose so a library call won't exhaust the GC
 stack on a long list.
