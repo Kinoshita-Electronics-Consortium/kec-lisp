@@ -70,6 +70,7 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/ctrl.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/quasiquote.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/macroexpand.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/macro-robustness.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/hof.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/str.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/bigstr.lsp
@@ -77,6 +78,7 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/fsenv.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/require.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/applyread.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/introspect.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/sort.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/trymsg.lsp)
 

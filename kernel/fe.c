@@ -969,6 +969,19 @@ int fe_object_size(void) {
 
 
 /*
+ * Read-only access to the interned-symbol list, for host-side introspection
+ * (a `globals` primitive that enumerates what's defined). The returned object
+ * is a live list of (symbol . next) pairs internal to the context and a GC
+ * root — callers must treat it as read-only and must NOT hand it to Lisp
+ * directly; build a fresh list from it instead. Each element is a symbol whose
+ * current value is fe_eval(ctx, sym) and whose name prints via fe_write.
+ */
+fe_Object* fe_symbols(fe_Context *ctx) {
+  return ctx->symlist;
+}
+
+
+/*
  * Minimum arena, in bytes, that fe_open() can be called with without
  * underflowing `size` past the context header. fe_open() subtracts
  * sizeof(fe_Context) from the arena up front (line ~835); a buffer smaller

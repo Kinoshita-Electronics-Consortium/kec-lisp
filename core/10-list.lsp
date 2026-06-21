@@ -30,6 +30,12 @@
   (while ra (set r (cons (car ra) r)) (set ra (cdr ra)))
   r)
 
+;; Internal splice alias, captured at load time. Macros that must emit an
+;; append (quasiquote's `,@`) reference %append so a cart shadowing the public
+;; `append` can't silently corrupt their expansion (AMOP §4.2.2). %append is
+;; %-private; do not shadow it. See core/45-quasiquote.lsp.
+(set %append append)
+
 ;; (last xs) -> final element.
 (defn last (xs)
   (while (cdr xs) (set xs (cdr xs)))

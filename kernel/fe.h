@@ -110,4 +110,10 @@ int fe_object_size(void);
  * arena should reject buffers below this floor. Tracks GCSTACKSIZE. */
 int fe_min_arena_bytes(void);
 
+/* Read-only access to the interned-symbol list, for host-side introspection
+ * (e.g. a `globals` primitive). The returned list and its pairs are LIVE
+ * internal structure and a GC root — treat it as read-only and do not hand it
+ * to Lisp directly; build a fresh list from it instead. */
+fe_Object* fe_symbols(fe_Context *ctx);
+
 #endif

@@ -247,6 +247,35 @@ stack on ordinary list work.
 | `dotimes`, `dolist` | Iteration helpers. |
 | `begin` | Alias for `do`. |
 
+These macros expand into forms that bottom out on **frozen kernel primitives
+only** — they never emit a call to a shadowable Core function. So redefining a
+library name does not silently change a macro: `(case k ...)` keeps working even
+if you redefine `member`. See *Load-bearing prelude* below.
+
+### Load-bearing prelude (do not shadow)
+
+`set` and a top-level `let` rebind a global anywhere (see [Binding And
+Functions](#binding-and-functions)). That flexibility is real, but a handful of
+Core names are **load-bearing**: the runtime and the prelude are built on top of
+them. Redefining one is the KEC analog of overriding a standard method that
+*must* run (AMOP §4.2.2, "Overriding the Standard Method") — treat it as
+prohibited, because on a device there is no debugger to catch the fallout.
+
+- **Never shadow** the frozen kernel primitives (`cons`, `car`, `cdr`, `list`,
+  `is`, `not`, `atom`, `if`, `let`, `set`, `fn`, `mac`, `do`, `while`, `and`,
+  `or`, `quote`, `<`, `<=`, `+`, `-`, `*`, `/`) or `gensym`. The macro expanders
+  emit these by name; redefining them corrupts every macro.
+- **Avoid shadowing** the core list/sequence functions the prelude leans on
+  (`nth`, `length`, `reverse`, `append`, `member`, `map`). Macro *expansions* no
+  longer depend on them, but the rest of Core does.
+- **`%`-prefixed names are private.** `%append`, `%case-expand`, `%let*-binds`,
+  and friends are internal macro machinery (e.g. `%append` is the load-time
+  capture of `append` that quasiquote's `,@` splices through, so shadowing the
+  public `append` can't break a backquote). Do not define or rebind `%…` names.
+
+To check what a name currently resolves to, use `(bound? 'name)` and
+`(globals "prefix")` (see [Runtime / Host Primitives](#runtime--host-primitives)).
+
 ### Quasiquote
 
 Backquote builds data, comma evaluates a subform, and comma-at splices a list:
@@ -292,7 +321,7 @@ The `kec` CLI uses `FULL`.
 
 | Group | Primitives | Profile |
 |---|---|---|
-| Reflection | `type-of`, `gensym` | both |
+| Reflection | `type-of`, `gensym`, `bound?`, `globals` | both |
 | Math | `mod`, `floor`, `ceil`, `round`, `abs`, `sqrt`, `pow` | both |
 | String | `string-length`, `string-ref`, `substring`, `string-append`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` | both |
 | I/O | `princ`, `newline`, `repr` | both |
@@ -311,6 +340,8 @@ Common host forms:
 | `(apply f arglist)` | Call `f` with the elements of `arglist`; `f` may be a closure, host primitive, or kernel primitive. |
 | `(read-string s)` | Parse the first s-expression in `s` and return it as data, without evaluating it. Empty input returns `nil`. |
 | `(macroexpand-1 form)` | Expand one symbolic macro call, or return `form` unchanged. Quote the form to inspect: `(macroexpand-1 '(when 1 2))`. |
+| `(bound? sym)` | Truthy if `sym` has a non-nil global binding. `nil` is absence here, so a symbol bound to `nil` reads as unbound. Errors if the argument is not a symbol: `(bound? 'car)`. |
+| `(globals [prefix])` | A fresh list of the globally-bound symbols, optionally filtered to names starting with `prefix`. Order is unspecified; treat the list as read-only (it is yours to keep, but the symbols are interned). `(globals "string-")`. |
 | `(load path)` | Read and evaluate a file. `FULL` only. |
 | `(provide feature)` / `(provided? feature)` | Mark and query loaded features. |
 | `(require key [path])` | Load a feature once. `FULL` only. |

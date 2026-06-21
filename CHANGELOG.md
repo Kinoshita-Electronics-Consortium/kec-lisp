@@ -2,7 +2,30 @@
 
 ## Unreleased
 
+### Added
+- **`bound?` and `globals` introspection primitives** (host, both profiles).
+  `(bound? sym)` is truthy when a symbol has a non-nil global binding;
+  `(globals [prefix])` returns a fresh list of the globally-bound symbols,
+  optionally filtered by name prefix. Read-only reflection over the global
+  environment (AMOP Ch. 2, "fair use rules"): tools ask the runtime what's
+  defined instead of reparsing source. Backed by a new additive kernel accessor
+  `fe_symbols()` (read-only view of the interned-symbol list, for host
+  introspection only — never handed to Lisp directly). Covered by
+  `tests/core/introspect.lsp`.
+
 ### Changed
+- **Core macros now expand to frozen kernel primitives only** — a macro's
+  emitted code (and its expander) no longer rides on a shadowable public Core
+  function, so redefining a library name can't silently corrupt a macro (AMOP
+  §4.2.2, "Overriding the Standard Method"). `case` expands to an `(or (is …))`
+  chain instead of calling `member`; `let*` / `letrec` / `dotimes` / `dolist`
+  thread accumulators instead of calling `append` and index with `car`/`cdr`
+  instead of `nth`; quasiquote's `,@` splices through `%append` (a load-time
+  capture of `append` in `core/10-list.lsp`) instead of the public `append`.
+  Behavior is unchanged; robustness is the point. Covered by
+  `tests/core/macro-robustness.lsp`; the *Load-bearing prelude (do not shadow)*
+  section in `docs/language.md` documents the contract.
+
 - **`defn` / `define` / `defmacro` now return the value they define** instead of
   `nil` (GWP-534). `set` returns `nil`, so the macros previously echoed `nil`;
   they now hand back the function, macro, or value, so definitions chain and the
