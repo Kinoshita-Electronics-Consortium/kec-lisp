@@ -58,3 +58,23 @@
         (set out (str out (char->string c))))
     (set i (+ i 1)))
   out)
+
+;; Character-class predicates over char codes (as returned by string-ref) — the
+;; building blocks for word/symbol-boundary scanning (nEmacs, tokenizers).
+
+;; (char-whitespace? c) -> space, tab, newline, or carriage return.
+(defn char-whitespace? (c)
+  (or (is c 32) (is c 9) (is c 10) (is c 13)))
+
+;; (char-digit? c) -> ASCII '0'..'9'.
+(defn char-digit? (c)
+  (and (<= 48 c) (<= c 57)))
+
+;; (char-alpha? c) -> ASCII 'A'..'Z' or 'a'..'z'.
+(defn char-alpha? (c)
+  (or (and (<= 65 c) (<= c 90))
+      (and (<= 97 c) (<= c 122))))
+
+;; (char-alphanumeric? c) -> letter or digit.
+(defn char-alphanumeric? (c)
+  (or (char-alpha? c) (char-digit? c)))

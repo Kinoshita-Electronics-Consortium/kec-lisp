@@ -982,6 +982,23 @@ fe_Object* fe_symbols(fe_Context *ctx) {
 
 
 /*
+ * Parameter list of a Lisp closure/macro, for host-side introspection (a
+ * `fn-params` primitive feeding describe-function-style help). A FE_TFUNC /
+ * FE_TMACRO stores cdr = (env params . body), so the params are cadr. Returns
+ * nil for anything else (a built-in cfunc/prim, or a non-function) so the
+ * caller can treat "no Lisp parameter list" uniformly. The returned list is
+ * live internal structure — the host copies it before handing it to Lisp.
+ */
+fe_Object* fe_fn_params(fe_Context *ctx, fe_Object *fn) {
+  unused(ctx);
+  if (type(fn) == FE_TFUNC || type(fn) == FE_TMACRO) {
+    return car(cdr(cdr(fn)));
+  }
+  return &nil;
+}
+
+
+/*
  * Minimum arena, in bytes, that fe_open() can be called with without
  * underflowing `size` past the context header. fe_open() subtracts
  * sizeof(fe_Context) from the arena up front (line ~835); a buffer smaller

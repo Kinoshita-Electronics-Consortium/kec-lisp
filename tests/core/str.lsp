@@ -28,3 +28,23 @@
   (check (is (number->string 42) "42"))
   (check (is (string-length "hello") 5))
   (check (nil? (string->number "abc"))))
+
+(deftest "str/search"
+  (check (is (string-search "forward-char" "-") 7))   ; first index of needle
+  (check (is (string-search "hello" "lo") 3))
+  (check (is (string-search "abc" "abc") 0))          ; whole-string match
+  (check (nil? (string-search "abc" "z")))            ; absent -> nil
+  (check (is (string-search "aXbXc" "X") 1)))         ; first occurrence only
+
+(deftest "str/char-predicates"
+  ;; operate on char codes (as returned by string-ref)
+  (check (char-whitespace? 32))           ; space
+  (check (char-whitespace? 10))           ; newline
+  (check (nil? (char-whitespace? 65)))    ; 'A'
+  (check (char-alpha? 65))                ; 'A'
+  (check (char-alpha? 122))               ; 'z'
+  (check (nil? (char-alpha? 48)))         ; '0'
+  (check (char-digit? 48))                ; '0'
+  (check (char-digit? 57))                ; '9'
+  (check (nil? (char-digit? 65)))         ; 'A'
+  (check (char-alpha? (string-ref "x" 0))))

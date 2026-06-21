@@ -180,6 +180,37 @@ static fe_Object *h_globals(fe_Context *ctx, fe_Object *args) {
     return res;
 }
 
+/* Fresh copy of a parameter list's spine. A proper or dotted list is copied
+** cons-by-cons (the final non-nil tail is preserved); a non-pair (nil, or a
+** variadic single-symbol param list) is returned as-is. Recursion depth is the
+** parameter count — tiny. Fair-use: the caller can't reach the closure through
+** the returned list. */
+static fe_Object *copy_spine(fe_Context *ctx, fe_Object *lst) {
+    if (fe_type(ctx, lst) != FE_TPAIR) { return lst; }
+    {
+        int gc = fe_savegc(ctx);
+        fe_Object *head = fe_car(ctx, lst);
+        fe_Object *rest;
+        fe_pushgc(ctx, head);
+        rest = copy_spine(ctx, fe_cdr(ctx, lst));
+        fe_restoregc(ctx, gc);
+        return fe_cons(ctx, head, rest);
+    }
+}
+
+/* (fn-params f) -> the parameter list of a Lisp closure or macro (a fresh copy,
+** fair-use), nil for a built-in cfunc/prim (no Lisp parameters), or an error if
+** f is not a function. Feeds describe-function-style help. Read-only — safe in
+** any profile. */
+static fe_Object *h_fn_params(fe_Context *ctx, fe_Object *args) {
+    fe_Object *fn = fe_nextarg(ctx, &args);
+    int t = fe_type(ctx, fn);
+    if (t != FE_TFUNC && t != FE_TMACRO && t != FE_TCFUNC && t != FE_TPRIM) {
+        fe_error(ctx, "fn-params: not a function");
+    }
+    return copy_spine(ctx, fe_fn_params(ctx, fn));
+}
+
 /* ------------------------------------------------------------------ */
 /* Math — the kernel ships only + - * / < <= ; these fill the gap.     */
 /* ------------------------------------------------------------------ */
@@ -278,6 +309,26 @@ static fe_Object *h_string_append(fe_Context *ctx, fe_Object *args) {
     out[b.n] = '\0';
     res = fe_string(ctx, out);
     free(out);
+    return res;
+}
+
+/* (string-search haystack needle) -> 0-based index of the first occurrence of
+** needle in haystack, or nil if absent. An empty needle matches at 0. Both
+** arguments are stringified length-aware (no 4 KB clip). */
+static fe_Object *h_string_search(fe_Context *ctx, fe_Object *args) {
+    fe_Object *hay = fe_nextarg(ctx, &args);
+    fe_Object *needle = fe_nextarg(ctx, &args);
+    size_t hlen, nlen;
+    char *h = host_strdup_obj(ctx, hay, &hlen);
+    char *n, *found;
+    fe_Object *res;
+    if (!h) { fe_error(ctx, "string-search: out of memory"); }
+    n = host_strdup_obj(ctx, needle, &nlen);
+    if (!n) { free(h); fe_error(ctx, "string-search: out of memory"); }
+    found = strstr(h, n);
+    res = found ? fe_number(ctx, (fe_Number)(found - h)) : fe_bool(ctx, 0);
+    free(h);
+    free(n);
     return res;
 }
 
@@ -528,6 +579,7 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     kec_bind_fe(ctx, "gensym", h_gensym);
     kec_bind_fe(ctx, "bound?", h_bound_p);
     kec_bind_fe(ctx, "globals", h_globals);
+    kec_bind_fe(ctx, "fn-params", h_fn_params);
     /* Math */
     kec_bind_fe(ctx, "mod", h_mod);
     kec_bind_fe(ctx, "floor", h_floor);
@@ -541,6 +593,7 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     kec_bind_fe(ctx, "string-ref", h_string_ref);
     kec_bind_fe(ctx, "substring", h_substring);
     kec_bind_fe(ctx, "string-append", h_string_append);
+    kec_bind_fe(ctx, "string-search", h_string_search);
     kec_bind_fe(ctx, "char->string", h_char_to_string);
     kec_bind_fe(ctx, "number->string", h_number_to_string);
     kec_bind_fe(ctx, "string->number", h_string_to_number);

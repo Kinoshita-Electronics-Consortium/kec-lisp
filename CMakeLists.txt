@@ -35,6 +35,7 @@ set(CORE_SRCS
   ${CMAKE_SOURCE_DIR}/core/10-list.lsp
   ${CMAKE_SOURCE_DIR}/core/20-cmp.lsp
   ${CMAKE_SOURCE_DIR}/core/25-alist.lsp
+  ${CMAKE_SOURCE_DIR}/core/26-plist.lsp
   ${CMAKE_SOURCE_DIR}/core/30-pred.lsp
   ${CMAKE_SOURCE_DIR}/core/35-error.lsp
   ${CMAKE_SOURCE_DIR}/core/40-ctrl.lsp
@@ -65,6 +66,7 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/list.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/cmp.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/alist.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/plist.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/pred.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/error.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/ctrl.lsp
@@ -78,6 +80,7 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/fsenv.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/require.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/applyread.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/eval.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/introspect.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/sort.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/trymsg.lsp)

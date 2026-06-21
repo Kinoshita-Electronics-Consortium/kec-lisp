@@ -3,6 +3,30 @@
 ## Unreleased
 
 ### Added
+- **`eval` — evaluate a data form in the live image** (`FULL` profile only).
+  `(eval form)` runs an already-read form and returns its value; with
+  `read-string` / `read-all` it gives `eval-defun`, a scratch REPL, and
+  config-as-code. It is a privileged editor/REPL-tier capability, deliberately
+  **not** bound into `SANDBOX` — the existing "no eval in the sandbox" stance is
+  preserved by binding, alongside `load`. Covered by `tests/core/eval.lsp`.
+- **`read-all` — parse every top-level form of a string** (host, both profiles).
+  The multi-form companion to `read-string`; returns a list of forms in source
+  order, nothing evaluated. Length-aware (no 4 KB clip). For `(for-each eval
+  (read-all src))` config loading. `tests/core/eval.lsp`.
+- **`get-prop` / `put-prop` — symbol property registry** (Core, `26-plist.lsp`).
+  Classic Lisp symbol properties in a side registry (Fe symbols have no plist
+  slot); named `*-prop` because `get`/`put` already operate on alists. For the
+  per-symbol metadata an editor wants — indent rules, docstrings, a `disabled`
+  flag. `tests/core/plist.lsp`.
+- **`fn-params` — a closure/macro's parameter list** (host, both profiles), for
+  `describe-function`-style help. Returns a fresh copy (fair-use), `nil` for a
+  built-in, or an error for a non-function. Backed by an additive kernel
+  accessor `fe_fn_params`. `tests/core/introspect.lsp`.
+- **`string-search`** (host, both profiles) — index of the first occurrence of a
+  needle in a string, or `nil`. **Character-class predicates** `char-whitespace?`
+  / `char-digit?` / `char-alpha?` / `char-alphanumeric?` (Core, `60-str.lsp`) over
+  char codes — building blocks for word/symbol-boundary scanning.
+  `tests/core/str.lsp`.
 - **`bound?` and `globals` introspection primitives** (host, both profiles).
   `(bound? sym)` is truthy when a symbol has a non-nil global binding;
   `(globals [prefix])` returns a fresh list of the globally-bound symbols,
