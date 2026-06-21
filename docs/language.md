@@ -49,6 +49,43 @@ primitive call.
 | `` `x `` | Reader sugar for `(quasiquote x)`. |
 | `,x`, `,@x` | Unquote and unquote-splicing inside quasiquote. |
 
+### Punctuation Characters
+
+KEC Lisp uses **19 distinct punctuation characters**. Ten are recognized by the
+reader (`read_` in `kernel/fe.c`) as structure; nine appear inside the names of
+kernel primitives and Core definitions you have to type. `!`, `#`, `&`, `%`,
+`^`, `$`, `~`, and `|` are *not* used — there is no bang-mutation convention and
+none are reader-special.
+
+**Reader / structural** — handled specially by the reader:
+
+| Char | Role | Word-form alternative |
+|---|---|---|
+| `(` `)` | List delimiters. | None. |
+| `"` | String-literal delimiter. | None. |
+| `.` | Dotted pair, rest/variadic params `(fn (a . rest) ...)`, decimal point in numbers. | None. |
+| `;` | Line comment to end of line. | None — the only comment syntax. |
+| `\` | String escape (`\"`, `\\`, `\n`, `\r`, `\t`), inside strings only. | None for escapes. |
+| `'` | Quote sugar. | `(quote x)` |
+| `` ` `` | Quasiquote sugar. | `(quasiquote x)` |
+| `,` | Unquote sugar. | `(unquote x)` |
+| `@` | Only as `,@` — unquote-splicing. | `(unquote-splicing x)` |
+
+**Identifier / operator** — part of names you must type:
+
+| Char | Required for | Word-form alternative |
+|---|---|---|
+| `<` | `<`, `<=` — kernel ordering primitives. | None. |
+| `?` | The predicate family — `nil?`, `pair?`, `number?`, `bound?`, `even?`, ... | None. |
+| `>` | `>`, `>=`, and `->` converters (`number->string`, `char->string`, ...). | None. |
+| `=` | `=`, `==`, `/=`, `<=`, `>=`. | `is` covers equality; `<=`/`>=` still need it. |
+| `+` `-` `*` `/` | Arithmetic primitives; `-` is also the kebab-case separator in most multi-word names. | None. |
+| `:` | Keyword-style symbols, notably `type-of` results (`:number`, `:pair`, ...). | None. |
+
+`<` and `?` have no word-form escape: ordering comparisons and the standard
+predicates can only be written with them. Whether a given physical keyboard can
+type this whole set is a device/firmware concern, not a language one.
+
 ## Values And Truth
 
 `nil` is false. Every other value is true, including `0`, empty strings, empty
