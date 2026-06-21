@@ -14,6 +14,7 @@
 
 #include <dirent.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -240,6 +241,51 @@ static fe_Object *h_pow(fe_Context *ctx, fe_Object *args) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Bitwise — packing/masking the kernel arithmetic primitives can't do.*/
+/*                                                                     */
+/* Operands are taken as numbers and forced through int32_t so a       */
+/* negative fe_Number yields its two's-complement bit pattern (e.g.    */
+/* (bit-and -1 255) -> 255). The logical work is done on uint32_t      */
+/* (well-defined wrap, zero-fill shift), then the result is cast back  */
+/* int32_t -> fe_Number, so values stay inside the exact-integer float */
+/* window only up to +/-2^24 — wider results lose precision like any   */
+/* other KEC number. (bit-shr is a LOGICAL right shift: it zero-fills  */
+/* the high bits, it is not arithmetic.) Shift counts are masked & 31  */
+/* to avoid shifting by >= the width (which is undefined in C).        */
+/* ------------------------------------------------------------------ */
+
+static uint32_t arg_u32(fe_Context *ctx, fe_Object **args) {
+    return (uint32_t)(int32_t)arg_num(ctx, args);
+}
+
+static fe_Object *h_bit_and(fe_Context *ctx, fe_Object *args) {
+    uint32_t a = arg_u32(ctx, &args), b = arg_u32(ctx, &args);
+    return fe_number(ctx, (fe_Number)(int32_t)(a & b));
+}
+static fe_Object *h_bit_or(fe_Context *ctx, fe_Object *args) {
+    uint32_t a = arg_u32(ctx, &args), b = arg_u32(ctx, &args);
+    return fe_number(ctx, (fe_Number)(int32_t)(a | b));
+}
+static fe_Object *h_bit_xor(fe_Context *ctx, fe_Object *args) {
+    uint32_t a = arg_u32(ctx, &args), b = arg_u32(ctx, &args);
+    return fe_number(ctx, (fe_Number)(int32_t)(a ^ b));
+}
+static fe_Object *h_bit_not(fe_Context *ctx, fe_Object *args) {
+    uint32_t a = arg_u32(ctx, &args);
+    return fe_number(ctx, (fe_Number)(int32_t)(~a));
+}
+static fe_Object *h_bit_shl(fe_Context *ctx, fe_Object *args) {
+    uint32_t a = arg_u32(ctx, &args);
+    uint32_t n = arg_u32(ctx, &args) & 31u;
+    return fe_number(ctx, (fe_Number)(int32_t)(a << n));
+}
+static fe_Object *h_bit_shr(fe_Context *ctx, fe_Object *args) {
+    uint32_t a = arg_u32(ctx, &args);
+    uint32_t n = arg_u32(ctx, &args) & 31u; /* logical (zero-fill) shift */
+    return fe_number(ctx, (fe_Number)(int32_t)(a >> n));
+}
+
+/* ------------------------------------------------------------------ */
 /* Strings — char-level access the kernel can't express in Lisp.       */
 /* ------------------------------------------------------------------ */
 
@@ -415,14 +461,40 @@ static fe_Object *h_repr(fe_Context *ctx, fe_Object *args) {
 /* System.                                                            */
 /* ------------------------------------------------------------------ */
 
+/* Self-contained PRNG (SplitMix64). We deliberately do NOT use libc rand():
+** its sequence differs across platforms, but the mission board generates
+** contracts from deck-state-seeded templates, so reproducible procedural
+** generation must be byte-identical on every host. A fixed seed therefore
+** yields a fixed sequence everywhere — see tests/core/rng.lsp (golden value).
+** The state is a single 64-bit word, initialized to a fixed nonzero default
+** so an unseeded `rand` is still deterministic across runs. */
+static uint64_t g_rng_state = 0x9E3779B97F4A7C15ULL;
+
+static uint64_t rng_next(void) {
+    uint64_t z = (g_rng_state += 0x9E3779B97F4A7C15ULL);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    return z ^ (z >> 31);
+}
+
+/* (set-seed! n) — reseed the PRNG from n, returning n. Used so deck-state seeds
+** make `rand`/`rand-int` reproducible. */
+static fe_Object *h_set_seed(fe_Context *ctx, fe_Object *args) {
+    fe_Number n = arg_num(ctx, &args);
+    g_rng_state = (uint64_t)(int64_t)n;
+    return fe_number(ctx, n);
+}
+
 static fe_Object *h_rand(fe_Context *ctx, fe_Object *args) {
+    /* Top 53 bits -> a double in [0,1), then narrowed to fe_Number. */
     (void)args;
-    return fe_number(ctx, (fe_Number)((double)rand() / ((double)RAND_MAX + 1.0)));
+    return fe_number(ctx, (fe_Number)((double)(rng_next() >> 11) *
+                                      (1.0 / 9007199254740992.0)));
 }
 static fe_Object *h_rand_int(fe_Context *ctx, fe_Object *args) {
     int n = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
     if (n <= 0) { return fe_number(ctx, 0); }
-    return fe_number(ctx, (fe_Number)(rand() % n));
+    return fe_number(ctx, (fe_Number)(uint32_t)((rng_next() >> 16) % (uint64_t)n));
 }
 static fe_Object *h_clock(fe_Context *ctx, fe_Object *args) {
     (void)args;
@@ -588,6 +660,13 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     kec_bind_fe(ctx, "abs", h_abs);
     kec_bind_fe(ctx, "sqrt", h_sqrt);
     kec_bind_fe(ctx, "pow", h_pow);
+    /* Bitwise (32-bit, logical shr) */
+    kec_bind_fe(ctx, "bit-and", h_bit_and);
+    kec_bind_fe(ctx, "bit-or", h_bit_or);
+    kec_bind_fe(ctx, "bit-xor", h_bit_xor);
+    kec_bind_fe(ctx, "bit-not", h_bit_not);
+    kec_bind_fe(ctx, "bit-shl", h_bit_shl);
+    kec_bind_fe(ctx, "bit-shr", h_bit_shr);
     /* Strings */
     kec_bind_fe(ctx, "string-length", h_string_length);
     kec_bind_fe(ctx, "string-ref", h_string_ref);
@@ -604,6 +683,7 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     kec_bind_fe(ctx, "newline", h_newline);
     kec_bind_fe(ctx, "repr", h_repr);
     /* System (portable, safe in any profile) */
+    kec_bind_fe(ctx, "set-seed!", h_set_seed);
     kec_bind_fe(ctx, "rand", h_rand);
     kec_bind_fe(ctx, "rand-int", h_rand_int);
     kec_bind_fe(ctx, "clock", h_clock);

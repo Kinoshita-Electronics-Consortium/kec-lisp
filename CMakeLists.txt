@@ -38,10 +38,13 @@ set(CORE_SRCS
   ${CMAKE_SOURCE_DIR}/core/26-plist.lsp
   ${CMAKE_SOURCE_DIR}/core/30-pred.lsp
   ${CMAKE_SOURCE_DIR}/core/35-error.lsp
+  ${CMAKE_SOURCE_DIR}/core/36-recover.lsp
   ${CMAKE_SOURCE_DIR}/core/40-ctrl.lsp
   ${CMAKE_SOURCE_DIR}/core/45-quasiquote.lsp
   ${CMAKE_SOURCE_DIR}/core/50-hof.lsp
+  ${CMAKE_SOURCE_DIR}/core/55-util.lsp
   ${CMAKE_SOURCE_DIR}/core/60-str.lsp
+  ${CMAKE_SOURCE_DIR}/core/65-strtool.lsp
   ${CMAKE_SOURCE_DIR}/core/70-sort.lsp)
 
 add_custom_command(
@@ -69,12 +72,17 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/plist.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/pred.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/error.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/recover.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/ctrl.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/quasiquote.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/macroexpand.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/macro-robustness.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/hof.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/util.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/str.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/strtool.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/bitwise.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/rng.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/bigstr.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fileio.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fsenv.lsp
