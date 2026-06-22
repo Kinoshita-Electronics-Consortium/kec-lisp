@@ -415,6 +415,7 @@ The `kec` CLI uses `FULL`.
 | Reflection | `type-of`, `gensym`, `bound?`, `globals`, `fn-params` | both |
 | Math | `mod`, `floor`, `ceil`, `round`, `abs`, `sqrt`, `pow` | both |
 | Bitwise | `bit-and`, `bit-or`, `bit-xor`, `bit-not`, `bit-shl`, `bit-shr` | both |
+| Containers | `make-vector`, `vector`, `vector-ref`, `vector-set!`, `vector-length`, `vector?`, `make-hash-table`, `hash-set!`, `hash-ref`, `hash-has?`, `hash-del!`, `hash-count`, `hash-keys`, `hash-table?` | both |
 | String | `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` | both |
 | I/O | `princ`, `newline`, `repr` | both |
 | System | `set-seed!`, `rand`, `rand-int`, `clock` | both |
@@ -450,6 +451,28 @@ Common host forms:
 | `(list-dir path)` | Return directory entry names, excluding `.` and `..`; order is unspecified. `FULL` only. |
 | `(getenv name)` | Return an environment value or `nil`. `FULL` only. |
 
+### Containers
+
+Vectors and hash tables (ADR-0003) are **foreign (`:ptr`) objects** with O(1)
+access — the optimized alternative to cons-list and alist traversal for grids,
+rings, and keyed tables. Because they are foreign objects, `=` / `is` compare
+them **by identity**, not contents: use `vector->list` / `hash->alist` + `equal?`
+to compare contents. Core (`core/52-container.lsp`) layers the Lisp conveniences
+`vector->list`, `list->vector`, `vector-fill!`, `vector-copy`, `vector-map`,
+`vector-for-each`, `hash->alist`, `alist->hash`, `hash-values`, `hash-for-each`
+over the primitives.
+
+| Form | Meaning |
+|---|---|
+| `(make-vector n [init])` | A fixed-length vector of `n` elements, each `init` (default `nil`). |
+| `(vector a b ...)` | A vector of the given elements. |
+| `(vector-ref v i)` / `(vector-set! v i x)` | 0-based indexed read / write; both raise on an out-of-range index. `vector-set!` returns `x`. |
+| `(vector-length v)` / `(vector? x)` | Element count / type test. |
+| `(make-hash-table)` | An empty hash table. Keys may be **numbers** (by value), **symbols** (by identity), or **strings** (by content); any other key type raises. |
+| `(hash-set! h k v)` / `(hash-ref h k [default])` | Associate `k`→`v` (returns `v`) / look `k` up, returning `default` (or `nil`) when absent. |
+| `(hash-has? h k)` / `(hash-del! h k)` | Membership test / delete (returns `t` if present, else `nil`). |
+| `(hash-count h)` / `(hash-keys h)` / `(hash-table? x)` | Live entry count / fresh list of keys (unspecified order) / type test. |
+
 ## Errors
 
 Runtime errors route through `fe_error`. The KEC runtime installs a recovery
@@ -473,8 +496,8 @@ or `(try ...)`.
 | Single-precision numbers | Treat numbers as floats; exact integer work is limited to +/-2^24. |
 | Bounded GC root stack | Prefer `while`, `dotimes`, `dolist`, or `fold-left` for deep traversals. |
 | No tail-call optimization | Deep recursive code can overflow. Core list functions are iterative for this reason. |
-| No vectors, hash tables, records, or keyword args | Use lists and alists. |
-| No Lisp-level `eval` | Use macros for code generation and `read-string` for parsing data. |
+| Vectors/hash compare by identity | They are `:ptr` objects; `=`/`is` test identity. Use `vector->list`/`hash->alist` + `equal?` for content. String hash keys compare over their first 1024 bytes. |
+| `eval` is `FULL`-tier | `SANDBOX` contexts have no `eval`; use macros for code generation and `read-string`/`read-all` to parse data. |
 | Strings are null-terminated | Strings are not binary-safe. |
 
 For implementation details, see [Fe Kernel - Internals](/kec-lisp/fe-kernel/)
@@ -492,6 +515,7 @@ and [Memory Model](/kec-lisp/memory-model/).
 | Lists/alists | `nth`, `length`, `reverse`, `append`, `last`, `member`, `assoc`, `take`, `drop`, `range`, `get`, `put`, `has?`, `keys`, `values`, `merge` |
 | Comparison/predicates | `=`, `==`, `/=`, `equal?`, `>`, `>=`, `zero?`, `positive?`, `negative?`, `nil?`, `pair?`, `even?`, `odd?`, `number?`, `symbol?`, `string?`, `fn?` |
 | Higher-order | `map`, `filter`, `remove`, `fold-left`, `fold-right`, `for-each`, `find`, `any?`, `every?`, `count` |
+| Containers | `make-vector`, `vector`, `vector-ref`, `vector-set!`, `vector-length`, `vector?`, `vector->list`, `list->vector`, `vector-map`, `vector-for-each`, `vector-fill!`, `vector-copy`, `make-hash-table`, `hash-set!`, `hash-ref`, `hash-has?`, `hash-del!`, `hash-count`, `hash-keys`, `hash-table?`, `hash-values`, `hash->alist`, `alist->hash`, `hash-for-each` |
 | Strings | `str`, `join`, `split`, `format`, `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` |
 | String toolkit | `char-upcase`, `char-downcase`, `string-upcase`, `string-downcase`, `pad-left`, `pad-right`, `string-repeat`, `string-prefix?`, `string-suffix?`, `string-contains?` |
 | Bitwise | `bit-and`, `bit-or`, `bit-xor`, `bit-not`, `bit-shl`, `bit-shr` |
