@@ -42,6 +42,7 @@ set(CORE_SRCS
   ${CMAKE_SOURCE_DIR}/core/40-ctrl.lsp
   ${CMAKE_SOURCE_DIR}/core/45-quasiquote.lsp
   ${CMAKE_SOURCE_DIR}/core/50-hof.lsp
+  ${CMAKE_SOURCE_DIR}/core/52-container.lsp
   ${CMAKE_SOURCE_DIR}/core/55-util.lsp
   ${CMAKE_SOURCE_DIR}/core/60-str.lsp
   ${CMAKE_SOURCE_DIR}/core/65-strtool.lsp
@@ -78,6 +79,9 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/macroexpand.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/macro-robustness.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/hof.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/vector.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/hash.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/container-gc.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/util.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/str.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/strtool.lsp
@@ -109,6 +113,7 @@ add_custom_target(kec_generated
 add_library(kec_core STATIC
   kernel/fe.c
   host/host.c
+  host/containers.c
   runtime/kec.c)
 target_include_directories(kec_core PUBLIC
   ${CMAKE_SOURCE_DIR}/kernel

@@ -687,6 +687,9 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     kec_bind_fe(ctx, "rand", h_rand);
     kec_bind_fe(ctx, "rand-int", h_rand_int);
     kec_bind_fe(ctx, "clock", h_clock);
+    /* Containers (vectors + hash tables) — portable, safe in any profile.
+    ** Also installs the FE_TPTR mark/gc handlers (see host/containers.c). */
+    kec_containers_register(ctx);
 
     if (profile == KEC_PROFILE_FULL) {
         kec_bind_fe(ctx, "args", h_args);

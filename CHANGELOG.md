@@ -3,6 +3,20 @@
 ## Unreleased
 
 ### Added
+- **Containers — vectors and hash tables** (`host/containers.c`,
+  `core/52-container.lsp`; ADR-0003). O(1) indexed and keyed structures as
+  `FE_TPTR` foreign objects with GC-integrated backing (a `mark`/`gc` handler
+  pair keeps contents alive and frees backing on sweep, including at `fe_close`).
+  Primitives: `make-vector`, `vector`, `vector-ref`, `vector-set!`,
+  `vector-length`, `vector?`; `make-hash-table`, `hash-set!`, `hash-ref`,
+  `hash-has?`, `hash-del!`, `hash-count`, `hash-keys`, `hash-table?`. Core
+  helpers: `vector->list`, `list->vector`, `vector-fill!`, `vector-copy`,
+  `vector-map`, `vector-for-each`, `hash-values`, `hash->alist`, `alist->hash`,
+  `hash-for-each`. Hash keys are numbers (by value), symbols (by identity), or
+  strings (by content); other key types raise. Backing memory uses a settable
+  allocator (`kec_set_container_allocator`) defaulting to malloc/free, so the
+  no-malloc device path installs an arena-bump allocator instead — closing
+  ADR-0001's deferred container concern. `tests/core/{vector,hash,container-gc}.lsp`.
 - **GNU Emacs major mode** (`editors/emacs/kec-lisp-mode.el`) for editing `.lsp`
   KEC Lisp: file detection, font-lock, KEC-aware indentation, completion-at-point
   (standard library + buffer definitions + the live interpreter's `(globals)`),
