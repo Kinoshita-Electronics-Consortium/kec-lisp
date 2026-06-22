@@ -32,8 +32,12 @@ exactly the bet knEmacs makes on KEC Lisp. And the happy result of grounding the
 gap analysis in the **actual** KEC source (see below) is that KEC Lisp is already
 a *much* closer match to Emacs Lisp than a glance at the kernel suggests: the
 macro/quasiquote/`eval`/`apply`/reflection/`gensym`/`equal?` machinery this book
-treats as the hard part is **present**. The remaining language gaps are few and
-sharply defined — chiefly **Lisp-level error recovery** and **vectors**.
+treats as the hard part is **present** — as is the error-catch seam (`try`/`raise`)
+and the feature registry (`provide`/`require`). The remaining language gaps are few
+and sharply defined: **Lisp-level error recovery** was the first-pass headline gap,
+but it turned out to be Core macros over `try`/`raise` and **shipped in ADR-0001**
+(`core/36-recover`), leaving **vectors** (and the container tier generally) as the
+chief remaining hole.
 
 **How to read this.** Each note cites the **printed book page** (`p. NN`, from the
 red `Page NN` markers in the PDF). Tags:
@@ -63,15 +67,18 @@ casual reading would call "missing" are in fact present (`gensym`, `equal?`,
 
 Ranked by value to KEC. Each links to the detailed notes below.
 
-1. **Lisp-level error recovery is the make-or-break language gap** (Ch 8 pp. 119–121; Ch 10 pp. 159–162).
-   `unwind-protect` (guaranteed cleanup on error/quit) and `condition-case` /
-   `ignore-errors` (catch-and-handle) are what let a real editor restore point on a
-   failed command and keep its command loop/REPL alive. KEC today has only the
-   *raise* side (`error`/`error?`/`error-message` in `core/35-error`) plus C-level
-   recovery in the embedding API (`kec.h`). Both forms need interpreter support tied
-   to the error/longjmp seam — they can't be plain `mac` macros. **This is the #1
-   knEmacs prerequisite**, because `save-excursion`/`save-restriction` (Ch 4, Ch 9)
-   are *defined* in terms of `unwind-protect`.
+1. **Lisp-level error recovery let a real editor restore point on a
+   failed command and keep its command loop/REPL alive** (Ch 8 pp. 119–121; Ch 10 pp. 159–162).
+   `unwind-protect` (guaranteed cleanup on error/quit), `condition-case`, and
+   `ignore-errors` (catch-and-handle) are the forms `save-excursion`/`save-restriction`
+   (Ch 4, Ch 9) are *defined* in terms of. **First-pass gap analysis was wrong about
+   the cost.** The catch side already exists: `(try thunk)` returns the thunk's value
+   or an error value `(:error . message)` (`runtime/kec.c`), on the same setjmp/longjmp
+   seam `kec.h` uses, alongside the raise side `error`/`error?`/`error-message`
+   (`core/35-error`). So these are **Core macros over `try`/`raise`, not a kernel/
+   interpreter change** — and they are now **shipped** in `core/36-recover` (ADR-0001):
+   `unwind-protect` runs cleanup on both paths and re-raises (message-only);
+   `condition-case` is message-based catch-and-handle; `ignore-errors` yields `nil`.
 
 2. **A command is an ordinary function + an `interactive` declaration — don't fork the function type** (Ch 1 p. 13; Ch 2 pp. 15–17).
    The same function stays callable from Lisp *and* from a key/`M-x`; `interactive`
@@ -199,15 +206,22 @@ the artifact the stdlib/knEmacs work should be planned against.
 
 ### Gap — genuine language/stdlib holes, ranked
 
+> **Update (ADR-0001):** rows 1, 3, and 4 below have **shipped** — they were Core
+> macros, not kernel work. `condition-case` / `unwind-protect` / `ignore-errors`
+> are in `core/36-recover` (over the existing `try`/`raise`); `prog1` is in
+> `core/55-util`; full `macroexpand` is in `core/36-recover`. They are kept in the
+> table (struck through) to preserve the original gap analysis; the corrected
+> difficulty is shown.
+
 | # | Gap | Why it matters | Difficulty |
 |---|---|---|---|
-| 1 | **`condition-case` / `unwind-protect` / `ignore-errors`** | Command loop & REPL must survive a failing command; `save-excursion`/`save-restriction` need cleanup-on-error. Only `error` (raise) + C-seam recovery exist today. | Interpreter/kernel-level (longjmp seam); **not** a `mac` macro. |
+| 1 | ~~**`condition-case` / `unwind-protect` / `ignore-errors`**~~ **(shipped, `core/36-recover`)** | Command loop & REPL must survive a failing command; `save-excursion`/`save-restriction` need cleanup-on-error. The **catch** side `try`/`raise` already existed (`runtime/kec.c`), so these were never kernel work. | **Core `mac` macros over `try`/`raise`** — corrects the first-pass "interpreter/kernel-level" call. |
 | 2 | **Vectors** (`vector`/`make-vector`/`aref`/`aset`/`vectorp`) | O(1) keymaps/char-tables, cell grid, rings; lists are O(n) and churn the arena. | Kernel + host primitive; arena-friendly. |
-| 3 | **`prog1`** (return-first sequencing) | "do X, return prior state" (undo/swap). | Trivial Core macro over `do`. |
-| 4 | **Full `macroexpand`** | Macro debugging / a future stepper. | Trivial: loop `macroexpand-1`. |
+| 3 | ~~**`prog1`** (return-first sequencing)~~ **(shipped, `core/55-util`)** | "do X, return prior state" (undo/swap). | Trivial Core macro over `do`. |
+| 4 | ~~**Full `macroexpand`**~~ **(shipped, `core/36-recover`)** | Macro debugging / a future stepper. | Trivial: loop `macroexpand-1`. |
 | 5 | **Regex** (`re-search`/`string-match`/`looking-at`/`replace-match`/`regexp-quote`) | Serious search/replace, syntax-driven motion, font-lock, the buffer parser. Only literal `string-search` today; deferred-by-design as the "expensive tier." | Constrained subset in `host/` vs. defer; +`regexp-quote` is mandatory if it lands. |
-| 6 | **`require`/`provide`/`autoload`/`eval-after-load`** | Feature registry + lazy load once knEmacs userland modules multiply. `load` + `kec build` inlining exist; no runtime feature table. | Small Core + a kernel unbound-symbol hook for `autoload`. |
-| — | **`apply`/`eval`/`read-string`/`gensym`/`equal?` — NOT gaps** | Listed only to correct the common misconception: these are all present (`runtime/kec.c`, `host/`, `core/`). | — |
+| 6 | **`autoload`/`eval-after-load`** (lazy load + post-load hooks) | Lazy load once knEmacs userland modules multiply. The **feature registry already exists** — `provide`/`provided?`/`require` (`runtime/kec.c`) — so only the *lazy* layer remains. | `autoload` needs a kernel unbound-symbol hook (aspirational); `eval-after-load` is a small Core add over the registry. |
+| — | **`apply`/`eval`/`read-string`/`gensym`/`equal?`/`try`/`raise`/`provide`/`require` — NOT gaps** | Listed only to correct the common misconception: these are all present (`runtime/kec.c`, `host/`, `core/`). `try`/`raise` is the error-catch seam; `provide`/`require` is the feature registry. | — |
 
 ### N-A — editor/firmware layer, bound through the FFI seam (not the language)
 
@@ -329,7 +343,7 @@ interactive wrapper over an ordinary function, callable both ways.
 ### `defalias`, `progn`, `error`/`format` — small idioms
 - **Where:** pp. 22, 26–28
 - **Insight:** `defalias` gives a function a second name; `progn` sequences where one expression is expected; `(error "…")` aborts the command to top level; `format` builds the message (`%s`).
-- **Why it matters (KEC):** `defalias` is trivial — functions are values, `(set 'new old)`. `progn` ≈ KEC `do`/`begin` (Have). `error` (raise) and `format` are Have (`core/35-error`, `core/60-str`); the *catch* side (`condition-case`) is the Gap (Ch 8). The "guard before a typed primitive, substitute a friendly message" pattern is right for the FFI seam.
+- **Why it matters (KEC):** `defalias` is trivial — functions are values, `(set 'new old)`. `progn` ≈ KEC `do`/`begin` (Have). `error` (raise) and `format` are Have (`core/35-error`, `core/60-str`); the *catch* side (`condition-case`) is **Have too** now — shipped in `core/36-recover` over `try`/`raise` (ADR-0001). The "guard before a typed primitive, substitute a friendly message" pattern is right for the FFI seam.
 - **Goal:** both · **KEC status:** Have (`defalias`/`progn`/`error`/`format`) · **Applicability:** Direct
 
 ## Chapter 3 — Cooperating Commands (book pp. 34–46)
@@ -381,8 +395,8 @@ expressions are the clearest KEC gap here.
 ### `save-excursion` / `save-restriction` / `save-match-data` — memorize → run → restore
 - **Where:** pp. 52–55
 - **Insight:** Each saves some dynamic state (point; narrowing; match data), runs its body, and restores — so a function can roam the buffer yet leave the caller's view untouched. Code that `widen`s must wrap in `save-restriction`; code that searches internally should wrap in `save-match-data`.
-- **Why it matters (KEC):** The #1 macro candidate — but a *correct* implementation needs restore **on non-local exit** (error/quit), i.e. `unwind-protect`, which KEC lacks (Gap, Ch 8). Argues for **one** generic unwinding mechanism in `core/40-ctrl`/`35-error` underwriting all three, rather than three bespoke wrappers. (Also: prefer search primitives that *return* match positions over hidden global match state — fits KEC's value-returning style.)
-- **Goal:** both · **KEC status:** Gap (needs `unwind-protect` + buffer point primitives) · **Applicability:** Direct
+- **Why it matters (KEC):** The #1 macro candidate — and a *correct* implementation needs restore **on non-local exit** (error/quit), i.e. `unwind-protect`, which KEC **now has** (`core/36-recover`, ADR-0001). Argues for **one** generic unwinding mechanism (`unwind-protect`) underwriting all three `save-*` wrappers, rather than three bespoke wrappers. (Also: prefer search primitives that *return* match positions over hidden global match state — fits KEC's value-returning style.)
+- **Goal:** both · **KEC status:** Partial (`unwind-protect` now Have, `core/36-recover`; buffer/point primitives are firmware) · **Applicability:** Direct
 
 ### The edit cycle: `let` start → search → `delete-region` → `goto-char` → `insert`
 - **Where:** pp. 53–55
@@ -424,8 +438,8 @@ contrasts are as instructive as the matches.
 ### `require`/`provide` and `autoload` — feature guards and lazy load
 - **Where:** pp. 74–77
 - **Insight:** A file ends with `(provide 'feat)`; callers `(require 'feat)` load it once. `autoload` binds a name to the file that defines it and loads on first call (with optional docstring + interactive flag so `apropos`/help work pre-load).
-- **Why it matters (KEC):** KEC has unconditional `load` + build-time inlining but **no runtime feature registry or lazy load**. A `provide`/`require` pair (a global "loaded features" set + guarded `load`) is a small, high-value stdlib add for knEmacs userland; `autoload` needs a kernel unbound-symbol hook (aspirational). Feature dedup should key on symbol/string (compared by value in KEC — safe).
-- **Goal:** both · **KEC status:** Gap · **Applicability:** Adapt
+- **Why it matters (KEC):** **Correction:** the feature registry **already exists** — `provide` / `provided?` / `require` (a global "loaded features" set + guarded `load`, `runtime/kec.c`); feature dedup keys on symbol/string (compared by value — safe). Only the *lazy* layer remains: `autoload` needs a kernel unbound-symbol hook (aspirational), `eval-after-load` is a small Core add over the registry.
+- **Goal:** both · **KEC status:** Have (`provide`/`require`); Gap (`autoload`/`eval-after-load`) · **Applicability:** Adapt
 
 ### Byte-compilation — KEC deliberately has none
 - **Where:** p. 77
@@ -503,7 +517,7 @@ per-keystroke performance discipline the device demands.
 ### Mode body wires/unwires a hook; `save-excursion` probes positions (and is expensive)
 - **Where:** pp. 99–103
 - **Insight:** Enabling a mode = `add-hook`; disabling = `remove-hook` (with `make-local-hook`, idempotent). `save-excursion` runs a body and restores point — flagged "moderately expensive," so call count is minimized.
-- **Why it matters (KEC):** Enable=register-callback / disable=deregister is the event-driven core; needs only first-class fns + a list (Have) plus the firmware event loop. `save-excursion` is reimplemented as a macro in Ch 8 — see there for the language verdict (needs `unwind-protect`).
+- **Why it matters (KEC):** Enable=register-callback / disable=deregister is the event-driven core; needs only first-class fns + a list (Have) plus the firmware event loop. `save-excursion` is reimplemented as a macro in Ch 8 — see there for the language verdict (`unwind-protect`, now Have in `core/36-recover`).
 - **Goal:** both · **KEC status:** N-A (hooks/point firmware; macro machinery Have) · **Applicability:** Adapt
 
 ### Word/whitespace geometry via the *syntax table*, not hardcoded char sets
@@ -524,8 +538,10 @@ The single most language-relevant chapter alongside Ch 6. By rebuilding
 `save-excursion` as a macro from scratch, it walks the entire macro toolchain —
 controlling *when* evaluation happens, `eval`, `defmacro`, `macroexpand`,
 backquote/unquote, `let` vs `let*`, hygiene via gensym — then the error-recovery
-forms. For nearly every construct KEC already has the machinery; the sharp gap is
-**Lisp-level error recovery**.
+forms. KEC already had the machinery for nearly every construct, **including the
+error-catch seam** (`try`/`raise`) that the first-pass analysis missed — so the
+recovery forms below shipped as Core macros (`core/36-recover`, ADR-0001), not a
+kernel change.
 
 ### Argument pre-evaluation is *why macros exist*; `eval` holds code as data
 - **Where:** pp. 110–112
@@ -536,8 +552,8 @@ forms. For nearly every construct KEC already has the machinery; the sharp gap i
 ### `defmacro` + `macroexpand`; backquote/unquote/splice
 - **Where:** pp. 112–116
 - **Insight:** `defmacro` args arrive unevaluated; the body returns an *expansion* that is then evaluated. `macroexpand` shows it. Backquote makes expansions readable: `incr` ≡ `` `(setq ,var (+ ,var 1)) ``; a `&rest` parameter must be *spliced* (`,@`) or you get too many parens.
-- **Why it matters (KEC):** Core match: `mac` (= `defmacro`), `macroexpand-1`, and quasiquote `` ` ``/`,`/`,@` (`core/45-quasiquote`) are all Have — KEC even supports the manual `list`/`cons`/`append` alternative. Only nuance: KEC has `macroexpand-1` (single step), not full `macroexpand` (fixpoint) — a trivial Core add for macro debugging. Confirm `mac`'s rest-parameter surface for the `,@` splice rule.
-- **Goal:** kec-lisp · **KEC status:** Have (`macroexpand` full: trivial Gap) · **Applicability:** Direct
+- **Why it matters (KEC):** Core match: `mac` (= `defmacro`), `macroexpand-1`, and quasiquote `` ` ``/`,`/`,@` (`core/45-quasiquote`) are all Have — KEC even supports the manual `list`/`cons`/`append` alternative. Full `macroexpand` (loop `macroexpand-1` to a fixpoint) **shipped** in `core/36-recover` (ADR-0001). Confirm `mac`'s rest-parameter surface for the `,@` splice rule.
+- **Goal:** kec-lisp · **KEC status:** Have (full `macroexpand` shipped) · **Applicability:** Direct
 
 ### `let` vs `let*` — evaluation order and dependent bindings
 - **Where:** pp. 116–117
@@ -554,14 +570,14 @@ forms. For nearly every construct KEC already has the machinery; the sharp gap i
 ### `unwind-protect` — guaranteed cleanup on error or quit
 - **Where:** pp. 119–121
 - **Insight:** An error unwinds the stack to top level; `(unwind-protect NORMAL CLEANUP…)` guarantees CLEANUP runs even if NORMAL was interrupted by an error or `C-g`. This is how the real `save-excursion` restores point on error. In the non-error case it returns NORMAL's value.
-- **Why it matters (KEC):** **Critical Gap, #1 priority.** A robust editor *must* restore point/state when a command errors. KEC's error story today is C-seam recovery (`kec.h`) + the raise side (`core/35-error`); there is no Lisp-level `unwind-protect`. It can't be a plain `mac` macro — it needs interpreter support tied to the error/longjmp mechanism. Without it, the `save-*` wrappers (Ch 4, 7, 9) can't be written correctly.
-- **Goal:** kec-lisp · **KEC status:** Gap · **Applicability:** Direct
+- **Why it matters (KEC):** **Shipped (`core/36-recover`, ADR-0001).** A robust editor *must* restore point/state when a command errors. The first-pass call that this "needs interpreter support, can't be a plain `mac` macro" was **wrong**: KEC's catch side `(try thunk)` already existed (`runtime/kec.c`, on the same longjmp seam `kec.h` uses), so `unwind-protect` is exactly a `mac` macro over `try` + the raise side (`core/35-error`) — run cleanup on both paths, re-raise (message-only) on error. The `save-*` wrappers (Ch 4, 7, 9) can now be written correctly.
+- **Goal:** kec-lisp · **KEC status:** Have (shipped) · **Applicability:** Direct
 
 ### `condition-case` / `ignore-errors` — catch and handle in Lisp
 - **Where:** pp. 119–120 (and Ch 10 pp. 159–162)
 - **Insight:** `condition-case` is the Lisp try/catch (catch by error type, run a handler); `error`/`signal` raise; `ignore-errors` swallows. `unwind-protect` is cleanup-on-exit; `condition-case` is catch-and-handle.
-- **Why it matters (KEC):** **Gap, the companion to `unwind-protect`.** knEmacs's REPL and command loop must catch a failing command, show a message, and keep running — that's `condition-case`/`ignore-errors`. KEC recovers at the C embedding seam (so the *host* loop can continue), but cart/editor Lisp can't yet catch. Build a Lisp-level catch form on the same error seam `kec.h` already uses; `core/35-error` (`error`/`error?`/`error-message`) is the raise/inspect side to build on. Plan #1 and #2 as one error-handling work item.
-- **Goal:** kec-lisp · **KEC status:** Gap · **Applicability:** Direct
+- **Why it matters (KEC):** **Shipped (`core/36-recover`, ADR-0001), the companion to `unwind-protect`.** knEmacs's REPL and command loop must catch a failing command, show a message, and keep running — that's `condition-case`/`ignore-errors`. Cart/editor Lisp **can** catch now: `(try thunk)` (`runtime/kec.c`) returns the value or `(:error . message)`, and the new macros wrap it — `condition-case` is message-based catch-and-handle (class dispatch deferred), `ignore-errors` yields `nil`. Both ride the same error seam `kec.h` uses, with `core/35-error` (`error`/`error?`/`error-message`) as the raise/inspect side.
+- **Goal:** kec-lisp · **KEC status:** Have (shipped) · **Applicability:** Direct
 
 ### Record positions as markers, not integers (reprise)
 - **Where:** p. 121
@@ -597,8 +613,8 @@ keymap, and runs a hook.
 ### Narrowing and `save-restriction`; `defalias`
 - **Where:** pp. 130–131; 127
 - **Insight:** Narrowing hides everything outside a region (`narrow-to-region`/`widen`); `point-min`/`point-max` report the narrowed bounds; code needing the whole buffer wraps `(save-restriction (widen) …)`. Narrowing **does not nest**. `defalias` gives reused commands domain names.
-- **Why it matters (KEC):** Narrowing is firmware, but `save-restriction` is again the `unwind-protect` shape (Gap, Ch 8) — argues for one save/restore combinator parameterized by what it saves (point/restriction/buffer). `defalias` is Have (`(set 'new old)`).
-- **Goal:** both · **KEC status:** Gap (unwind combinator); Have (`defalias`) · **Applicability:** Adapt
+- **Why it matters (KEC):** Narrowing is firmware, but `save-restriction` is again the `unwind-protect` shape — now Have (`core/36-recover`, ADR-0001) — argues for one save/restore combinator parameterized by what it saves (point/restriction/buffer). `defalias` is Have (`(set 'new old)`).
+- **Goal:** both · **KEC status:** Have (unwind combinator `unwind-protect`, `core/36-recover`; `defalias`) · **Applicability:** Adapt
 
 ### Derived modes — `define-derived-mode` is a macro
 - **Where:** pp. 131–132
@@ -647,8 +663,8 @@ carts and knEmacs apps.
 ### Reconcile once per command via `post-command-hook`; recover by re-parsing
 - **Where:** pp. 159–164
 - **Insight:** One command fires many `after-change` events, so recovery defers to `post-command-hook` (once per command), trusting the *buffer* over the model so the user's `undo` is respected — re-running `crossword-parse-buffer`, falling back to redraw, wrapped in nested `condition-case`.
-- **Why it matters (KEC):** Two transfers: (1) **batch expensive reconciliation to a command boundary**, not per-event — the arena/GC-friendly pattern for the single-threaded runtime; (2) robust recovery needs `condition-case` (Gap, Ch 8). The buffer parser's list-build idiom (`cons` in a loop, `reverse` at the end) is Have and GC-safe; but it leans on `looking-at` (regex — Gap) and buffer-scan FFI.
-- **Goal:** both · **KEC status:** Partial (list-build Have; `condition-case`/regex Gap; hooks firmware) · **Applicability:** Adapt
+- **Why it matters (KEC):** Two transfers: (1) **batch expensive reconciliation to a command boundary**, not per-event — the arena/GC-friendly pattern for the single-threaded runtime; (2) robust recovery needs `condition-case` — now Have (`core/36-recover`, ADR-0001). The buffer parser's list-build idiom (`cons` in a loop, `reverse` at the end) is Have and GC-safe; but it leans on `looking-at` (regex — Gap) and buffer-scan FFI.
+- **Goal:** both · **KEC status:** Partial (list-build + `condition-case` Have; regex Gap; hooks firmware) · **Applicability:** Adapt
 
 ### Delegate heavy search across the FFI seam (don't port the subprocess)
 - **Where:** pp. 163–177
@@ -676,9 +692,9 @@ The compact recap of Lisp syntax — Basics, Data Types, Control Structures, Cod
 Objects. The best single source for the at-a-glance gap analysis above; the
 notable per-construct findings:
 
-- **Matches (Have):** `nil`=false=empty-list, `0`/`""` truthy; case-sensitive symbols; the full list roster (`car`/`cdr`/`cons`/`list`/`nth`/`nthcdr`/`append`/`reverse`/`length`) — iterative, GC-safe; symbol *property operations* (`put`/`get` on plist data); `if`/`cond`/`and`/`or`/`not`/`while`; **`when`/`unless`/`dotimes`/`dolist`/`case`/`let*`** (all in `core/40-ctrl`); quasiquote + `quote`; `lambda`/`defun`(`fn`/`defn`)/`defmacro`(`mac`)/`macroexpand-1`; `eval`/`apply`/`read-string`; string `concat`/`length`/`substring`/indexed read; `format`.
+- **Matches (Have):** `nil`=false=empty-list, `0`/`""` truthy; case-sensitive symbols; the full list roster (`car`/`cdr`/`cons`/`list`/`nth`/`nthcdr`/`append`/`reverse`/`length`) — iterative, GC-safe; symbol *property operations* (`put`/`get` on plist data); `if`/`cond`/`and`/`or`/`not`/`while`; **`when`/`unless`/`dotimes`/`dolist`/`case`/`let*`** (all in `core/40-ctrl`); **`prog1`** (`core/55-util`); **error recovery `unwind-protect`/`condition-case`/`ignore-errors` + full `macroexpand`** (`core/36-recover`, over the `try`/`raise` catch seam); quasiquote + `quote`; `lambda`/`defun`(`fn`/`defn`)/`defmacro`(`mac`)/`macroexpand-1`; `eval`/`apply`/`read-string`; `provide`/`require` feature registry; string `concat`/`length`/`substring`/indexed read; `format`.
 - **Divergences (Partial):** `t` is a truthy symbol, not a reserved boolean type; **numbers are float-only** (no `integerp` type test; exact ≤ ±2²⁴); **chars are numbers** (no `?a` reader; use `char->string`/`string-ref`); assignment is **`set`** (top-level `let` binds globally); KEC is **Lisp-1** (one binding cell, no Lisp-2 function/value split); `put`/`get` are plist-data, not symbol-attached.
-- **Gaps:** **vectors** (`vector`/`aref`/`aset`/`vectorp`) and the array/sequence layer that depends on them (`arrayp`/`sequencep`/`copy-sequence`); `prog1`; full `macroexpand`; in-place string mutation (`aset` on strings).
+- **Gaps:** **vectors** (`vector`/`aref`/`aset`/`vectorp`) and the array/sequence layer that depends on them (`arrayp`/`sequencep`/`copy-sequence`); in-place string mutation (`aset` on strings). *(`prog1` and full `macroexpand` were gaps in the first pass; both shipped in ADR-0001.)*
 
 The construct map condenses into the [gap-analysis tables](#the-kec-lisp-gap-analysis) above.
 
@@ -729,11 +745,11 @@ Derived from the gap analysis. The actionable answer to "what to add so KEC Lisp
 can host knEmacs."
 
 **Language / kernel (the few real holes):**
-1. **Lisp-level error recovery** — `condition-case`, `unwind-protect`, `ignore-errors`, built on the same error/longjmp seam `kec.h` already uses (`core/35-error` is the raise side). *Unblocks the command loop, the REPL, and every `save-*` wrapper.* **Highest priority.**
-2. **Vectors** — `vector`/`make-vector`/`aref`/`aset`/`vectorp` in `host/` (C-backed, fixed-size, arena-friendly). *Unblocks efficient keymaps/char-tables, the cell grid, and rings.*
-3. **Trivial Core adds** — `prog1` (`core/40-ctrl`), full `macroexpand` (loop `macroexpand-1`), a `defvar` macro (`(if (bound? 'x) nil (set 'x v))`).
+1. ~~**Lisp-level error recovery**~~ — **DONE (ADR-0001, `core/36-recover`).** `condition-case`, `unwind-protect`, `ignore-errors` shipped as Core macros over the existing `try`/`raise` catch seam (`core/35-error` is the raise side) — the first-pass "needs kernel/interpreter support" call was wrong. *Unblocked the command loop, the REPL, and every `save-*` wrapper.*
+2. **Vectors** — `vector`/`make-vector`/`aref`/`aset`/`vectorp` in `host/` (C-backed, fixed-size, arena-friendly). *Unblocks efficient keymaps/char-tables, the cell grid, and rings.* **Now the highest-priority real hole** (deferred to a follow-up ADR — backing-memory/key-equality design).
+3. ~~**Trivial Core adds**~~ — **DONE (ADR-0001):** `prog1` (`core/55-util`), full `macroexpand` (`core/36-recover`), `defvar` (`core/55-util`). *(Also landed in the same sprint: bitwise host primitives, a seedable RNG, and a string/char toolkit.)*
 4. **Verify, then document** — `mac`/`fn` rest-arg + `&optional` surface; that `around`-style wrappers capture the original binding in a closure; whether a symbol's function binding is mutably rebindable (the keystone for `advice` and Edebug-/ELP-style tooling).
-5. **Deferred-by-design** — a constrained **regex** subset in `host/` (anchors + classes + `*`/`+`/`?`, no backrefs) + mandatory `regexp-quote`; a `require`/`provide`/`eval-after-load` feature registry; a `format-time-string` over the existing `clock`.
+5. **Deferred-by-design** — a constrained **regex** subset in `host/` (anchors + classes + `*`/`+`/`?`, no backrefs) + mandatory `regexp-quote`; **`autoload`/`eval-after-load`** lazy load atop the existing `provide`/`require` registry; a `format-time-string` over the existing `clock`; container types (vectors/hash tables) per item 2.
 
 **knEmacs (firmware over KEC, bound via `kec_bind_fe`) — build order:**
 1. **Buffer + point + marker** object types (markers accept-int-or-marker; reuse/detach discipline).

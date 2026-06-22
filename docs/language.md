@@ -172,6 +172,7 @@ adds the definition forms most programs use.
 | `(dotimes (i n) body...)` | Loop `i` from `0` to `n - 1`. |
 | `(dolist (x xs) body...)` | Loop over a list. |
 | `(do body...)` / `(begin body...)` | Sequence; returns the last value. |
+| `(prog1 first rest...)` | Sequence; returns the **first** form's value. |
 | `(let* ((name value) ...) body...)` | Sequential local bindings. |
 | `(letrec ((name value) ...) body...)` | Mutually recursive local bindings. |
 
@@ -233,9 +234,12 @@ numeric filename order.
 | `(defmacro name (params...) body...)` | `(set name (mac (params...) body...))` |
 | `(define name value)` | `(set name value)` |
 | `(define (f args...) body...)` | `(set f (fn (args...) body...))` |
+| `(defvar name value)` | `(if (bound? 'name) name (do (set name value) name))` |
 
 Each definition form returns the value it defines, which makes REPL output and
-definition chaining more useful than bare `set`.
+definition chaining more useful than bare `set`. `defvar` only assigns when
+`name` is currently **unbound**, so a user/config value set earlier survives a
+later library load.
 
 ### Lists
 
@@ -273,6 +277,28 @@ stack on ordinary list work.
 | `(error message)` | Build an error value, `(:error . message)`. |
 | `(error? value)` | Test for that error shape. |
 | `(error-message err)` | Read the message from an error value. |
+
+### Error Recovery
+
+Higher-level recovery macros built on the runtime's `try` / `raise` (see
+[Errors](#errors-1)). KEC errors carry only a **message** — there is no error
+class yet, so `condition-case` dispatch is message-based and re-raises are
+message-only (typed/structured errors are a deferred follow-up, ADR-0001).
+
+| Macro | Summary |
+|---|---|
+| `(unwind-protect body cleanup...)` | Run `body`, then **always** run the cleanup forms — on normal return *and* on a raised error. On error, cleanup runs first, then the error is re-raised (message-only) so an outer handler still sees it. The `save-excursion`-class wrapper primitive. |
+| `(ignore-errors body...)` | Evaluate `body`, yielding `nil` on any raised error and the body value otherwise. |
+| `(condition-case var bodyform handler...)` | Evaluate `bodyform`. On error, bind `var` to the `(:error . message)` value and run the first handler's body (message-based, catch-all); otherwise return the body value. With no handlers, the result is returned as-is. |
+
+```lisp
+(unwind-protect
+    (do (open-region) (process))   ; body
+  (close-region))                  ; cleanup — runs even if process raises
+
+(condition-case e (parse user-input)
+  (e (str "parse failed: " (error-message e))))
+```
 
 ### Control Macros
 
@@ -344,6 +370,20 @@ Backquote builds data, comma evaluates a subform, and comma-at splices a list:
 | `(format fmt args...)` | Format using `%d`, `%u`, `%x`, `%c`, `%s`, and `%%`. |
 | `char-whitespace?`, `char-digit?`, `char-alpha?`, `char-alphanumeric?` | Character-class predicates over char codes (as returned by `string-ref`). |
 
+#### String / char toolkit
+
+Built over the host string primitives for case folding, fixed-cell-grid layout,
+and substring tests.
+
+| Function | Summary |
+|---|---|
+| `(char-upcase c)` / `(char-downcase c)` | Shift an `a`–`z` / `A`–`Z` char code; any other code passes through unchanged. |
+| `(string-upcase s)` / `(string-downcase s)` | Case-fold every character of `s`. |
+| `(pad-left s width [pad])` / `(pad-right s width [pad])` | Pad `s` to `width` with `pad` (default `" "`). Never truncates: an `s` already ≥ `width` is returned unchanged. |
+| `(string-repeat s n)` | `s` concatenated `n` times; `n ≤ 0` yields `""`. |
+| `(string-prefix? s affix)` / `(string-suffix? s affix)` | Does `s` start / end with `affix`? Empty affix → true; an affix longer than `s` → false. |
+| `(string-contains? s needle)` | Truthy if `needle` occurs anywhere in `s` (empty needle → true). |
+
 ### Symbol Properties
 
 A side registry for per-symbol metadata (Fe symbols have no property slot).
@@ -374,9 +414,10 @@ The `kec` CLI uses `FULL`.
 |---|---|---|
 | Reflection | `type-of`, `gensym`, `bound?`, `globals`, `fn-params` | both |
 | Math | `mod`, `floor`, `ceil`, `round`, `abs`, `sqrt`, `pow` | both |
+| Bitwise | `bit-and`, `bit-or`, `bit-xor`, `bit-not`, `bit-shl`, `bit-shr` | both |
 | String | `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` | both |
 | I/O | `princ`, `newline`, `repr` | both |
-| System | `rand`, `rand-int`, `clock` | both |
+| System | `set-seed!`, `rand`, `rand-int`, `clock` | both |
 | Control | `try`, `raise`, `apply`, `read-string`, `read-all`, `macroexpand-1`, `provide`, `provided?` | both |
 | File/System | `load`, `require`, `eval`, `read-file`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` | `FULL` only |
 
@@ -391,6 +432,9 @@ Common host forms:
 | `(apply f arglist)` | Call `f` with the elements of `arglist`; `f` may be a closure, host primitive, or kernel primitive. |
 | `(read-string s)` | Parse the first s-expression in `s` and return it as data, without evaluating it. Empty input returns `nil`. |
 | `(macroexpand-1 form)` | Expand one symbolic macro call, or return `form` unchanged. Quote the form to inspect: `(macroexpand-1 '(when 1 2))`. |
+| `(macroexpand form)` | Full expansion: loop `macroexpand-1` to a fixpoint. Core macro (`core/36-recover`), not a host primitive. |
+| `(bit-and a b)` / `(bit-or a b)` / `(bit-xor a b)` / `(bit-not a)` / `(bit-shl a n)` / `(bit-shr a n)` | 32-bit integer bitwise ops. Operands are taken mod 2³² (a negative number uses its two's-complement bits, e.g. `(bit-and -1 255)` → `255`). `bit-shr` is a **logical** (zero-fill) right shift; shift counts are masked to `n & 31`. Exact only within ±2²⁴ like any KEC number. |
+| `(set-seed! n)` | Reseed the self-contained PRNG from `n` and return `n`. A fixed seed makes `rand` / `rand-int` **reproducible** across runs and platforms (deck-state-seeded generation). |
 | `(bound? sym)` | Truthy if `sym` has a non-nil global binding. `nil` is absence here, so a symbol bound to `nil` reads as unbound. Errors if the argument is not a symbol: `(bound? 'car)`. |
 | `(globals [prefix])` | A fresh list of the globally-bound symbols, optionally filtered to names starting with `prefix`. Order is unspecified; treat the list as read-only (it is yours to keep, but the symbols are interned). `(globals "string-")`. |
 | `(fn-params f)` | The parameter list of a closure or macro (a fresh copy), `nil` for a built-in (no Lisp parameters), or an error if `f` is not a function. For `describe-function`-style help. |
@@ -443,11 +487,14 @@ and [Memory Model](/kec-lisp/memory-model/).
 | Kernel binding/forms | `let`, `set`, `fn`, `mac`, `quote`, `if`, `and`, `or`, `while`, `do` |
 | Kernel data | `cons`, `car`, `cdr`, `setcar`, `setcdr`, `list`, `atom`, `not`, `is` |
 | Kernel numbers/I/O | `<`, `<=`, `+`, `-`, `*`, `/`, `print` |
-| Definitions | `define`, `defn`, `defmacro` |
-| Control | `cond`, `case`, `when`, `unless`, `begin`, `let*`, `letrec`, `dotimes`, `dolist` |
+| Definitions | `define`, `defn`, `defmacro`, `defvar` |
+| Control | `cond`, `case`, `when`, `unless`, `begin`, `prog1`, `let*`, `letrec`, `dotimes`, `dolist` |
 | Lists/alists | `nth`, `length`, `reverse`, `append`, `last`, `member`, `assoc`, `take`, `drop`, `range`, `get`, `put`, `has?`, `keys`, `values`, `merge` |
 | Comparison/predicates | `=`, `==`, `/=`, `equal?`, `>`, `>=`, `zero?`, `positive?`, `negative?`, `nil?`, `pair?`, `even?`, `odd?`, `number?`, `symbol?`, `string?`, `fn?` |
 | Higher-order | `map`, `filter`, `remove`, `fold-left`, `fold-right`, `for-each`, `find`, `any?`, `every?`, `count` |
-| Strings | `str`, `join`, `split`, `format`, `string-length`, `string-ref`, `substring`, `string-append`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` |
-| Errors/loading | `try`, `raise`, `macroexpand-1`, `error`, `error?`, `error-message`, `provide`, `provided?`, `require`, `load` |
+| Strings | `str`, `join`, `split`, `format`, `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` |
+| String toolkit | `char-upcase`, `char-downcase`, `string-upcase`, `string-downcase`, `pad-left`, `pad-right`, `string-repeat`, `string-prefix?`, `string-suffix?`, `string-contains?` |
+| Bitwise | `bit-and`, `bit-or`, `bit-xor`, `bit-not`, `bit-shl`, `bit-shr` |
+| RNG | `set-seed!`, `rand`, `rand-int` |
+| Errors/recovery/loading | `try`, `raise`, `unwind-protect`, `ignore-errors`, `condition-case`, `macroexpand-1`, `macroexpand`, `error`, `error?`, `error-message`, `provide`, `provided?`, `require`, `load` |
 | Full-profile file/system | `read-file`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` |

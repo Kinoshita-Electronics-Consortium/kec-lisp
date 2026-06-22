@@ -962,7 +962,7 @@ Emacs's extensibility architecture: behavior is parameterized by typed, self-des
 ### The init file is configuration as executable Lisp
 - **Where:** pp. 437–441 (§33.4)
 - **Insight:** Startup loads an init file of ordinary Lisp: `setq` (current/local) vs `setq-default` (global), enabling minor modes by *calling the mode command* (not `setq`-ing its variable), `global-set-key`/`define-key`, `add-hook`, and `(if (fboundp 'x) …)` / `condition-case` guards for missing features.
-- **Why it matters:** nEmacs config should be KEC Lisp evaluated at startup, not a parsed config format — the same code that defines commands also configures them. The `setq` vs `setq-default` distinction and "call the mode command, don't poke its variable" are real gotchas; `fboundp`/`condition-case` guards translate to KEC's macro + error-recovery facilities for capability/profile differences. For kec-mode, this *is* the user-facing extension surface.
+- **Why it matters:** nEmacs config should be KEC Lisp evaluated at startup, not a parsed config format — the same code that defines commands also configures them. The `setq` vs `setq-default` distinction and "call the mode command, don't poke its variable" are real gotchas; `fboundp`/`condition-case` guards translate directly to KEC facilities that already exist — `bound?` (host) for the feature check and `condition-case`/`ignore-errors` (shipped in `core/36-recover` over the existing `try`/`raise` catch seam, ADR-0001) for capability/profile differences. (Feature presence also has `provide`/`provided?`/`require`, `runtime/kec.c`.) For kec-mode, this *is* the user-facing extension surface.
 - **Goal:** both
 - **Applicability:** Direct
 
