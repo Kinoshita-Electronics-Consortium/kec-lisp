@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+- **REPL pretty-printer is now structurally indented** (`editor/90-repl.lsp`).
+  `repl-format` breaks a result wider than the host width into nested lines
+  **indented by depth** (a sub-form that fits stays inline), instead of the
+  previous flat one-element-per-line. Recursion is depth-capped (deeper structure
+  prints flat-truncated) so it stays GC-stack-safe on the device, and the whole
+  result honors a line budget with a `... (N more lines)` note.
+
 ### Added
 - **`kec edit` — the structural-editor TTY surface** (`editor/40-view.lsp`
   `buffer->view-lines`, `editor/96-tty.lsp`, `cli/main.c`; ADR-0002). An

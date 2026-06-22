@@ -51,18 +51,52 @@
 (defn %repl-truncate (s n)
   (if (<= (string-length s) n) s (string-append (substring s 0 (- n 3)) "...")))
 
-;; (repl-format r value) -> a display string. Fits in the width -> one line.
-;; Over width and a list -> each element on its own line, each truncated to the
-;; width (structural break over a line budget). Over width and an atom ->
-;; truncated with an ellipsis.
-(defn repl-format (r value)
+;; ----- structural pretty-printer (L6.3) ---------------------------------
+;; A value wider than the host width is broken across lines with nested
+;; structure INDENTED by depth; a sub-form that fits on its line stays inline.
+;; Recursion is depth-capped (deeper structure prints flat-truncated) so it is
+;; GC-stack-safe on the device; the whole result honors a line budget.
+(define PP-MAX-DEPTH 8)
+(define PP-LINE-BUDGET 40)
+
+(defn %pp-append-last (lines suffix)            ; ")" onto the final line
+  (let r (reverse lines))
+  (reverse (cons (string-append (car r) suffix) (cdr r))))
+
+;; (%pp value indent width depth) -> a list of fully-indented line strings.
+(defn %pp (value indent width depth)
   (let flat (%display1 value))
-  (let w (repl-width r))
-  (if (<= (string-length flat) w)
-      flat
-      (if (pair? value)
-          (join (map (fn (e) (%repl-truncate (%display1 e) w)) value) "\n")
-          (%repl-truncate flat w))))
+  (if (or (<= (+ indent (string-length flat)) width)   ; fits on its line
+          (not (pair? value))                          ; atom / opaque
+          (>= depth PP-MAX-DEPTH))                      ; depth cap
+      (list (string-append (string-repeat " " indent)
+                           (%repl-truncate flat (- width indent))))
+      (%pp-break value indent width depth)))
+
+;; break a list: children pretty-printed at indent+1, with "(" tucked onto the
+;; first child's first line and ")" appended to the last child's last line.
+(defn %pp-break (lst indent width depth)
+  (let out nil)                                  ; reversed accumulated lines
+  (let cur lst)
+  (while cur
+    (let cl (%pp (car cur) (+ indent 1) width (+ depth 1)))
+    (while cl (set out (cons (car cl) out)) (set cl (cdr cl)))
+    (set cur (cdr cur)))
+  (let lines (reverse out))
+  (let head (car lines))                         ; at indent+1; retuck "(" at indent
+  (let head2 (string-append (string-repeat " " indent) "("
+                            (substring head (+ indent 1) (string-length head))))
+  (%pp-append-last (cons head2 (cdr lines)) ")"))
+
+;; (repl-format r value) -> the printed result. One line when it fits the width,
+;; otherwise an indented structural break, clipped to the line budget.
+(defn repl-format (r value)
+  (let lines (%pp value 0 (repl-width r) 0))
+  (if (<= (length lines) PP-LINE-BUDGET)
+      (join lines "\n")
+      (string-append (join (take lines PP-LINE-BUDGET) "\n")
+                     "\n... (" (number->string (- (length lines) PP-LINE-BUDGET))
+                     " more lines)")))
 
 ;; ----- history ring (L6.4) ----------------------------------------------
 (defn %repl-push! (r entry)

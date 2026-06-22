@@ -107,3 +107,21 @@
   (check (nth (nth results 0) 1))               ; first passes (1+1=2)
   (check (not (nth (nth results 1) 1)))         ; second fails (2+2 != 5)
   (check (is (repl-count r) 0)))                ; history untouched
+
+(deftest "repl/pretty-print-fits-inline"
+  (let r (make-repl 16 40 nil))
+  ;; a result that fits the width stays on one line
+  (check (not (string-contains? (out (repl-submit r (read-string "'(a b c)"))) "\n"))))
+
+(deftest "repl/pretty-print-indents-nested"
+  (let r (make-repl 16 12 nil))                 ; narrow -> must break
+  (let s (out (repl-submit r (read-string "'(define (f x) (g x))"))))
+  (let lines (split s "\n"))
+  (check (< 1 (length lines)))                  ; broke across lines
+  (check (any? (fn (l) (string-prefix? l " ")) lines))  ; nested children indented
+  (check (string-prefix? (nth lines 0) "(")))   ; opens with the paren
+
+(deftest "repl/pretty-print-line-budget"
+  (let r (make-repl 16 6 nil))                  ; tiny width -> one line per element
+  (let s (repl-format r (range 0 60)))          ; 60 elements >> the budget
+  (check (string-contains? s "more lines)")))   ; budget truncation note
