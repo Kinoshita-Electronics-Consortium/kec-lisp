@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Added
+- **Editor tier — token-prediction ranker** (`editor/80-ranker.lsp`; ADR-0002,
+  L5). A static, deterministic top-8 ranker (no ML) shared by REPL completion and
+  the nEmacs palette. Legal-form filter by position (function/argument/binding/
+  root); scoring = domain-vocabulary +5, local-binding +3, recency 0–10 (decay
+  over a ~24-token window), popularity 0–4, semantic-fit +1; alphabetic tiebreak;
+  **never shadows a builtin**. Bounded top-8 insertion (no full sort) over
+  hash-backed vocabulary / popularity / builtins / recency indexes (the host
+  feeds vocabulary via `ranker-index`, SEAM S8). `rank` / `rank-tokens` /
+  `ranker-context`. Iterative (device GC stack 256); a latency spike measured
+  ~1.7 ms/call desktop. `tests/editor/ranker.lsp` (9 checks).
 - **Editor tier — persistence + lifecycle** (`editor/60-persist.lsp`,
   `editor/70-lifecycle.lsp`; ADR-0002, L7/L8). Persistence is the (serialize,
   load) pair only — the host owns the bytes (SEAM S5): `buffer->string`
