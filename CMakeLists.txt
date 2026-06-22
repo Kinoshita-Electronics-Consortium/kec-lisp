@@ -191,15 +191,15 @@ set_tests_properties(cli/test-default PROPERTIES
 add_test(NAME cli/build-reader
   COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/build-reader.sh $<TARGET_FILE:kec>)
 
-# The `kec nemacs` strong REPL end-to-end (loads the embedded editor tier, drives
+# The `kec repl` strong REPL end-to-end (loads the embedded editor tier, drives
 # the REPL engine over piped input).
+add_test(NAME cli/repl-smoke
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/repl-smoke.sh $<TARGET_FILE:kec>)
+
+# The `kec nemacs` structural-editor surface end-to-end (drives the :nemacs-nav
+# keymap over piped keystrokes, then serializes the edit back).
 add_test(NAME cli/nemacs-smoke
   COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/nemacs-smoke.sh $<TARGET_FILE:kec>)
-
-# The `kec edit` structural-editor surface end-to-end (drives the :nemacs-nav
-# keymap over piped keystrokes, then serializes the edit back).
-add_test(NAME cli/edit-smoke
-  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/edit-smoke.sh $<TARGET_FILE:kec>)
 
 # ---------------------------------------------------------------------------
 # C-level embedding tests — the no-malloc arena seam the .lsp suite can't reach.

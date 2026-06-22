@@ -11,12 +11,16 @@
   cursor, for eval-current). A new **`:repl-prompt`** mode (`editor/92-prompt.lsp`)
   makes the REPL prompt itself a structural buffer: compose the input form with the
   editor verbs, `EVAL` submits it to the REPL engine and resets the prompt. In
-  `kec edit`: `i` now enters live literal entry (echoed in the echo line), **arrow
+  `kec nemacs`: `i` now enters live literal entry (echoed in the echo line), **arrow
   keys** navigate (↑↓ siblings, →/← descend/ascend), and `e` evaluates the current
   top-level form. `tests/editor/{buffer,prompt}.lsp` (+10 checks);
   `tests/cli/edit-smoke.sh` covers literal insert.
 
 ### Changed
+- **CLI command naming corrected:** `kec repl` (and bare `kec`) is the **strong
+  REPL** (history, completion, pretty-print, error recovery); **`kec nemacs [FILE]`**
+  is the **knEmacs structural editor**. (`kec edit` stays as an alias for `kec nemacs`.)
+  The old basic line REPL is superseded by the engine-backed one.
 - **REPL pretty-printer is now structurally indented** (`editor/90-repl.lsp`).
   `repl-format` breaks a result wider than the host width into nested lines
   **indented by depth** (a sub-form that fits stays inline), instead of the
@@ -25,7 +29,7 @@
   result honors a line budget with a `... (N more lines)` note.
 
 ### Added
-- **`kec edit` — the structural-editor TTY surface** (`editor/40-view.lsp`
+- **`kec nemacs` — the structural-editor TTY surface** (`editor/40-view.lsp`
   `buffer->view-lines`, `editor/96-tty.lsp`, `cli/main.c`; ADR-0002). An
   interactive terminal structural editor over the engine: it renders the buffer's
   view model each frame (an inverted modeline, the s-expression tree with the
@@ -38,9 +42,9 @@
   layer). Raw-mode terminal handling in C; everything structural is driven from
   the Lisp tier. `tests/editor/tty.lsp` (13 checks) + `tests/cli/edit-smoke.sh`
   (drives the keymap over piped keystrokes, serializes the edit back).
-- **`kec nemacs` — the strong REPL reference host** (`editor/95-host.lsp`,
+- **`kec repl` — the strong REPL reference host** (`editor/95-host.lsp`,
   `cli/main.c`; ADR-0002, WS6). The editor/REPL tier is embedded in the binary
-  (`KEC_EDITOR_SRC`) and a new `kec nemacs` subcommand drives the REPL engine over
+  (`KEC_EDITOR_SRC`) and a new `kec repl` subcommand drives the REPL engine over
   the terminal: read a paren-balanced form, hand it to `host-repl-line`, print the
   engine's formatted output; history ring, structural pretty-printer, and error
   recovery all come from the Lisp tier. Live completion from the global image

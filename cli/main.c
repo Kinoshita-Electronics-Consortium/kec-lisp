@@ -1,8 +1,9 @@
 /*
 ** main.c — the `kec` command-line driver.
 **
-**   kec                      start the REPL
+**   kec                      start the REPL (editor tier: history + completion)
 **   kec repl                 start the REPL
+**   kec nemacs [FILE]        open FILE in the knEmacs structural editor
 **   kec run FILE [args...]   load + evaluate FILE; args reach (args)
 **   kec eval "EXPR"          evaluate EXPR, print the result
 **   kec build FILE [-o OUT]  inline top-level loads, parse-check, write a .kec
@@ -129,47 +130,6 @@ static int paren_delta(const char *s) {
     return depth;
 }
 
-static int do_repl(void) {
-    kec_State *S = cli_open();
-    char line[4096], acc[16384];
-    int depth = 0;
-    size_t acclen = 0;
-    if (!S) { fprintf(stderr, "kec: failed to open interpreter\n"); return 1; }
-    printf("KEC Lisp %s  (KN-86 Standard)  —  :q to quit\n", KEC_VERSION);
-    acc[0] = '\0';
-    for (;;) {
-        printf(depth > 0 ? "..  " : "kec> ");
-        fflush(stdout);
-        if (!fgets(line, sizeof line, stdin)) { printf("\n"); break; }
-        if (depth == 0 && (strcmp(line, ":q\n") == 0 || strcmp(line, ":quit\n") == 0)) { break; }
-        if (acclen + strlen(line) < sizeof acc) {
-            strcpy(acc + acclen, line);
-            acclen += strlen(line);
-        }
-        depth += paren_delta(line);
-        if (depth > 0) { continue; } /* form still open — keep reading */
-        depth = 0;
-        {
-            fe_Object *v = NULL;
-            if (kec_eval_string(S, acc, &v) != 0) {
-                fprintf(stderr, "error: %s\n", kec_error(S));
-            } else if (v) {
-                printf("=> ");
-                fe_writefp(kec_fe(S), v, stdout);
-                printf("\n");
-            }
-        }
-        acc[0] = '\0';
-        acclen = 0;
-    }
-    kec_close(S);
-    return 0;
-}
-
-/* ------------------------------------------------------------------ */
-/* nemacs — the strong REPL over the embedded editor/REPL tier.        */
-/* ------------------------------------------------------------------ */
-
 /* Append `s` to `b` escaped for embedding inside a Lisp "..." literal. */
 static void sb_put_escaped(Strbuf *b, const char *s) {
     for (; *s; s++) {
@@ -180,12 +140,12 @@ static void sb_put_escaped(Strbuf *b, const char *s) {
     }
 }
 
-/* `kec nemacs` — load the embedded editor/REPL tier (ADR-0002) and drive its
+/* `kec repl` — load the embedded editor/REPL tier (ADR-0002) and drive its
 ** REPL engine: read a (paren-balanced) form, hand it to (host-repl-line ...),
-** print the engine's formatted output. The structural editor + history ring +
-** pretty-printer + error recovery all live in the Lisp tier; this is just the
-** terminal host (the SEAM's reference implementation). */
-static int do_nemacs(void) {
+** print the engine's formatted output. The history ring + pretty-printer + error
+** recovery + live completion all live in the Lisp tier; this is just the terminal
+** host (the SEAM's reference implementation). */
+static int do_repl(void) {
     kec_State *S = cli_open();
     char line[4096], acc[16384];
     int depth = 0;
@@ -196,17 +156,17 @@ static int do_nemacs(void) {
         kec_close(S);
         return 1;
     }
-    if (kec_eval_string(S, "(set *nemacs* (make-session 64 72))", NULL) != 0) {
-        fprintf(stderr, "kec: nemacs session failed: %s\n", kec_error(S));
+    if (kec_eval_string(S, "(set *repl* (make-session 64 72))", NULL) != 0) {
+        fprintf(stderr, "kec: repl session failed: %s\n", kec_error(S));
         kec_close(S);
         return 1;
     }
     /* Prompts + banner go to stderr so stdout carries only results (scriptable);
     ** both are still visible on an interactive terminal. */
-    fprintf(stderr, "nEmacs (KEC Lisp %s)  —  structural REPL  —  :q to quit\n", KEC_VERSION);
+    fprintf(stderr, "KEC Lisp %s REPL  —  :q to quit\n", KEC_VERSION);
     acc[0] = '\0';
     for (;;) {
-        fprintf(stderr, depth > 0 ? "..      " : "nemacs> ");
+        fprintf(stderr, depth > 0 ? "..   " : "kec> ");
         fflush(stderr);
         if (!fgets(line, sizeof line, stdin)) { printf("\n"); break; }
         if (depth == 0 && (strcmp(line, ":q\n") == 0 || strcmp(line, ":quit\n") == 0)) { break; }
@@ -220,7 +180,7 @@ static int do_nemacs(void) {
         {
             Strbuf src = {0};
             fe_Object *v = NULL;
-            sb_puts(&src, "(host-repl-line *nemacs* \"");
+            sb_puts(&src, "(host-repl-line *repl* \"");
             sb_put_escaped(&src, acc);
             sb_puts(&src, "\")");
             if (kec_eval_string(S, src.p, &v) != 0) {
@@ -240,7 +200,7 @@ static int do_nemacs(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* edit — the interactive structural-editor TTY surface.               */
+/* nemacs — the interactive structural-editor TTY surface.             */
 /* ------------------------------------------------------------------ */
 
 static struct termios g_orig_tio;
@@ -293,11 +253,11 @@ static int lisp_truthy(kec_State *S, const char *expr) {
     return !fe_isnil(kec_fe(S), v);
 }
 
-/* `kec edit [FILE]` — open FILE (or a scratch buffer) in the structural editor.
-** Renders the view model each frame and dispatches keys through the :nemacs-nav
-** keymap; structural edits, eval, insert, undo, and save are all driven from the
-** Lisp tier (the C side is the terminal host). */
-static int do_edit(const char *file) {
+/* `kec nemacs [FILE]` — open FILE (or a scratch buffer) in the knEmacs structural
+** editor. Renders the view model each frame and dispatches keys through the
+** :nemacs-nav keymap; structural edits, eval, insert, undo, and save are all
+** driven from the Lisp tier (the C side is the terminal host). */
+static int do_nemacs(const char *file) {
     kec_State *S = cli_open();
     char status[256];
     struct winsize ws;
@@ -309,7 +269,7 @@ static int do_edit(const char *file) {
         kec_close(S);
         return 1;
     }
-    /* Build *edit*: load FILE if readable, else a scratch buffer of "()". */
+    /* Build *nemacs*: load FILE if readable, else a scratch buffer of "()". */
     {
         Strbuf init = {0}, src = {0};
         if (file) {
@@ -320,13 +280,13 @@ static int do_edit(const char *file) {
                 fclose(fp);
             }
         }
-        sb_puts(&src, "(set *edit* (buffer-load \"");
+        sb_puts(&src, "(set *nemacs* (buffer-load \"");
         sb_put_escaped(&src, file ? file : "*scratch*");
         sb_puts(&src, "\" \"");
         sb_put_escaped(&src, init.len ? init.p : "()");
         sb_puts(&src, "\"))");
         if (kec_eval_string(S, src.p, NULL) != 0) {
-            fprintf(stderr, "kec edit: %s\n", kec_error(S));
+            fprintf(stderr, "kec nemacs: %s\n", kec_error(S));
             free(src.p); free(init.p); kec_close(S);
             return 1;
         }
@@ -343,7 +303,7 @@ static int do_edit(const char *file) {
         {
             char call[64];
             fe_Object *v = NULL;
-            snprintf(call, sizeof call, "(tty-screen *edit* %d %d)", cols, rows);
+            snprintf(call, sizeof call, "(tty-screen *nemacs* %d %d)", cols, rows);
             if (kec_eval_string(S, call, &v) == 0 && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
                 static char scr[1 << 16];
                 fe_tostring(kec_fe(S), v, scr, sizeof scr);
@@ -359,18 +319,18 @@ static int do_edit(const char *file) {
 
         /* Literal entry (S3): keystrokes compose text until Enter commits or Esc
         ** cancels — the structural keymap is bypassed while typing a value. */
-        if (lisp_truthy(S, "(buffer-in-literal? *edit*)")) {
+        if (lisp_truthy(S, "(buffer-in-literal? *nemacs*)")) {
             if (c == 27) {
-                edit_do(S, "(buffer-cancel-literal! *edit*)", status, sizeof status);
+                edit_do(S, "(buffer-cancel-literal! *nemacs*)", status, sizeof status);
             } else if (c == '\n' || c == '\r') {
-                edit_do(S, "(buffer-commit-literal! *edit*)", status, sizeof status);
+                edit_do(S, "(buffer-commit-literal! *nemacs*)", status, sizeof status);
             } else if (c == 127 || c == 8) {
-                edit_do(S, "(buffer-literal-backspace! *edit*)", status, sizeof status);
+                edit_do(S, "(buffer-literal-backspace! *nemacs*)", status, sizeof status);
             } else if (c >= 32 && c < 127) {
                 Strbuf src = {0};
                 char one[2];
                 one[0] = (char)c; one[1] = '\0';
-                sb_puts(&src, "(buffer-literal-push! *edit* \"");
+                sb_puts(&src, "(buffer-literal-push! *nemacs* \"");
                 sb_put_escaped(&src, one);
                 sb_puts(&src, "\")");
                 edit_do(S, src.p, status, sizeof status);
@@ -386,7 +346,7 @@ static int do_edit(const char *file) {
             if (tok) {
                 char src[160];
                 snprintf(src, sizeof src,
-                         "(mode-dispatch ':nemacs-nav %s %s *edit*)", tok, etype);
+                         "(mode-dispatch ':nemacs-nav %s %s *nemacs*)", tok, etype);
                 edit_do(S, src, status, sizeof status);   /* boundary -> status */
             } else if (c == 27) {
                 /* arrow keys: ESC [ A/B/C/D -> prev/next/descend/ascend */
@@ -401,31 +361,31 @@ static int do_edit(const char *file) {
                     if (atok) {
                         char src[128];
                         snprintf(src, sizeof src,
-                                 "(mode-dispatch ':nemacs-nav %s ':tap *edit*)", atok);
+                                 "(mode-dispatch ':nemacs-nav %s ':tap *nemacs*)", atok);
                         edit_do(S, src, status, sizeof status);
                     }
                 }
             } else if (c == 't') {
-                edit_do(S, "(buffer-transpose! *edit*)", status, sizeof status);
+                edit_do(S, "(buffer-transpose! *nemacs*)", status, sizeof status);
             } else if (c == 'u') {
-                edit_do(S, "(buffer-undo! *edit*)", status, sizeof status);
+                edit_do(S, "(buffer-undo! *nemacs*)", status, sizeof status);
             } else if (c == 'e') {
                 /* eval the current TOP-LEVEL form (L4.5) */
                 fe_Object *v = NULL;
                 if (kec_eval_string(S,
-                        "(try (fn () (repr (eval (buffer-current-form *edit*)))))", &v) == 0
+                        "(try (fn () (repr (eval (buffer-current-form *nemacs*)))))", &v) == 0
                     && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
                     char r[1024];
                     fe_tostring(kec_fe(S), v, r, sizeof r);
                     snprintf(status, sizeof status, "=> %s", r);
                 }
             } else if (c == 'i') {
-                edit_do(S, "(buffer-enter-literal! *edit*)", status, sizeof status);
+                edit_do(S, "(buffer-enter-literal! *nemacs*)", status, sizeof status);
             } else if (c == 'W') {
                 fe_Object *v = NULL;
                 if (!file) {
                     snprintf(status, sizeof status, "! no file to save");
-                } else if (kec_eval_string(S, "(buffer->string *edit*)", &v) == 0
+                } else if (kec_eval_string(S, "(buffer->string *nemacs*)", &v) == 0
                            && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
                     static char buf[1 << 16];
                     FILE *fp;
@@ -690,8 +650,8 @@ static int usage(FILE *fp) {
         "KEC Lisp %s — the KN-86 Standard authoring language\n\n"
         "usage:\n"
         "  kec                      start the REPL\n"
-        "  kec nemacs               start the knEmacs structural REPL (editor tier)\n"
-        "  kec edit [FILE]          open FILE in the structural editor (editor tier)\n"
+        "  kec repl                 start the REPL (history, completion, pretty-print)\n"
+        "  kec nemacs [FILE]        open FILE in the knEmacs structural editor\n"
         "  kec run FILE [args...]   evaluate FILE (args reach (args))\n"
         "  kec eval \"EXPR\"          evaluate EXPR and print the result\n"
         "  kec build FILE [-o OUT]  inline top-level loads, parse-check, write a .kec\n"
@@ -704,8 +664,8 @@ static int usage(FILE *fp) {
 int main(int argc, char **argv) {
     if (argc < 2) { return do_repl(); }
     if (strcmp(argv[1], "repl") == 0) { return do_repl(); }
-    if (strcmp(argv[1], "nemacs") == 0) { return do_nemacs(); }
-    if (strcmp(argv[1], "edit") == 0) { return do_edit(argc > 2 ? argv[2] : NULL); }
+    if (strcmp(argv[1], "nemacs") == 0) { return do_nemacs(argc > 2 ? argv[2] : NULL); }
+    if (strcmp(argv[1], "edit") == 0) { return do_nemacs(argc > 2 ? argv[2] : NULL); }
     if (strcmp(argv[1], "run") == 0) { return do_run(argc - 2, argv + 2); }
     if (strcmp(argv[1], "eval") == 0) {
         if (argc < 3) { fprintf(stderr, "kec eval: missing EXPR\n"); return 2; }

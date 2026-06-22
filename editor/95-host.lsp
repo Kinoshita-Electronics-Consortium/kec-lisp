@@ -2,7 +2,7 @@
 ;;
 ;; The last tier module. It ties the engine into a runnable laptop REPL — the
 ;; strong standalone REPL and the device-free proof that the SEAM (S1-S9) carries
-;; the whole engine with no new C seam. The `kec nemacs` subcommand drives this;
+;; the whole engine with no new C seam. The `kec repl` subcommand drives this;
 ;; the KN-86 firmware provides its own host the same way (its surfaces, its
 ;; input, its persistence). Wiring:
 ;;   S1 eval context = `eval` (the FULL context's binding-set)
