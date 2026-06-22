@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- **`kec edit` — the structural-editor TTY surface** (`editor/40-view.lsp`
+  `buffer->view-lines`, `editor/96-tty.lsp`, `cli/main.c`; ADR-0002). An
+  interactive terminal structural editor over the engine: it renders the buffer's
+  view model each frame (an inverted modeline, the s-expression tree with the
+  cursor line in reverse video, an echo hint) and dispatches keystrokes through
+  the `:nemacs-nav` keymap — `h`/`j`/`k`/`l` move (ascend / next / prev /
+  descend), `w` wrap, `s` splice, `d` delete (cut), `t` transpose, `u` undo,
+  `e` eval the focused form, `i` insert, `W` save, `q` quit. The new
+  `buffer->view-lines` is the abstract line view model (depth / label / cursor
+  per row, SEAM S4); `editor/96-tty.lsp` is the ANSI painter (terminal host
+  layer). Raw-mode terminal handling in C; everything structural is driven from
+  the Lisp tier. `tests/editor/tty.lsp` (13 checks) + `tests/cli/edit-smoke.sh`
+  (drives the keymap over piped keystrokes, serializes the edit back).
 - **`kec nemacs` — the strong REPL reference host** (`editor/95-host.lsp`,
   `cli/main.c`; ADR-0002, WS6). The editor/REPL tier is embedded in the binary
   (`KEC_EDITOR_SRC`) and a new `kec nemacs` subcommand drives the REPL engine over
