@@ -207,3 +207,7 @@ add_test(NAME cli/nemacs-smoke
 add_executable(test_arena tests/c/test_arena.c)
 target_link_libraries(test_arena kec_core m)
 add_test(NAME c/arena COMMAND test_arena)
+
+add_executable(test_host_state tests/c/test_host_state.c)
+target_link_libraries(test_host_state kec_core m)
+add_test(NAME c/host-state COMMAND test_host_state)

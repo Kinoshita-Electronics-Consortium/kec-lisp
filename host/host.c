@@ -25,6 +25,23 @@
 ** char). The string primitives below do NOT use this: they size to the real
 ** string length so nothing past ~4 KB is silently truncated (GWP-528). */
 #define KEC_STRBUF 4096
+#define KEC_HOST_STATE_SLOT 1
+#define KEC_RNG_DEFAULT 0x9E3779B97F4A7C15ULL
+
+void kec_host_state_init(kec_HostState *state) {
+    state->rng_state = KEC_RNG_DEFAULT;
+    kec_host_state_set_container_allocator(state, NULL, NULL);
+}
+
+void kec_host_attach_state(fe_Context *ctx, kec_HostState *state) {
+    fe_set_userdata(ctx, KEC_HOST_STATE_SLOT, state);
+}
+
+kec_HostState *kec_host_state(fe_Context *ctx) {
+    kec_HostState *state = fe_userdata(ctx, KEC_HOST_STATE_SLOT);
+    if (!state) { fe_error(ctx, "host state is not attached"); }
+    return state;
+}
 
 /* ------------------------------------------------------------------ */
 /* The bind seam — GC-safe symbol→cfunc registration.                  */
@@ -468,10 +485,9 @@ static fe_Object *h_repr(fe_Context *ctx, fe_Object *args) {
 ** yields a fixed sequence everywhere — see tests/core/rng.lsp (golden value).
 ** The state is a single 64-bit word, initialized to a fixed nonzero default
 ** so an unseeded `rand` is still deterministic across runs. */
-static uint64_t g_rng_state = 0x9E3779B97F4A7C15ULL;
-
-static uint64_t rng_next(void) {
-    uint64_t z = (g_rng_state += 0x9E3779B97F4A7C15ULL);
+static uint64_t rng_next(fe_Context *ctx) {
+    kec_HostState *state = kec_host_state(ctx);
+    uint64_t z = (state->rng_state += 0x9E3779B97F4A7C15ULL);
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
     z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
     return z ^ (z >> 31);
@@ -481,20 +497,20 @@ static uint64_t rng_next(void) {
 ** make `rand`/`rand-int` reproducible. */
 static fe_Object *h_set_seed(fe_Context *ctx, fe_Object *args) {
     fe_Number n = arg_num(ctx, &args);
-    g_rng_state = (uint64_t)(int64_t)n;
+    kec_host_state(ctx)->rng_state = (uint64_t)(int64_t)n;
     return fe_number(ctx, n);
 }
 
 static fe_Object *h_rand(fe_Context *ctx, fe_Object *args) {
     /* Top 53 bits -> a double in [0,1), then narrowed to fe_Number. */
     (void)args;
-    return fe_number(ctx, (fe_Number)((double)(rng_next() >> 11) *
+    return fe_number(ctx, (fe_Number)((double)(rng_next(ctx) >> 11) *
                                       (1.0 / 9007199254740992.0)));
 }
 static fe_Object *h_rand_int(fe_Context *ctx, fe_Object *args) {
     int n = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
     if (n <= 0) { return fe_number(ctx, 0); }
-    return fe_number(ctx, (fe_Number)(uint32_t)((rng_next() >> 16) % (uint64_t)n));
+    return fe_number(ctx, (fe_Number)(uint32_t)((rng_next(ctx) >> 16) % (uint64_t)n));
 }
 static fe_Object *h_clock(fe_Context *ctx, fe_Object *args) {
     (void)args;

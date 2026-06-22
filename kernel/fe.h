@@ -20,6 +20,8 @@ typedef fe_Object* (*fe_CFunc)(fe_Context *ctx, fe_Object *args);
 typedef void (*fe_ErrorFn)(fe_Context *ctx, const char *err, fe_Object *cl);
 typedef void (*fe_WriteFn)(fe_Context *ctx, void *udata, char chr);
 typedef char (*fe_ReadFn)(fe_Context *ctx, void *udata);
+typedef void (*fe_PtrMarkFn)(fe_Context *ctx, void *ptr);
+typedef void (*fe_PtrGcFn)(fe_Context *ctx, void *ptr);
 typedef struct { fe_ErrorFn error; fe_CFunc mark, gc; } fe_Handlers;
 
 enum {
@@ -45,6 +47,14 @@ fe_Object* fe_string(fe_Context *ctx, const char *str);
 fe_Object* fe_symbol(fe_Context *ctx, const char *name);
 fe_Object* fe_cfunc(fe_Context *ctx, fe_CFunc fn);
 fe_Object* fe_ptr(fe_Context *ctx, void *ptr);
+/* Register a typed foreign-pointer lifecycle. `tag` is an embedder-owned,
+ * process-stable identity token (normally the address of a static object).
+ * Typed pointers dispatch only to their registered handler, so independent
+ * extensions compose without replacing the legacy handlers above. */
+int fe_register_ptr_type(fe_Context *ctx, const void *tag,
+                         fe_PtrMarkFn mark, fe_PtrGcFn gc);
+fe_Object* fe_ptr_typed(fe_Context *ctx, void *ptr, const void *tag);
+int fe_ptr_is_type(fe_Context *ctx, fe_Object *obj, const void *tag);
 fe_Object* fe_list(fe_Context *ctx, fe_Object **objs, int n);
 fe_Object* fe_car(fe_Context *ctx, fe_Object *obj);
 fe_Object* fe_cdr(fe_Context *ctx, fe_Object *obj);
@@ -53,6 +63,10 @@ void fe_writefp(fe_Context *ctx, fe_Object *obj, FILE *fp);
 int fe_tostring(fe_Context *ctx, fe_Object *obj, char *dst, int size);
 fe_Number fe_tonumber(fe_Context *ctx, fe_Object *obj);
 void* fe_toptr(fe_Context *ctx, fe_Object *obj);
+/* Small fixed set of context-owned embedder slots. Fe never interprets the
+ * pointers. Slots make runtime/host state context-local without heap work. */
+void fe_set_userdata(fe_Context *ctx, int slot, void *userdata);
+void* fe_userdata(fe_Context *ctx, int slot);
 void fe_set(fe_Context *ctx, fe_Object *sym, fe_Object *v);
 fe_Object* fe_read(fe_Context *ctx, fe_ReadFn fn, void *udata);
 fe_Object* fe_readfp(fe_Context *ctx, FILE *fp);

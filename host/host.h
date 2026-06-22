@@ -9,6 +9,7 @@
 #ifndef KEC_HOST_H
 #define KEC_HOST_H
 
+#include <stdint.h>
 #include "fe.h"
 
 /*
@@ -21,6 +22,18 @@ typedef enum {
     KEC_PROFILE_FULL = 0,
     KEC_PROFILE_SANDBOX = 1
 } kec_Profile;
+
+typedef struct {
+    uint64_t rng_state;
+    void *(*container_alloc)(size_t);
+    void (*container_free)(void *);
+} kec_HostState;
+
+/* Runtime-owned state for portable host primitives. One instance belongs to
+** each interpreter and is attached to Fe userdata slot 1. */
+void kec_host_state_init(kec_HostState *state);
+void kec_host_attach_state(fe_Context *ctx, kec_HostState *state);
+kec_HostState *kec_host_state(fe_Context *ctx);
 
 /* GC-safe symbol→cfunc bind. Saves/restores the GC stack around the two pushes
 ** (symbol intern + cfunc wrap). Public so embedders can reuse it. */
@@ -39,6 +52,9 @@ void kec_containers_register(fe_Context *ctx);
 ** an arena-bump allocator here. Pass NULL for either to reset it to the default.
 ** Set this before opening contexts that allocate containers. */
 void kec_set_container_allocator(void *(*alloc)(size_t), void (*free_)(void *));
+void kec_host_state_set_container_allocator(kec_HostState *state,
+                                            void *(*alloc)(size_t),
+                                            void (*free_)(void *));
 
 /* Expose CLI argv to (args). Call once before evaluation. */
 void kec_host_set_args(int argc, char **argv);

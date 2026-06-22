@@ -20,6 +20,7 @@
 
 struct kec_State {
     fe_Context *ctx;
+    kec_HostState host;
     void *arena;
     int owns_arena; /* 1 if kec malloc'd the arena and must free it */
     kec_Profile profile;
@@ -29,17 +30,12 @@ struct kec_State {
     int depth; /* number of active guards */
 };
 
-/* Single-threaded interpreter: the error handler and runtime primitives reach
-** the live State through this. */
-static kec_State *g_state = NULL;
-
 /* ------------------------------------------------------------------ */
 /* Error handler.                                                      */
 /* ------------------------------------------------------------------ */
 
 static void on_error(fe_Context *ctx, const char *err, fe_Object *cl) {
-    kec_State *S = g_state;
-    (void)ctx;
+    kec_State *S = fe_userdata(ctx, 0);
     (void)cl;
     if (S) {
         snprintf(S->errmsg, sizeof S->errmsg, "%s", err);
@@ -349,7 +345,7 @@ static fe_Object *h_raise(fe_Context *ctx, fe_Object *args) {
 ** (GWP-532). check-err in the test harness keys off the :error car. */
 static fe_Object *h_try(fe_Context *ctx, fe_Object *args) {
     fe_Object *thunk = fe_nextarg(ctx, &args);
-    kec_State *S = g_state;
+    kec_State *S = fe_userdata(ctx, 0);
     int slot = S->depth;
     int gc = fe_savegc(ctx);
     if (slot >= KEC_GUARD_MAX) { fe_error(ctx, "try: nesting too deep"); }
@@ -393,7 +389,9 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
     S->profile = profile;
     S->depth = 0;
 
-    g_state = S;
+    fe_set_userdata(S->ctx, 0, S);
+    kec_host_state_init(&S->host);
+    kec_host_attach_state(S->ctx, &S->host);
     fe_handlers(S->ctx)->error = on_error;
 
     /* Guard the whole setup. Both host registration and Core load allocate, and
@@ -461,8 +459,14 @@ void kec_close(kec_State *S) {
     if (!S) { return; }
     if (S->ctx) { fe_close(S->ctx); }
     if (S->owns_arena) { free(S->arena); }
-    if (g_state == S) { g_state = NULL; }
     free(S);
+}
+
+void kec_set_container_allocator_for(kec_State *S,
+                                     void *(*alloc)(size_t),
+                                     void (*free_)(void *)) {
+    if (!S) { return; }
+    kec_host_state_set_container_allocator(&S->host, alloc, free_);
 }
 
 fe_Context *kec_fe(kec_State *S) { return S->ctx; }

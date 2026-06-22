@@ -37,6 +37,8 @@
 
 #define STRBUFSIZE    ( (int) sizeof(fe_Object*) - 1 )
 #define GCMARKBIT     ( 0x2 )
+#define PTRTYPEMAX    ( 8 )
+#define USERDATASLOTS ( 4 )
 /* KEC: recursion ceiling is configurable. The standalone desktop build raises
    it (CMake -DGCSTACKSIZE=...); the 256 default is kept for memory-tight hosts
    (e.g. the 256 KB device arena) that vendor this kernel as-is. */
@@ -68,8 +70,17 @@ typedef union { fe_Object *o; fe_CFunc f; fe_Number n; char c; } Value;
 
 struct fe_Object { Value car, cdr; };
 
+typedef struct {
+  const void *tag;
+  fe_PtrMarkFn mark;
+  fe_PtrGcFn gc;
+} PtrType;
+
 struct fe_Context {
   fe_Handlers handlers;
+  PtrType ptrtypes[PTRTYPEMAX];
+  int ptrtype_count;
+  void *userdata[USERDATASLOTS];
   fe_Object *gcstack[GCSTACKSIZE];
   int gcstack_idx;
   fe_Object *objects;
@@ -90,6 +101,20 @@ static fe_Object nil = {{ (void*) (FE_TNIL << 2 | 1) }, { NULL }};
 
 fe_Handlers* fe_handlers(fe_Context *ctx) {
   return &ctx->handlers;
+}
+
+
+static int ptrtype(fe_Object *obj) {
+  unsigned char kind = 0;
+  if (type(obj) == FE_TPTR) { memcpy(&kind, strbuf(obj), sizeof kind); }
+  return (int)kind;
+}
+
+
+static PtrType* ptrhandler(fe_Context *ctx, fe_Object *obj) {
+  int kind = ptrtype(obj);
+  if (kind <= 0 || kind > ctx->ptrtype_count) { return NULL; }
+  return &ctx->ptrtypes[kind - 1];
 }
 
 
@@ -177,7 +202,11 @@ begin:
       goto begin;
 
     case FE_TPTR:
-      if (ctx->handlers.mark) { ctx->handlers.mark(ctx, obj); }
+      {
+        PtrType *h = ptrhandler(ctx, obj);
+        if (h && h->mark) { h->mark(ctx, cdr(obj)); }
+        else if (!h && ctx->handlers.mark) { ctx->handlers.mark(ctx, obj); }
+      }
       break;
   }
 }
@@ -195,8 +224,10 @@ static void collectgarbage(fe_Context *ctx) {
     fe_Object *obj = &ctx->objects[i];
     if (type(obj) == FE_TFREE) { continue; }
     if (~tag(obj) & GCMARKBIT) {
-      if (type(obj) == FE_TPTR && ctx->handlers.gc) {
-        ctx->handlers.gc(ctx, obj);
+      if (type(obj) == FE_TPTR) {
+        PtrType *h = ptrhandler(ctx, obj);
+        if (h && h->gc) { h->gc(ctx, cdr(obj)); }
+        else if (!h && ctx->handlers.gc) { ctx->handlers.gc(ctx, obj); }
       }
       settype(obj, FE_TFREE);
       cdr(obj) = ctx->freelist;
@@ -324,8 +355,49 @@ fe_Object* fe_cfunc(fe_Context *ctx, fe_CFunc fn) {
 fe_Object* fe_ptr(fe_Context *ctx, void *ptr) {
   fe_Object *obj = object(ctx);
   settype(obj, FE_TPTR);
+  memset(strbuf(obj), 0, STRBUFSIZE);
   cdr(obj) = ptr;
   return obj;
+}
+
+
+int fe_register_ptr_type(fe_Context *ctx, const void *tag_,
+                         fe_PtrMarkFn mark_, fe_PtrGcFn gc_) {
+  int i;
+  if (!tag_) { return 1; }
+  for (i = 0; i < ctx->ptrtype_count; i++) {
+    if (ctx->ptrtypes[i].tag == tag_) { return 0; }
+  }
+  if (ctx->ptrtype_count >= PTRTYPEMAX) { return 1; }
+  ctx->ptrtypes[ctx->ptrtype_count].tag = tag_;
+  ctx->ptrtypes[ctx->ptrtype_count].mark = mark_;
+  ctx->ptrtypes[ctx->ptrtype_count].gc = gc_;
+  ctx->ptrtype_count++;
+  return 0;
+}
+
+
+fe_Object* fe_ptr_typed(fe_Context *ctx, void *ptr, const void *tag_) {
+  fe_Object *obj;
+  int i;
+  for (i = 0; i < ctx->ptrtype_count; i++) {
+    if (ctx->ptrtypes[i].tag == tag_) {
+      unsigned char kind = (unsigned char)(i + 1);
+      obj = fe_ptr(ctx, ptr);
+      memcpy(strbuf(obj), &kind, sizeof kind);
+      return obj;
+    }
+  }
+  fe_error(ctx, "unregistered foreign pointer type");
+  return NULL;
+}
+
+
+int fe_ptr_is_type(fe_Context *ctx, fe_Object *obj, const void *tag_) {
+  PtrType *h;
+  if (type(obj) != FE_TPTR) { return 0; }
+  h = ptrhandler(ctx, obj);
+  return h && h->tag == tag_;
 }
 
 
@@ -458,6 +530,18 @@ fe_Number fe_tonumber(fe_Context *ctx, fe_Object *obj) {
 
 void* fe_toptr(fe_Context *ctx, fe_Object *obj) {
   return cdr(checktype(ctx, obj, FE_TPTR));
+}
+
+
+void fe_set_userdata(fe_Context *ctx, int slot, void *userdata_) {
+  if (slot < 0 || slot >= USERDATASLOTS) { fe_error(ctx, "userdata slot out of range"); }
+  ctx->userdata[slot] = userdata_;
+}
+
+
+void* fe_userdata(fe_Context *ctx, int slot) {
+  if (slot < 0 || slot >= USERDATASLOTS) { fe_error(ctx, "userdata slot out of range"); }
+  return ctx->userdata[slot];
 }
 
 
