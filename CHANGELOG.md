@@ -4,18 +4,27 @@
 
 ### Added
 - **Editor tier — structural-edit engine** (`editor/10-zipper.lsp`,
-  `editor/20-undo.lsp`; ADR-0002). First module of the host-agnostic
-  editor/REPL tier (knEmacs core), `provide`-gated and loaded on demand — not
-  baked into Core. A Huet zipper structural-edit data model: the cursor is an
-  immutable location `(focus . crumbs)`, so every edit yields a well-formed tree
-  (no half-typed parens) and undo is an O(1) snapshot. Navigation
-  (descend/next-sibling/prev-sibling/ascend/descend-to-leaf) + manipulation
-  (insert-leaf/delete-node/paste/wrap/splice/transpose) with boundary "invalid
-  move" signals; a print+reparse well-formedness check; and a vector-backed O(1)
-  undo ring (make-undo-ring/undo-push/undo-pop/undo-peek/undo-depth). The
-  functional-zipper-over-in-place choice was settled by a spike (zipper undo is
-  O(1); in-place undo is an O(nodes) copy per step). `tests/editor/{zipper,undo}.lsp`
-  (62 checks).
+  `editor/20-undo.lsp`, `editor/30-buffer.lsp`, `editor/40-view.lsp`; ADR-0002).
+  First modules of the host-agnostic editor/REPL tier (knEmacs core),
+  `provide`-gated and loaded on demand — not baked into Core.
+  - **Zipper** (10): a Huet zipper structural-edit data model — the cursor is an
+    immutable location `(focus . crumbs)`, so every edit yields a well-formed
+    tree (no half-typed parens) and undo is an O(1) snapshot. Navigation
+    (descend/next-sibling/prev-sibling/ascend/descend-to-leaf) + manipulation
+    (insert-leaf/delete-node/paste/wrap/splice/transpose) with boundary "invalid
+    move" signals; a print+reparse well-formedness check. (Functional zipper over
+    in-place was settled by a spike: zipper undo is O(1), in-place is an O(nodes)
+    copy per step.)
+  - **Undo** (20): a vector-backed O(1) snapshot ring
+    (make-undo-ring/undo-push/undo-pop/undo-peek/undo-depth).
+  - **Buffer record** (30): wraps the cursor with the rest of L1 — clipboard,
+    modified flag, name — and undo-integrated verb wrappers (navigation moves the
+    cursor; edits snapshot for undo, thread the clipboard, and mark modified).
+  - **View model** (40, SEAM S4): the abstract view a host paints — a
+    `(label . children)` tree projection + the cursor node, a modeline string, an
+    echo hint, and a `completion-signature` arglist helper. The shapes match the
+    KN-86 nEmacs screen's seam so that device screen can drive this Lisp engine.
+  `tests/editor/{zipper,undo,buffer,view}.lsp` (105 checks).
 - **Containers — vectors and hash tables** (`host/containers.c`,
   `core/52-container.lsp`; ADR-0003). O(1) indexed and keyed structures as
   `FE_TPTR` foreign objects with GC-integrated backing (a `mark`/`gc` handler
