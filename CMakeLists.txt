@@ -147,6 +147,16 @@ add_test(NAME tests/examples/black-ice-trace.lsp
 set_tests_properties(tests/examples/black-ice-trace.lsp PROPERTIES
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+# Editor tier (ADR-0002) — the knEmacs/REPL host-agnostic modules. Loaded on
+# demand (not baked into Core), so the tests `load` editor/*.lsp relative to the
+# source dir; run from the repo root.
+foreach(t editor/zipper editor/undo)
+  add_test(NAME tests/${t}.lsp
+    COMMAND kec test ${CMAKE_SOURCE_DIR}/tests/${t}.lsp)
+  set_tests_properties(tests/${t}.lsp PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+endforeach()
+
 # `kec test` with no arguments runs the whole suite baked into the binary.
 # The regex doubles as the assertion: at least one check ran, none failed.
 add_test(NAME cli/test-default COMMAND kec test)
