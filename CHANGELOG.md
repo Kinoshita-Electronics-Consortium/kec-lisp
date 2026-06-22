@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- **`kec nemacs` — the strong REPL reference host** (`editor/95-host.lsp`,
+  `cli/main.c`; ADR-0002, WS6). The editor/REPL tier is embedded in the binary
+  (`KEC_EDITOR_SRC`) and a new `kec nemacs` subcommand drives the REPL engine over
+  the terminal: read a paren-balanced form, hand it to `host-repl-line`, print the
+  engine's formatted output; history ring, structural pretty-printer, and error
+  recovery all come from the Lisp tier. Live completion from the global image
+  (`host-complete` over `globals`, dogfooding the ranker — SEAM S8). This is both
+  the strong standalone REPL and the **device-free proof that the SEAM (S1–S9)
+  carries the whole engine with no new C seam**; the firmware provides its own
+  host the same way. Prompts/banner on stderr so stdout is scriptable.
+  `tests/editor/host.lsp` (11 checks) + `tests/cli/nemacs-smoke.sh` (end-to-end).
 - **Editor tier — REPL engine** (`editor/90-repl.lsp`; ADR-0002, L6). The
   host-agnostic read-eval-print loop: READ a well-formed form (composed via the
   structural editor), EVAL against the host eval-fn (SEAM S1) under a
