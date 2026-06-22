@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- **Editor tier — persistence + lifecycle** (`editor/60-persist.lsp`,
+  `editor/70-lifecycle.lsp`; ADR-0002, L7/L8). Persistence is the (serialize,
+  load) pair only — the host owns the bytes (SEAM S5): `buffer->string`
+  (top-level forms as plain Lisp source; empty buffer → `()`), `buffer-serialize`
+  (honors a host byte cap; overflow → `0`), `buffer-load` / `buffer-reload!`
+  (parse with the reader, replace the root, reset the cursor; symbol identity by
+  intern-by-name). A serialize→load round-trip preserves structural shape.
+  Lifecycle is the session state machine (`:init` → `:editor`/`:repl` → `:exited`/
+  `:shutdown`, plus `set-mode` over the five scopes) that fires enter/exit/
+  mode-change **hooks** the host subscribes to (SEAM S6) — the library performs no
+  device side effects itself. `tests/editor/{persist,lifecycle}.lsp` (25 checks).
 - **Editor tier — keymap engine + mode scopes** (`editor/50-keymap.lsp`; ADR-0002,
   L2/L3). Keymap-as-data: a hash-table mapping abstract command **tokens** (CAR,
   CDR, BACK, …) — never scancodes — to handler entries with three slots
