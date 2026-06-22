@@ -2,8 +2,8 @@
 ** containers.c — KEC Lisp container types: vectors and hash tables (ADR-0003).
 **
 ** Both are FE_TPTR foreign objects. The frozen Fe kernel exposes fe_ptr/fe_toptr
-** plus a single pair of mark/gc handler hooks, so new aggregate types need no
-** kernel change. The fe_Object cell only holds a backing pointer (in its cdr);
+** plus composable typed-pointer lifecycle handlers. The fe_Object cell holds a
+** backing pointer (in its cdr) and a small registered pointer-type id;
 ** the actual storage — a vector's element array, a hash table's slot array —
 ** is a C struct that lives OUTSIDE the Fe arena, reached through that pointer.
 ** Element / key / value cells themselves are ordinary Fe objects in the arena.
@@ -13,14 +13,13 @@
 **     vector elements and hash keys+values survive the sweep.
 **   - gc handler:   when a container's FE_TPTR is collected (including at
 **     fe_close, which sweeps everything), free its backing.
-** Both are MAGIC-guarded: a foreign FE_TPTR that is not one of ours is left
-** untouched. The standalone language creates no other ptr objects; the guard
-** keeps the handlers safe if a downstream host (the firmware) later adds its own.
+** Typed dispatch means a foreign FE_TPTR owned by firmware never reaches the
+** container callbacks and is never dereferenced by them.
 **
-** Backing memory goes through a settable allocator (kec_set_container_allocator),
-** defaulting to malloc/free, so the no-malloc device path can install an
-** arena-bump allocator instead of libc malloc — this resolves ADR-0001's
-** deferred container backing-memory concern (see ADR-0003).
+** Backing memory goes through a per-context allocator. Every backing remembers
+** the matching allocator/free pair that created it, so later reconfiguration
+** cannot mismatch allocation domains. The process-default setter remains for
+** compatibility; new embedders should use kec_set_container_allocator_for.
 **
 ** Equality / hashing of keys mirrors the language's own rules: numbers by value,
 ** symbols by identity (they are interned, so identity == name), strings by
@@ -59,14 +58,12 @@ void kec_host_state_set_container_allocator(kec_HostState *state,
 /* Backing structs.                                                   */
 /* ------------------------------------------------------------------ */
 
-#define KEC_CMAGIC 0x4B454343u /* 'KECC' — guards foreign ptr objects */
 #define KEC_VECTOR_MAX (1 << 24) /* exact-float ceiling; far past practical use */
 #define KEC_HASH_KEYMAX 1024 /* string key compare/hash window (symbols/numbers exact) */
 
 enum { KEC_KIND_VECTOR = 1, KEC_KIND_HASH = 2 };
 
 typedef struct {
-    unsigned magic;
     int kind;
     void *(*alloc)(size_t);
     void (*free_)(void *);
@@ -171,7 +168,6 @@ static Vector *alloc_vector(fe_Context *ctx, int len, fe_Object *init) {
     bytes = sizeof(Vector) + (size_t)(len > 0 ? len - 1 : 0) * sizeof(fe_Object *);
     v = state->container_alloc(bytes);
     if (!v) { fe_error(ctx, "make-vector: out of memory"); }
-    v->head.magic = KEC_CMAGIC;
     v->head.kind = KEC_KIND_VECTOR;
     v->head.alloc = state->container_alloc;
     v->head.free_ = state->container_free;
@@ -328,7 +324,6 @@ static Hash *alloc_hash(fe_Context *ctx) {
         state->container_free(h);
         fe_error(ctx, "make-hash-table: out of memory");
     }
-    h->head.magic = KEC_CMAGIC;
     h->head.kind = KEC_KIND_HASH;
     h->head.alloc = state->container_alloc;
     h->head.free_ = state->container_free;

@@ -7,6 +7,12 @@ description: Accepted base-language additions to KEC Lisp — error-recovery mac
 - **Date:** 2026-06-21
 - **Deciders:** KEC Lisp maintainers
 - **Supersedes / superseded by:** —
+- **Amended:** 2026-06-22 by GWP-235 (strict integer contracts, nil-aware binding presence, context-local RNG, and one-character padding)
+
+> **Hardening note.** The original sprint deliberately avoided kernel changes.
+> GWP-235 later added small, additive kernel APIs after integration review showed
+> that true bound-to-`nil` detection and composable foreign-pointer lifecycles
+> could not be implemented safely through the original seams alone.
 
 ## Context
 
@@ -67,26 +73,28 @@ cleanup, re-raise if the result was an `error?`.
 
 - `prog1` — sequence; return the **first** subexpression's value.
 - `defvar` — define a global **only if unbound** (`(if (bound? 'x) x (set 'x v))`),
-  so user/config values survive a later library load.
+  so user/config values, including `nil`, survive a later library load.
 - `macroexpand` — full expansion (loop `macroexpand-1` to a fixpoint).
 
 ### C. String / char toolkit (Core, over existing host string primitives)
 
 - Case: `string-upcase`, `string-downcase`, `char-upcase`, `char-downcase`.
 - Layout for the fixed-cell text grid: `pad-left`, `pad-right`, `string-repeat`.
+  Padding accepts exactly one fill character.
 - Tests: `string-prefix?`, `string-suffix?`, `string-contains?`.
 
 ### D. Bitwise operators (host primitives)
 
 - `bit-and`, `bit-or`, `bit-xor`, `bit-not`, `bit-shl`, `bit-shr`, operating on
-  integer-valued numbers within the exact float range. Needed for PSG register
+  validated 32-bit integer-valued numbers. Fractional/non-finite/unsafe inputs
+  raise instead of narrowing. Needed for PSG register
   packing, RGB565 color math, the Universal Deck State history bitfield, and flag
   sets — none of which the editor-focused study surfaced.
 
 ### E. Seedable RNG (host primitive)
 
 - A deterministic seed control (e.g. `set-seed!` / `rng-seed`) so `rand` /
-  `rand-int` become **reproducible**. The mission board generates contracts from
+  `rand-int` become **reproducible per interpreter context**. The mission board generates contracts from
   cartridge templates *seeded by deck state*; reproducible procedural generation
   is load-bearing for that core loop, not a nicety.
 
@@ -122,8 +130,9 @@ cleanup, re-raise if the result was an `error?`.
   wrappers become expressible in Lisp (A).
 - Cart authoring gains bit manipulation (D) and reproducible procedural
   generation (E); the text-grid + editor case/layout ergonomics improve (C).
-- **No frozen-kernel changes and no new runtime `malloc`** — the arena invariant
-  is preserved; containers are explicitly queued, not dropped.
+- The original sprint made **no frozen-kernel changes and introduced no new
+  runtime `malloc`**; the later GWP-235 hardening amendment is described above.
+  Containers were explicitly queued rather than dropped.
 - New Core modules wire into `CORE_SRCS` (load order) in `CMakeLists.txt` and into
   `mkembed`; host primitives register in `kec_host_register`. Every new form ships
   conformance tests, and the `docs/` language reference / builtins page is updated.

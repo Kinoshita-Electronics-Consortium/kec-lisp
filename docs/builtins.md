@@ -105,10 +105,11 @@ from Core; `mod` / `abs` / `sqrt` and friends are host primitives (see the
 `print` is the kernel's only I/O. The runtime/host layers add `princ` /
 `newline` / `repr` (and, in the `FULL` profile, file I/O — `load` /
 `read-file` / `write-file` / `append-file`, plus `require`). `try` / `raise`
-are catchable error control. `read-string` parses one value from text and
-`read-all` parses every form, both in any profile; `macroexpand-1` expands one
-quoted macro call for inspection. `bound?`, `globals`, and `fn-params` are
-read-only reflection over the live environment (safe in any profile).
+are catchable error control. Length-aware `read-string` parses one value from
+text and `read-all` parses every form, both in any profile; `macroexpand-1`
+expands one quoted macro call for inspection. `bound?` (including bindings whose
+value is `nil`), `globals`, and `fn-params` are read-only reflection over the live
+environment (safe in any profile).
 `eval` evaluates an already-read data form in the live image — the editor/REPL
 keystone — but is a **`FULL`-tier capability**, deliberately not bound into
 `SANDBOX` contexts. There is no socket I/O at the kernel level.

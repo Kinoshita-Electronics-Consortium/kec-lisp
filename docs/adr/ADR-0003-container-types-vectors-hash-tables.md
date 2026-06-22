@@ -1,12 +1,13 @@
 ---
 title: "ADR-0003: Container Types — Vectors & Hash Tables"
-description: Vectors and hash tables for KEC Lisp, implemented as FE_TPTR foreign objects with GC-integrated backing, a settable allocator that defaults to malloc/free (resolving the no-malloc concern), and key equality that mirrors the language's number-by-value / symbol-by-identity / string-by-content rules. Closes ADR-0001's container deferral.
+description: Vectors and hash tables for KEC Lisp, implemented as typed FE_TPTR foreign objects with composable GC lifecycles, context-owned allocation, and scalar key equality.
 ---
 
 - **Status:** Accepted
 - **Date:** 2026-06-21
 - **Deciders:** KEC Lisp maintainers
 - **Supersedes / superseded by:** Closes the container item deferred by ADR-0001; committed to by ADR-0002 §4.
+- **Amended:** 2026-06-22 by GWP-235 (typed pointer lifecycles and context-owned allocators)
 
 ## Context
 
@@ -26,14 +27,12 @@ the REPL **history ring**, the cell **grid**, **undo**, and the ranker's
 **vocabulary index**, plus de-risking the ranker's per-render latency under the
 tree-walking interpreter.
 
-The enabling kernel facts (verified in `kernel/fe.c`/`fe.h`): the frozen Fe kernel
-exposes a foreign-pointer type **`FE_TPTR`** (`fe_ptr`/`fe_toptr`) and a single
-pair of **`mark`/`gc` handler hooks** (`fe_Handlers`). The `mark` handler is
-invoked for every live `FE_TPTR` during the mark phase; the `gc` handler is
-invoked when one is swept — **including at `fe_close`**, which clears the roots
-and sweeps everything. So a new aggregate type can be a host object with its
-elements kept alive and its backing freed deterministically, **with no kernel
-change**.
+The initial implementation used Fe's single `mark`/`gc` handler pair and probed
+foreign backing for a magic word. GWP-235 hardened that seam after integration
+review: Fe now supports small, composable **typed `FE_TPTR` lifecycles**. A
+registered callback sees only pointers created with its stable tag, and typed
+handlers coexist with the legacy raw-pointer handler pair. `gc` still runs at
+sweep and `fe_close`, so backing is released deterministically.
 
 ## Decision
 
@@ -50,29 +49,32 @@ Implement **vectors** and **hash tables** as `FE_TPTR` foreign objects in a new
   (fixed length; O(1) `vector-ref`/`vector-set!`).
 - A **hash table** is a header + a separately-allocated **open-addressing** slot
   array (linear probing, tombstone deletes, grow-and-rehash at load factor 0.75).
-- Each backing carries a **magic** word + a **kind** tag, so the shared handlers
-  dispatch vector vs. hash and a foreign (non-container) `FE_TPTR` is left
-  untouched.
+- Each backing carries a container kind plus the allocator/free pair that
+  created it. The Fe cell carries the registered container pointer-type id, so
+  container code never dereferences an unowned firmware pointer.
 
-### GC integration (one handler pair on the context)
+### GC integration (composable typed lifecycle)
 
 - **mark**: for each live container, `fe_mark()` every contained cell (vector
   elements; hash keys + values) so they survive the sweep.
 - **gc**: when a container's `FE_TPTR` is collected, free its backing (and, for a
   hash, its slot array). Because `fe_close` sweeps everything, backings are freed
   at context teardown too — **no leak across the device's reset boundaries**.
+- Firmware registers its own tags with `fe_register_ptr_type`; doing so cannot
+  replace the container lifecycle. Plain `fe_ptr` remains supported through the
+  legacy handler pair.
 - Constructors keep element arguments **GC-rooted** across the `FE_TPTR`
   allocation (which may itself trigger a collection).
 
 ### Resolution of the deferred questions
 
-1. **Backing memory.** Container backing goes through a **settable allocator**
-   (`kec_set_container_allocator`, in `host.h`) defaulting to `malloc`/`free`. The
-   standalone language and desktop CLI use the default (allocation is explicit and
-   program-bounded, not a hot-path implicit churn — the runtime already mallocs a
-   transient buffer in `read-all`). The **no-`malloc` device path installs an
-   arena-bump allocator** here, so libc `malloc` is never forced on the device.
-   This is the deliberate resolution of ADR-0001's first concern.
+1. **Backing memory.** Each interpreter has a container allocator, configured by
+   `kec_set_container_allocator_for(S, alloc, free)` and defaulting to
+   `malloc`/`free`. Every backing stores its matching callbacks, so changing the
+   context affects future containers only and cannot cause cross-allocator frees.
+   The older `kec_set_container_allocator` sets the default for subsequently
+   opened contexts. A no-libc device installs its fixed-pool or bump allocator
+   explicitly; caller ownership of the Fe arena alone does not imply this.
 2. **Key equality.** Hash keys mirror the language's own equality rules and are
    restricted to the **safely-comparable** scalar types:
    - **numbers** — by value (`-0.0` folded to `+0.0`);
@@ -112,11 +114,12 @@ Core conveniences (`core/52-container.lsp`, iterative like the rest of Core):
   history ring, cell grid, undo, and ranker vocabulary index.
 - **Containers compare by identity** (they are `:ptr` objects); documented, with
   the `vector->list`/`hash->alist` + `equal?` idiom for content comparison.
-- **One `mark`/`gc` handler pair per context.** A downstream host (the firmware)
-  that adds its own `FE_TPTR` types must compose with these magic-guarded handlers
-  (chain, or extend the dispatch) — noted for the firmware integration.
-- No frozen-kernel change; the no-`malloc` invariant is preserved via the
-  allocator seam. The language reference and `CHANGELOG` are updated.
+- Typed lifecycle registration composes container and firmware handles safely.
+- The Fe kernel has small additive APIs for typed pointers and context userdata;
+  existing raw-pointer handlers remain source-compatible.
+- Container allocation is context-owned and explicit. The language reference,
+  memory model, FFI guide, and `CHANGELOG` document the distinction between the
+  fixed Fe arena and out-of-arena container backing.
 
 ## Acceptance criteria
 
@@ -128,8 +131,8 @@ Core conveniences (`core/52-container.lsp`, iterative like the rest of Core):
    vectors work. Hash: number/symbol/string keys; string keys compare by content;
    overwrite keeps count; delete + reinsert (tombstone reuse); grow past initial
    capacity preserves all entries; unhashable key raises.
-3. The no-`malloc` `c/arena` C test still passes (containers default to `malloc`
-   but the arena seam is unaffected).
+3. `c/arena` remains green; `c/host-state` verifies allocator ownership,
+   multi-context isolation, and coexistence with a firmware-style pointer type.
 4. Docs updated: the language reference Containers section + limits, and this ADR.
 
 ## References
@@ -137,4 +140,5 @@ Core conveniences (`core/52-container.lsp`, iterative like the rest of Core):
 - [ADR-0001: Base-Language Additions](ADR-0001-base-language-additions.md) — deferred containers (this ADR closes that).
 - [ADR-0002: Editor/REPL Extended-Library Tier](ADR-0002-editor-repl-extended-library-tier.md) — §4 commits to building containers now.
 - `host/containers.c`, `core/52-container.lsp`, `tests/core/{vector,hash,container-gc}.lsp`.
-- `kernel/fe.h`/`fe.c` — `FE_TPTR`, `fe_ptr`/`fe_toptr`, `fe_Handlers` (`mark`/`gc`), `fe_mark`, `fe_close`.
+- `kernel/fe.h`/`fe.c` — `FE_TPTR`, typed-pointer registration, legacy
+  `fe_Handlers`, `fe_mark`, and `fe_close`.

@@ -17,6 +17,16 @@
   `tests/cli/edit-smoke.sh` covers literal insert.
 
 ### Changed
+- **Recent language additions hardened for embedding** (GWP-235). Runtime error
+  recovery and SplitMix64 RNG state are now per interpreter. Containers use
+  composable typed-`FE_TPTR` lifecycles and remember the context allocator/free
+  pair that created each backing; firmware pointer types can coexist without
+  handler replacement or unsafe pointer probing. `bound?`/`globals` now
+  distinguish unbound symbols from symbols bound to `nil`, so `defvar` preserves
+  nil-valued configuration. `read-string` is length-aware; vector/bitwise/RNG
+  integer inputs reject lossy narrowing; padding requires one fill character.
+  New C embedding regressions cover multiple contexts, allocator ownership,
+  typed pointer composition, and long-form reading.
 - **CLI command naming corrected:** `kec repl` (and bare `kec`) is the **strong
   REPL** (history, completion, pretty-print, error recovery); **`kec nemacs [FILE]`**
   is the **knEmacs structural editor**. (`kec edit` stays as an alias for `kec nemacs`.)
@@ -122,18 +132,19 @@
   `tests/editor/{zipper,undo,buffer,view}.lsp` (105 checks).
 - **Containers — vectors and hash tables** (`host/containers.c`,
   `core/52-container.lsp`; ADR-0003). O(1) indexed and keyed structures as
-  `FE_TPTR` foreign objects with GC-integrated backing (a `mark`/`gc` handler
-  pair keeps contents alive and frees backing on sweep, including at `fe_close`).
+  typed `FE_TPTR` foreign objects with GC-integrated backing (a composable
+  lifecycle keeps contents alive and frees backing on sweep and `fe_close`).
   Primitives: `make-vector`, `vector`, `vector-ref`, `vector-set!`,
   `vector-length`, `vector?`; `make-hash-table`, `hash-set!`, `hash-ref`,
   `hash-has?`, `hash-del!`, `hash-count`, `hash-keys`, `hash-table?`. Core
   helpers: `vector->list`, `list->vector`, `vector-fill!`, `vector-copy`,
   `vector-map`, `vector-for-each`, `hash-values`, `hash->alist`, `alist->hash`,
   `hash-for-each`. Hash keys are numbers (by value), symbols (by identity), or
-  strings (by content); other key types raise. Backing memory uses a settable
-  allocator (`kec_set_container_allocator`) defaulting to malloc/free, so the
-  no-malloc device path installs an arena-bump allocator instead — closing
-  ADR-0001's deferred container concern. `tests/core/{vector,hash,container-gc}.lsp`.
+  strings (by content); other key types raise. Backing memory uses a context
+  allocator (`kec_set_container_allocator_for`) defaulting to malloc/free, and
+  each allocation retains its matching free callback. A no-libc device installs
+  its fixed-pool or bump allocator explicitly. `tests/core/{vector,hash,container-gc}.lsp`
+  plus `tests/c/test_host_state.c`.
 - **GNU Emacs major mode** (`editors/emacs/kec-lisp-mode.el`) for editing `.lsp`
   KEC Lisp: file detection, font-lock, KEC-aware indentation, completion-at-point
   (standard library + buffer definitions + the live interpreter's `(globals)`),
@@ -165,7 +176,7 @@
   char codes — building blocks for word/symbol-boundary scanning.
   `tests/core/str.lsp`.
 - **`bound?` and `globals` introspection primitives** (host, both profiles).
-  `(bound? sym)` is truthy when a symbol has a non-nil global binding;
+  `(bound? sym)` is truthy when a symbol has a global binding, including `nil`;
   `(globals [prefix])` returns a fresh list of the globally-bound symbols,
   optionally filtered by name prefix. Read-only reflection over the global
   environment (AMOP Ch. 2, "fair use rules"): tools ask the runtime what's

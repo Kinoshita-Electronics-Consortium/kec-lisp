@@ -164,10 +164,9 @@ static fe_Object *h_gensym(fe_Context *ctx, fe_Object *args) {
     return fe_symbol(ctx, buf);
 }
 
-/* (bound? sym) -> truthy if sym has a non-nil global binding, else nil. Reads
-** the binding the way evaluation would (a plain lookup, no side effect). nil is
-** absence in this Lisp, so a symbol bound to nil reads as unbound. Errors if the
-** argument isn't a symbol. Read-only — safe in any profile (AMOP "fair use"). */
+/* (bound? sym) -> truthy if sym has a global binding, including a binding whose
+** value is nil. Errors if the argument isn't a symbol. Read-only — safe in any
+** profile (AMOP "fair use"). */
 static fe_Object *h_bound_p(fe_Context *ctx, fe_Object *args) {
     fe_Object *sym = fe_nextarg(ctx, &args);
     if (fe_type(ctx, sym) != FE_TSYMBOL) { fe_error(ctx, "bound?: expected a symbol"); }
@@ -175,7 +174,7 @@ static fe_Object *h_bound_p(fe_Context *ctx, fe_Object *args) {
 }
 
 /* (globals) / (globals prefix) -> a FRESH list of the interned symbols that
-** have a non-nil global binding, optionally filtered to those whose name starts
+** have a global binding, optionally filtered to those whose name starts
 ** with `prefix`. Order is unspecified. The list is the caller's to keep; the
 ** symbols are interned singletons (their identity is the public contract), but
 ** the runtime never hands out its internal symbol list (AMOP "fair use rules"):
@@ -493,8 +492,9 @@ static fe_Object *h_repr(fe_Context *ctx, fe_Object *args) {
 ** contracts from deck-state-seeded templates, so reproducible procedural
 ** generation must be byte-identical on every host. A fixed seed therefore
 ** yields a fixed sequence everywhere — see tests/core/rng.lsp (golden value).
-** The state is a single 64-bit word, initialized to a fixed nonzero default
-** so an unseeded `rand` is still deterministic across runs. */
+** Each interpreter owns one 64-bit state word, initialized to a fixed nonzero
+** default so an unseeded `rand` is deterministic without leaking across
+** contexts. */
 static uint64_t rng_next(fe_Context *ctx) {
     kec_HostState *state = kec_host_state(ctx);
     uint64_t z = (state->rng_state += 0x9E3779B97F4A7C15ULL);
@@ -714,7 +714,7 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     kec_bind_fe(ctx, "rand-int", h_rand_int);
     kec_bind_fe(ctx, "clock", h_clock);
     /* Containers (vectors + hash tables) — portable, safe in any profile.
-    ** Also installs the FE_TPTR mark/gc handlers (see host/containers.c). */
+    ** Registers a composable typed-FE_TPTR lifecycle (see containers.c). */
     kec_containers_register(ctx);
 
     if (profile == KEC_PROFILE_FULL) {

@@ -42,15 +42,13 @@ void kec_bind_fe(fe_Context *ctx, const char *name, fe_CFunc fn);
 /* Bind the portable host stdlib into ctx for the given profile. */
 void kec_host_register(fe_Context *ctx, kec_Profile profile);
 
-/* Bind the vector + hash-table container primitives into ctx and install the
-** shared FE_TPTR mark/gc handlers. Called by kec_host_register; portable and
-** safe in any profile. See host/containers.c and ADR-0003. */
+/* Bind vector + hash-table primitives and register their typed FE_TPTR
+** lifecycle. Called by kec_host_register; safe in any profile. */
 void kec_containers_register(fe_Context *ctx);
 
-/* Override the allocator for container backing memory (vector element arrays,
-** hash slot arrays). Defaults to malloc/free; the no-malloc device path installs
-** an arena-bump allocator here. Pass NULL for either to reset it to the default.
-** Set this before opening contexts that allocate containers. */
+/* Set the process default used by subsequently initialized host states. Kept
+** for source compatibility; prefer kec_set_container_allocator_for(kec_State*)
+** so independent contexts can use independent allocation domains. */
 void kec_set_container_allocator(void *(*alloc)(size_t), void (*free_)(void *));
 void kec_host_state_set_container_allocator(kec_HostState *state,
                                             void *(*alloc)(size_t),
