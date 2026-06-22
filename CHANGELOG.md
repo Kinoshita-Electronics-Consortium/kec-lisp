@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- **Editor tier — REPL engine** (`editor/90-repl.lsp`; ADR-0002, L6). The
+  host-agnostic read-eval-print loop: READ a well-formed form (composed via the
+  structural editor), EVAL against the host eval-fn (SEAM S1) under a
+  non-propagating error handler (a failing form keeps the loop alive and
+  preserves the input for retry), PRINT via `repl-format` (opaque values → `#<type>`
+  tags, canonical numbers, a result wider than the host width broken over lines).
+  The in-memory history ring (drop-empty, coalesce-consecutive-duplicates,
+  saturate-and-evict-oldest) + walking (`repl-older!` / `repl-newer!` /
+  `repl-recall` / `repl-reeval!`) with a default `:repl-history` keymap; a
+  guided-prompt (tutorial) runner mechanism that does not consume history (L6.7).
+  `make-repl` / `repl-submit`. `tests/editor/repl.lsp` (33 checks).
 - **Editor tier — token-prediction ranker** (`editor/80-ranker.lsp`; ADR-0002,
   L5). A static, deterministic top-8 ranker (no ML) shared by REPL completion and
   the nEmacs palette. Legal-form filter by position (function/argument/binding/
