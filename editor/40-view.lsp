@@ -81,4 +81,29 @@
         (let params (fn-params (eval sym)))
         (if params (string-append token " " (repr params)) nil))))
 
+;; (buffer->view-lines b) -> a flat list of line records, pre-order, for a host
+;; that paints a line-oriented structural view (SEAM S4 "structural spans: indent
+;; depth, highlight"). Each record is (depth label cursor?). Iterative DFS over an
+;; explicit stack — GC-stack-safe on a deep tree.
+(defn view-line-depth (rec) (nth rec 0))
+(defn view-line-label (rec) (nth rec 1))
+(defn view-line-cursor? (rec) (nth rec 2))
+
+(defn buffer->view-lines (b)
+  (let v (buffer->view b))
+  (let cursor (cdr v))
+  (let out nil)                                ; reversed
+  (let stack (list (cons (car v) 0)))          ; (node . depth)
+  (while stack
+    (let top (car stack))
+    (set stack (cdr stack))
+    (let node (car top))
+    (let depth (cdr top))
+    (set out (cons (list depth (car node) (if (is node cursor) t nil)) out))
+    (let kids (reverse (cdr node)))            ; push reversed so leftmost pops first
+    (while kids
+      (set stack (cons (cons (car kids) (+ depth 1)) stack))
+      (set kids (cdr kids))))
+  (reverse out))
+
 (provide 'editor/view)

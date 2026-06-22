@@ -116,7 +116,8 @@ set(EDITOR_SRCS
   ${CMAKE_SOURCE_DIR}/editor/70-lifecycle.lsp
   ${CMAKE_SOURCE_DIR}/editor/80-ranker.lsp
   ${CMAKE_SOURCE_DIR}/editor/90-repl.lsp
-  ${CMAKE_SOURCE_DIR}/editor/95-host.lsp)
+  ${CMAKE_SOURCE_DIR}/editor/95-host.lsp
+  ${CMAKE_SOURCE_DIR}/editor/96-tty.lsp)
 
 add_custom_command(
   OUTPUT ${GEN_DIR}/kec_editor_embed.h
@@ -172,7 +173,8 @@ set_tests_properties(tests/examples/black-ice-trace.lsp PROPERTIES
 # demand (not baked into Core), so the tests `load` editor/*.lsp relative to the
 # source dir; run from the repo root.
 foreach(t editor/zipper editor/undo editor/buffer editor/view editor/keymap
-          editor/persist editor/lifecycle editor/ranker editor/repl editor/host)
+          editor/persist editor/lifecycle editor/ranker editor/repl editor/host
+          editor/tty)
   add_test(NAME tests/${t}.lsp
     COMMAND kec test ${CMAKE_SOURCE_DIR}/tests/${t}.lsp)
   set_tests_properties(tests/${t}.lsp PROPERTIES
@@ -192,6 +194,11 @@ add_test(NAME cli/build-reader
 # the REPL engine over piped input).
 add_test(NAME cli/nemacs-smoke
   COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/nemacs-smoke.sh $<TARGET_FILE:kec>)
+
+# The `kec edit` structural-editor surface end-to-end (drives the :nemacs-nav
+# keymap over piped keystrokes, then serializes the edit back).
+add_test(NAME cli/edit-smoke
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/edit-smoke.sh $<TARGET_FILE:kec>)
 
 # ---------------------------------------------------------------------------
 # C-level embedding tests — the no-malloc arena seam the .lsp suite can't reach.
