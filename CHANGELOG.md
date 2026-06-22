@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- **Editor tier — keymap engine + mode scopes** (`editor/50-keymap.lsp`; ADR-0002,
+  L2/L3). Keymap-as-data: a hash-table mapping abstract command **tokens** (CAR,
+  CDR, BACK, …) — never scancodes — to handler entries with three slots
+  (`:tap` / `:double-tap` / `:long-press`, non-tap falling back to `:tap`). Pure
+  lookup + call, so dispatch is **headlessly evaluable** (runs under `kec test`).
+  Surface: `make-keymap`, `define-key`, `keymap-get`/`-set`, `keymap-handler`,
+  `keymap-dispatch`, `copy-keymap`; a mode registry (`register-keymap`/
+  `keymap-mode`/`keymap-mode-list`/`mode-dispatch`) over the five scopes
+  (`:nemacs-nav` / `:nemacs-literal` / `:repl-prompt` / `:repl-history` / `:grab`);
+  an optional `*keymap-rebind-hook*`. Ships a default `:nemacs-nav` keymap (the
+  ADR-0008 structural grammar robbed from the KN-86 nEmacs screen) bound to the
+  buffer verbs. Boundary moves `raise` for the host to render (SEAM S7).
+  `tests/editor/keymap.lsp` (23 checks).
 - **Editor tier — structural-edit engine** (`editor/10-zipper.lsp`,
   `editor/20-undo.lsp`, `editor/30-buffer.lsp`, `editor/40-view.lsp`; ADR-0002).
   First modules of the host-agnostic editor/REPL tier (knEmacs core),
