@@ -241,23 +241,6 @@ static fe_Object *h_apply(fe_Context *ctx, fe_Object *args) {
     }
 }
 
-/* (read-string s) — parse the FIRST s-expression of s and return it, WITHOUT
-** evaluating it. Pure reader, available in any profile: it hands back the parsed
-** datum, nothing runs. To then evaluate it, use `eval` (a FULL-tier capability,
-** so SANDBOX contexts can read forms without being able to run them). Empty /
-** blank input -> nil. */
-static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
-    char buf[4096];
-    StrReader r;
-    fe_Object *form;
-    fe_tostring(ctx, fe_nextarg(ctx, &args), buf, sizeof buf);
-    r.s = buf;
-    r.i = 0;
-    form = fe_read(ctx, str_readfn, &r);
-    if (form == NULL) { return fe_bool(ctx, 0); } /* EOF -> nil */
-    return form;
-}
-
 /* (eval form) — evaluate an already-read data form in the live image and
 ** return its value. The keystone the editor model (nEmacs) needs: evaluate a
 ** form read from a buffer (eval-defun), a scratch-REPL line, or config-as-code.
@@ -279,6 +262,31 @@ static void fill_writefn(fe_Context *ctx, void *udata, char chr) {
     FillBuf *b = udata;
     (void)ctx;
     if (b->n < b->cap) { b->p[b->n++] = chr; }
+}
+
+/* (read-string s) — parse the FIRST s-expression of s and return it, WITHOUT
+** evaluating it. Input is measured and copied exactly; there is no fixed
+** reader buffer ceiling. Empty / blank input -> nil. */
+static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
+    fe_Object *src = fe_nextarg(ctx, &args);
+    size_t len = 0;
+    char *buf;
+    FillBuf b;
+    StrReader r;
+    fe_Object *form;
+
+    fe_write(ctx, src, count_writefn, &len, 0);
+    buf = malloc(len + 1);
+    if (!buf) { fe_error(ctx, "read-string: out of memory"); }
+    b.p = buf; b.n = 0; b.cap = len;
+    fe_write(ctx, src, fill_writefn, &b, 0);
+    buf[b.n] = '\0';
+    r.s = buf;
+    r.i = 0;
+    form = fe_read(ctx, str_readfn, &r);
+    free(buf);
+    if (form == NULL) { return fe_bool(ctx, 0); }
+    return form;
 }
 
 /* (read-all s) — parse EVERY top-level form of s and return them as a list, in

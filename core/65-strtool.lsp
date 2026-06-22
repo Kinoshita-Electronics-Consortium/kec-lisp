@@ -47,6 +47,8 @@
 ;; width. No truncation: an s already >= width is returned unchanged.
 (defn pad-left (s width . rest)
   (let pad (if rest (car rest) " "))
+  (if (not (is (string-length pad) 1))
+      (raise "pad-left: pad must be one character") nil)
   (let need (- width (string-length s)))
   (if (< 0 need)
       (string-append (string-repeat pad need) s)
@@ -56,6 +58,8 @@
 ;; No truncation.
 (defn pad-right (s width . rest)
   (let pad (if rest (car rest) " "))
+  (if (not (is (string-length pad) 1))
+      (raise "pad-right: pad must be one character") nil)
   (let need (- width (string-length s)))
   (if (< 0 need)
       (string-append s (string-repeat pad need))

@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static int g_failures;
 
@@ -19,9 +20,11 @@ static int g_failures;
 
 static int eval_int(kec_State *S, const char *src) {
     fe_Object *out = NULL;
-    CHECK(kec_eval_string(S, src, &out) == 0, "evaluation failed");
+    int rc = kec_eval_string(S, src, &out);
+    CHECK(rc == 0, "evaluation failed");
     CHECK(out != NULL, "evaluation returned no value");
-    return out ? (int)fe_tonumber(kec_fe(S), out) : -1;
+    if (rc != 0 || !out || fe_type(kec_fe(S), out) != FE_TNUMBER) { return -1; }
+    return (int)fe_tonumber(kec_fe(S), out);
 }
 
 static void test_contexts_keep_independent_runtime_and_rng_state(void) {
@@ -117,10 +120,29 @@ static void test_foreign_pointer_handlers_compose_with_containers(void) {
     CHECK(g_foreign_freed == 1, "foreign pointer gc handler did not run exactly once");
 }
 
+static void test_read_string_has_no_fixed_input_ceiling(void) {
+    static const char prefix[] = "(string-length (read-string \"\\\"";
+    static const char suffix[] = "\\\"\"))";
+    const size_t payload_len = 5000;
+    size_t source_len = sizeof prefix - 1 + payload_len + sizeof suffix;
+    char *source = malloc(source_len);
+    kec_State *S = kec_open(4u * 1024u * 1024u, KEC_PROFILE_FULL);
+
+    CHECK(source != NULL && S != NULL, "long read-string test setup failed");
+    if (!source || !S) { free(source); kec_close(S); return; }
+    memcpy(source, prefix, sizeof prefix - 1);
+    memset(source + sizeof prefix - 1, 'x', payload_len);
+    memcpy(source + sizeof prefix - 1 + payload_len, suffix, sizeof suffix);
+    CHECK(eval_int(S, source) == (int)payload_len, "read-string clipped long input");
+    free(source);
+    kec_close(S);
+}
+
 int main(void) {
     test_contexts_keep_independent_runtime_and_rng_state();
     test_containers_remember_their_allocator();
     test_foreign_pointer_handlers_compose_with_containers();
+    test_read_string_has_no_fixed_input_ceiling();
     if (g_failures == 0) { printf("test_host_state: all checks passed\n"); }
     return g_failures;
 }

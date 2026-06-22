@@ -63,6 +63,16 @@ static fe_Number arg_num(fe_Context *ctx, fe_Object **args) {
     return fe_tonumber(ctx, fe_nextarg(ctx, args));
 }
 
+static int32_t arg_i32(fe_Context *ctx, fe_Object **args, const char *who) {
+    double n = (double)arg_num(ctx, args);
+    char msg[96];
+    if (!isfinite(n) || floor(n) != n || n < (double)INT32_MIN || n > (double)INT32_MAX) {
+        snprintf(msg, sizeof msg, "%s: expected a 32-bit integer", who);
+        fe_error(ctx, msg);
+    }
+    return (int32_t)n;
+}
+
 /* Pull the next arg as a C string into a caller buffer; returns length.
 ** For the short, bounded conversions (a number's radix form, a path). The
 ** length-aware helpers below replace this for arbitrary user strings. */
@@ -161,7 +171,7 @@ static fe_Object *h_gensym(fe_Context *ctx, fe_Object *args) {
 static fe_Object *h_bound_p(fe_Context *ctx, fe_Object *args) {
     fe_Object *sym = fe_nextarg(ctx, &args);
     if (fe_type(ctx, sym) != FE_TSYMBOL) { fe_error(ctx, "bound?: expected a symbol"); }
-    return fe_bool(ctx, !fe_isnil(ctx, fe_eval(ctx, sym)));
+    return fe_bool(ctx, fe_bound(ctx, sym));
 }
 
 /* (globals) / (globals prefix) -> a FRESH list of the interned symbols that
@@ -185,7 +195,7 @@ static fe_Object *h_globals(fe_Context *ctx, fe_Object *args) {
     gc = fe_savegc(ctx);
     for (p = fe_symbols(ctx); !fe_isnil(ctx, p); p = fe_cdr(ctx, p)) {
         fe_Object *sym = fe_car(ctx, p);
-        if (fe_isnil(ctx, fe_eval(ctx, sym))) { continue; } /* unbound */
+        if (!fe_bound(ctx, sym)) { continue; }
         if (has_prefix) {
             fe_tostring(ctx, sym, name, sizeof name);
             if (strncmp(name, prefix, plen) != 0) { continue; }
@@ -271,34 +281,34 @@ static fe_Object *h_pow(fe_Context *ctx, fe_Object *args) {
 /* to avoid shifting by >= the width (which is undefined in C).        */
 /* ------------------------------------------------------------------ */
 
-static uint32_t arg_u32(fe_Context *ctx, fe_Object **args) {
-    return (uint32_t)(int32_t)arg_num(ctx, args);
+static uint32_t arg_u32(fe_Context *ctx, fe_Object **args, const char *who) {
+    return (uint32_t)arg_i32(ctx, args, who);
 }
 
 static fe_Object *h_bit_and(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args), b = arg_u32(ctx, &args);
+    uint32_t a = arg_u32(ctx, &args, "bit-and"), b = arg_u32(ctx, &args, "bit-and");
     return fe_number(ctx, (fe_Number)(int32_t)(a & b));
 }
 static fe_Object *h_bit_or(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args), b = arg_u32(ctx, &args);
+    uint32_t a = arg_u32(ctx, &args, "bit-or"), b = arg_u32(ctx, &args, "bit-or");
     return fe_number(ctx, (fe_Number)(int32_t)(a | b));
 }
 static fe_Object *h_bit_xor(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args), b = arg_u32(ctx, &args);
+    uint32_t a = arg_u32(ctx, &args, "bit-xor"), b = arg_u32(ctx, &args, "bit-xor");
     return fe_number(ctx, (fe_Number)(int32_t)(a ^ b));
 }
 static fe_Object *h_bit_not(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args);
+    uint32_t a = arg_u32(ctx, &args, "bit-not");
     return fe_number(ctx, (fe_Number)(int32_t)(~a));
 }
 static fe_Object *h_bit_shl(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args);
-    uint32_t n = arg_u32(ctx, &args) & 31u;
+    uint32_t a = arg_u32(ctx, &args, "bit-shl");
+    uint32_t n = arg_u32(ctx, &args, "bit-shl") & 31u;
     return fe_number(ctx, (fe_Number)(int32_t)(a << n));
 }
 static fe_Object *h_bit_shr(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args);
-    uint32_t n = arg_u32(ctx, &args) & 31u; /* logical (zero-fill) shift */
+    uint32_t a = arg_u32(ctx, &args, "bit-shr");
+    uint32_t n = arg_u32(ctx, &args, "bit-shr") & 31u; /* logical (zero-fill) shift */
     return fe_number(ctx, (fe_Number)(int32_t)(a >> n));
 }
 
@@ -496,9 +506,9 @@ static uint64_t rng_next(fe_Context *ctx) {
 /* (set-seed! n) — reseed the PRNG from n, returning n. Used so deck-state seeds
 ** make `rand`/`rand-int` reproducible. */
 static fe_Object *h_set_seed(fe_Context *ctx, fe_Object *args) {
-    fe_Number n = arg_num(ctx, &args);
+    int32_t n = arg_i32(ctx, &args, "set-seed!");
     kec_host_state(ctx)->rng_state = (uint64_t)(int64_t)n;
-    return fe_number(ctx, n);
+    return fe_number(ctx, (fe_Number)n);
 }
 
 static fe_Object *h_rand(fe_Context *ctx, fe_Object *args) {
@@ -508,7 +518,7 @@ static fe_Object *h_rand(fe_Context *ctx, fe_Object *args) {
                                       (1.0 / 9007199254740992.0)));
 }
 static fe_Object *h_rand_int(fe_Context *ctx, fe_Object *args) {
-    int n = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int32_t n = arg_i32(ctx, &args, "rand-int");
     if (n <= 0) { return fe_number(ctx, 0); }
     return fe_number(ctx, (fe_Number)(uint32_t)((rng_next(ctx) >> 16) % (uint64_t)n));
 }

@@ -41,3 +41,7 @@
   ;; SplitMix64 seeded with 42, first (rand-int 1000) -> 739.
   (set-seed! 42)
   (check (is (rand-int 1000) 739)))
+
+(deftest "rng/rejects-non-integer-inputs"
+  (check-err (set-seed! 1.5))
+  (check-err (rand-int 10.5)))

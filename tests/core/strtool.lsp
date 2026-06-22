@@ -24,7 +24,9 @@
   (check (is (pad-left "abcde" 3) "abcde"))    ; longer -> NO truncation
   (check (is (pad-right "abcde" 3) "abcde"))
   (check (is (pad-left "5" 4 "0") "0005"))     ; custom pad char
-  (check (is (pad-right "5" 4 "*") "5***")))
+  (check (is (pad-right "5" 4 "*") "5***"))
+  (check-err (pad-left "x" 3 ""))               ; pad is exactly one char
+  (check-err (pad-right "x" 3 "ab")))
 
 (deftest "strtool/string-repeat"
   (check (is (string-repeat "ab" 3) "ababab")) ; n > 0

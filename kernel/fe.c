@@ -34,6 +34,7 @@
 #define prim(x)       ( (x)->cdr.c )
 #define cfunc(x)      ( (x)->cdr.f )
 #define strbuf(x)     ( &(x)->car.c + 1 )
+#define symbound(x)   ( strbuf(x)[0] )
 
 #define STRBUFSIZE    ( (int) sizeof(fe_Object*) - 1 )
 #define GCMARKBIT     ( 0x2 )
@@ -338,6 +339,7 @@ fe_Object* fe_symbol(fe_Context *ctx, const char *name) {
   /* create new object, push to symlist and return */
   obj = object(ctx);
   settype(obj, FE_TSYMBOL);
+  memset(strbuf(obj), 0, STRBUFSIZE);
   cdr(obj) = fe_cons(ctx, fe_string(ctx, name), &nil);
   ctx->symlist = fe_cons(ctx, obj, ctx->symlist);
   return obj;
@@ -559,6 +561,13 @@ static fe_Object* getbound(fe_Object *sym, fe_Object *env) {
 void fe_set(fe_Context *ctx, fe_Object *sym, fe_Object *v) {
   unused(ctx);
   cdr(getbound(sym, &nil)) = v;
+  symbound(sym) = 1;
+}
+
+
+int fe_bound(fe_Context *ctx, fe_Object *sym) {
+  checktype(ctx, sym, FE_TSYMBOL);
+  return symbound(sym) != 0;
 }
 
 
@@ -779,13 +788,19 @@ static fe_Object* eval(fe_Context *ctx, fe_Object *obj, fe_Object *env, fe_Objec
                binds globally instead of silently doing nothing — removes the
                footgun where (let x v) at the REPL / script top level was a
                no-op. Identical to `set` here. */
-            cdr(getbound(va, env)) = res = evalarg();
+            fe_Object *binding = getbound(va, env);
+            cdr(binding) = res = evalarg();
+            if (binding == cdr(va)) { symbound(va) = 1; }
           }
           break;
 
         case P_SET:
           va = checktype(ctx, fe_nextarg(ctx, &arg), FE_TSYMBOL);
-          cdr(getbound(va, env)) = evalarg();
+          {
+            fe_Object *binding = getbound(va, env);
+            cdr(binding) = evalarg();
+            if (binding == cdr(va)) { symbound(va) = 1; }
+          }
           break;
 
         case P_IF:

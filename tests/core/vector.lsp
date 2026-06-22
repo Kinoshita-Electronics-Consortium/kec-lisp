@@ -38,9 +38,12 @@
   (check-err (vector-ref v 3))           ; index == length
   (check-err (vector-ref v -1))
   (check-err (vector-set! v 3 0))
+  (check-err (vector-ref v 0.9))         ; indices must be integers
+  (check-err (vector-set! v 1.2 0))
   (check-err (vector-ref 5 0))           ; not a vector
   (check-err (vector-length '(1 2)))
-  (check-err (make-vector -1 0)))        ; negative length
+  (check-err (make-vector -1 0))         ; negative length
+  (check-err (make-vector 2.5 0)))       ; lengths must be integers
 
 (deftest "vector/to-list-and-back"
   (check (equal? (vector->list (vector 1 2 3)) '(1 2 3)))

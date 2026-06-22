@@ -30,7 +30,9 @@
 */
 #include "host.h"
 
+#include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -102,6 +104,16 @@ static CHeader *backing(fe_Context *ctx, fe_Object *obj) {
     return c;
 }
 
+static int checked_int_arg(fe_Context *ctx, fe_Object **args, const char *who) {
+    double n = (double)fe_tonumber(ctx, fe_nextarg(ctx, args));
+    char msg[96];
+    if (!isfinite(n) || floor(n) != n || n < (double)INT32_MIN || n > (double)INT32_MAX) {
+        snprintf(msg, sizeof msg, "%s: expected an integer", who);
+        fe_error(ctx, msg);
+    }
+    return (int)n;
+}
+
 /* ------------------------------------------------------------------ */
 /* GC handlers (installed once on the context).                       */
 /* ------------------------------------------------------------------ */
@@ -170,7 +182,7 @@ static Vector *alloc_vector(fe_Context *ctx, int len, fe_Object *init) {
 
 /* (make-vector n [init]) — a vector of n elements, each init (default nil). */
 static fe_Object *h_make_vector(fe_Context *ctx, fe_Object *args) {
-    int len = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int len = checked_int_arg(ctx, &args, "make-vector");
     fe_Object *init = fe_isnil(ctx, args) ? fe_bool(ctx, 0) : fe_nextarg(ctx, &args);
     int gc = fe_savegc(ctx);
     fe_Object *vec;
@@ -201,7 +213,7 @@ static fe_Object *h_vector(fe_Context *ctx, fe_Object *args) {
 /* (vector-ref v i) — element i (0-based). Errors out of range. */
 static fe_Object *h_vector_ref(fe_Context *ctx, fe_Object *args) {
     Vector *v = as_vector(ctx, fe_nextarg(ctx, &args), "vector-ref: not a vector");
-    int i = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int i = checked_int_arg(ctx, &args, "vector-ref");
     if (i < 0 || i >= v->len) { fe_error(ctx, "vector-ref: index out of range"); }
     return v->items[i];
 }
@@ -209,7 +221,7 @@ static fe_Object *h_vector_ref(fe_Context *ctx, fe_Object *args) {
 /* (vector-set! v i x) — set element i to x; returns x. Errors out of range. */
 static fe_Object *h_vector_set(fe_Context *ctx, fe_Object *args) {
     Vector *v = as_vector(ctx, fe_nextarg(ctx, &args), "vector-set!: not a vector");
-    int i = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int i = checked_int_arg(ctx, &args, "vector-set!");
     fe_Object *x = fe_nextarg(ctx, &args);
     if (i < 0 || i >= v->len) { fe_error(ctx, "vector-set!: index out of range"); }
     v->items[i] = x; /* x becomes reachable via the (rooted) vector; no alloc here */

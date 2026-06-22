@@ -16,9 +16,10 @@
 
 (deftest "introspect/bound?-unbound-is-nil"
   (check (not (bound? 'no-such-symbol-anywhere-xyz)))
-  ;; a symbol whose value is nil reads as unbound (nil is absence here)
+  ;; Binding presence is distinct from the value nil.
   (set %nil-bound-probe nil)
-  (check (not (bound? '%nil-bound-probe)))
+  (check (bound? '%nil-bound-probe))
+  (check (member '%nil-bound-probe (globals)))
   ;; a non-nil binding is visible
   (set %real-probe 42)
   (check (bound? '%real-probe)))

@@ -48,3 +48,9 @@
   (check (pair? form))                          ; we got the form back
   (check (is (car form) 'write-file))                 ; ... unevaluated
   (check (nil? (file-exists? path))))           ; ... and nothing was written
+
+(deftest "read-string/has-no-fixed-input-ceiling"
+  (let payload (string-repeat "x" 5000))
+  (let parsed (read-string (string-append "\"" payload "\"")))
+  (check (is (string-length parsed) 5000))
+  (check (is parsed payload)))

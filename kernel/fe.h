@@ -68,6 +68,8 @@ void* fe_toptr(fe_Context *ctx, fe_Object *obj);
 void fe_set_userdata(fe_Context *ctx, int slot, void *userdata);
 void* fe_userdata(fe_Context *ctx, int slot);
 void fe_set(fe_Context *ctx, fe_Object *sym, fe_Object *v);
+/* True binding presence, distinct from a binding whose value is nil. */
+int fe_bound(fe_Context *ctx, fe_Object *sym);
 fe_Object* fe_read(fe_Context *ctx, fe_ReadFn fn, void *udata);
 fe_Object* fe_readfp(fe_Context *ctx, FILE *fp);
 fe_Object* fe_eval(fe_Context *ctx, fe_Object *obj);
