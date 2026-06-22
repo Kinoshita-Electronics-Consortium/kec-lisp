@@ -63,10 +63,10 @@ void fe_writefp(fe_Context *ctx, fe_Object *obj, FILE *fp);
 int fe_tostring(fe_Context *ctx, fe_Object *obj, char *dst, int size);
 fe_Number fe_tonumber(fe_Context *ctx, fe_Object *obj);
 void* fe_toptr(fe_Context *ctx, fe_Object *obj);
-/* Small fixed set of context-owned embedder slots. Fe never interprets the
- * pointers. Slots make runtime/host state context-local without heap work. */
-void fe_set_userdata(fe_Context *ctx, int slot, void *userdata);
-void* fe_userdata(fe_Context *ctx, int slot);
+/* Small fixed set of tagged context-owned embedder values. Fe compares tags by
+ * identity and never interprets values, avoiding slot-number collisions. */
+void fe_set_userdata(fe_Context *ctx, const void *tag, void *userdata);
+void* fe_userdata(fe_Context *ctx, const void *tag);
 void fe_set(fe_Context *ctx, fe_Object *sym, fe_Object *v);
 /* True binding presence, distinct from a binding whose value is nil. */
 int fe_bound(fe_Context *ctx, fe_Object *sym);

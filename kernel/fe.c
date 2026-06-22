@@ -39,7 +39,7 @@
 #define STRBUFSIZE    ( (int) sizeof(fe_Object*) - 1 )
 #define GCMARKBIT     ( 0x2 )
 #define PTRTYPEMAX    ( 8 )
-#define USERDATASLOTS ( 4 )
+#define USERDATAMAX   ( 4 )
 /* KEC: recursion ceiling is configurable. The standalone desktop build raises
    it (CMake -DGCSTACKSIZE=...); the 256 default is kept for memory-tight hosts
    (e.g. the 256 KB device arena) that vendor this kernel as-is. */
@@ -77,11 +77,17 @@ typedef struct {
   fe_PtrGcFn gc;
 } PtrType;
 
+typedef struct {
+  const void *tag;
+  void *value;
+} UserdataEntry;
+
 struct fe_Context {
   fe_Handlers handlers;
   PtrType ptrtypes[PTRTYPEMAX];
   int ptrtype_count;
-  void *userdata[USERDATASLOTS];
+  UserdataEntry userdata[USERDATAMAX];
+  int userdata_count;
   fe_Object *gcstack[GCSTACKSIZE];
   int gcstack_idx;
   fe_Object *objects;
@@ -535,15 +541,28 @@ void* fe_toptr(fe_Context *ctx, fe_Object *obj) {
 }
 
 
-void fe_set_userdata(fe_Context *ctx, int slot, void *userdata_) {
-  if (slot < 0 || slot >= USERDATASLOTS) { fe_error(ctx, "userdata slot out of range"); }
-  ctx->userdata[slot] = userdata_;
+void fe_set_userdata(fe_Context *ctx, const void *tag_, void *userdata_) {
+  int i;
+  if (!tag_) { fe_error(ctx, "userdata tag is null"); }
+  for (i = 0; i < ctx->userdata_count; i++) {
+    if (ctx->userdata[i].tag == tag_) {
+      ctx->userdata[i].value = userdata_;
+      return;
+    }
+  }
+  if (ctx->userdata_count >= USERDATAMAX) { fe_error(ctx, "too many userdata tags"); }
+  ctx->userdata[ctx->userdata_count].tag = tag_;
+  ctx->userdata[ctx->userdata_count].value = userdata_;
+  ctx->userdata_count++;
 }
 
 
-void* fe_userdata(fe_Context *ctx, int slot) {
-  if (slot < 0 || slot >= USERDATASLOTS) { fe_error(ctx, "userdata slot out of range"); }
-  return ctx->userdata[slot];
+void* fe_userdata(fe_Context *ctx, const void *tag_) {
+  int i;
+  for (i = 0; i < ctx->userdata_count; i++) {
+    if (ctx->userdata[i].tag == tag_) { return ctx->userdata[i].value; }
+  }
+  return NULL;
 }
 
 

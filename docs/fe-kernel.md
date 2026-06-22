@@ -153,7 +153,7 @@ Changes applied on top of rxi/fe 1.0, in `kernel/fe.c` and `kernel/fe.h`:
 | **Symbol-list accessor** | CHANGELOG Unreleased | `fe_symbols` — read-only view of the interned-symbol list, for host introspection (the `bound?` / `globals` primitives). Returns live internal structure; the host builds a fresh list from it and never hands it to Lisp. |
 | **Closure-params accessor** | CHANGELOG Unreleased | `fe_fn_params` — parameter list of a `FE_TFUNC`/`FE_TMACRO` (cadr of its `(env params . body)`), for the `fn-params` primitive; `nil` for built-ins. Returns live internal structure; the host copies it before handing it to Lisp. |
 | **Binding-presence accessor** | GWP-235 | `fe_bound` plus a symbol binding-presence bit distinguish unbound from deliberately bound-to-`nil`; used by `bound?`, `globals`, and `defvar`. |
-| **Context userdata slots** | GWP-235 | `fe_set_userdata` / `fe_userdata` provide four fixed, non-owning embedder slots for runtime and portable-host state. |
+| **Tagged context userdata** | GWP-235 | `fe_set_userdata` / `fe_userdata` provide four fixed, non-owning tagged entries for runtime and portable-host state without numeric slot collisions. |
 | **Composable typed pointers** | GWP-235 | `fe_register_ptr_type` / `fe_ptr_typed` / `fe_ptr_is_type` dispatch foreign-pointer lifecycle callbacks by registered tag while retaining legacy raw-pointer handlers. |
 
 ---

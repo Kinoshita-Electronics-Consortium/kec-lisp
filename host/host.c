@@ -25,8 +25,9 @@
 ** char). The string primitives below do NOT use this: they size to the real
 ** string length so nothing past ~4 KB is silently truncated (GWP-528). */
 #define KEC_STRBUF 4096
-#define KEC_HOST_STATE_SLOT 1
 #define KEC_RNG_DEFAULT 0x9E3779B97F4A7C15ULL
+
+static const char g_host_state_tag;
 
 void kec_host_state_init(kec_HostState *state) {
     state->rng_state = KEC_RNG_DEFAULT;
@@ -34,11 +35,11 @@ void kec_host_state_init(kec_HostState *state) {
 }
 
 void kec_host_attach_state(fe_Context *ctx, kec_HostState *state) {
-    fe_set_userdata(ctx, KEC_HOST_STATE_SLOT, state);
+    fe_set_userdata(ctx, &g_host_state_tag, state);
 }
 
 kec_HostState *kec_host_state(fe_Context *ctx) {
-    kec_HostState *state = fe_userdata(ctx, KEC_HOST_STATE_SLOT);
+    kec_HostState *state = fe_userdata(ctx, &g_host_state_tag);
     if (!state) { fe_error(ctx, "host state is not attached"); }
     return state;
 }

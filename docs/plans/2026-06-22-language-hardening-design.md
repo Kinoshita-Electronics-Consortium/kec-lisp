@@ -13,10 +13,10 @@ the review of eval/reflection, ADR-0001 utilities, and ADR-0003 containers.
 
 ### Context-owned host state
 
-Add a small userdata slot to `fe_Context`. The KEC runtime uses it to associate
-the active `kec_State` with the Fe context, replacing process-global lookup for
-error recovery. Host state that belongs to an interpreter, including the PRNG
-state and container allocator configuration, is held per context.
+Add a small tagged userdata registry to `fe_Context`. The KEC runtime uses it to
+associate the active `kec_State` with the Fe context, replacing process-global
+lookup for error recovery. Host state that belongs to an interpreter, including
+the PRNG state and container allocator configuration, is held per context.
 
 Container backing records the allocator's matching free callback at creation.
 Changing the allocator for future containers therefore cannot cause an existing

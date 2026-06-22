@@ -30,12 +30,14 @@ struct kec_State {
     int depth; /* number of active guards */
 };
 
+static const char g_runtime_state_tag;
+
 /* ------------------------------------------------------------------ */
 /* Error handler.                                                      */
 /* ------------------------------------------------------------------ */
 
 static void on_error(fe_Context *ctx, const char *err, fe_Object *cl) {
-    kec_State *S = fe_userdata(ctx, 0);
+    kec_State *S = fe_userdata(ctx, &g_runtime_state_tag);
     (void)cl;
     if (S) {
         snprintf(S->errmsg, sizeof S->errmsg, "%s", err);
@@ -353,7 +355,7 @@ static fe_Object *h_raise(fe_Context *ctx, fe_Object *args) {
 ** (GWP-532). check-err in the test harness keys off the :error car. */
 static fe_Object *h_try(fe_Context *ctx, fe_Object *args) {
     fe_Object *thunk = fe_nextarg(ctx, &args);
-    kec_State *S = fe_userdata(ctx, 0);
+    kec_State *S = fe_userdata(ctx, &g_runtime_state_tag);
     int slot = S->depth;
     int gc = fe_savegc(ctx);
     if (slot >= KEC_GUARD_MAX) { fe_error(ctx, "try: nesting too deep"); }
@@ -397,7 +399,7 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
     S->profile = profile;
     S->depth = 0;
 
-    fe_set_userdata(S->ctx, 0, S);
+    fe_set_userdata(S->ctx, &g_runtime_state_tag, S);
     kec_host_state_init(&S->host);
     kec_host_attach_state(S->ctx, &S->host);
     fe_handlers(S->ctx)->error = on_error;
