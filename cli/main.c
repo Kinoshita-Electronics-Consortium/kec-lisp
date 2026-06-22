@@ -286,6 +286,13 @@ static void edit_do(kec_State *S, const char *src, char *status, size_t ssz) {
     }
 }
 
+/* Eval `expr` and return 1 if its value is non-nil. */
+static int lisp_truthy(kec_State *S, const char *expr) {
+    fe_Object *v = NULL;
+    if (kec_eval_string(S, expr, &v) != 0 || !v) { return 0; }
+    return !fe_isnil(kec_fe(S), v);
+}
+
 /* `kec edit [FILE]` — open FILE (or a scratch buffer) in the structural editor.
 ** Renders the view model each frame and dispatches keys through the :nemacs-nav
 ** keymap; structural edits, eval, insert, undo, and save are all driven from the
@@ -347,8 +354,32 @@ static int do_edit(const char *file) {
         fflush(stdout);
 
         c = getchar();
-        if (c == EOF || c == 'q') { break; }
+        if (c == EOF) { break; }
         status[0] = '\0';
+
+        /* Literal entry (S3): keystrokes compose text until Enter commits or Esc
+        ** cancels — the structural keymap is bypassed while typing a value. */
+        if (lisp_truthy(S, "(buffer-in-literal? *edit*)")) {
+            if (c == 27) {
+                edit_do(S, "(buffer-cancel-literal! *edit*)", status, sizeof status);
+            } else if (c == '\n' || c == '\r') {
+                edit_do(S, "(buffer-commit-literal! *edit*)", status, sizeof status);
+            } else if (c == 127 || c == 8) {
+                edit_do(S, "(buffer-literal-backspace! *edit*)", status, sizeof status);
+            } else if (c >= 32 && c < 127) {
+                Strbuf src = {0};
+                char one[2];
+                one[0] = (char)c; one[1] = '\0';
+                sb_puts(&src, "(buffer-literal-push! *edit* \"");
+                sb_put_escaped(&src, one);
+                sb_puts(&src, "\")");
+                edit_do(S, src.p, status, sizeof status);
+                free(src.p);
+            }
+            continue;
+        }
+
+        if (c == 'q') { break; }
         {
             const char *etype;
             const char *tok = edit_token(c, &etype);
@@ -357,35 +388,39 @@ static int do_edit(const char *file) {
                 snprintf(src, sizeof src,
                          "(mode-dispatch ':nemacs-nav %s %s *edit*)", tok, etype);
                 edit_do(S, src, status, sizeof status);   /* boundary -> status */
+            } else if (c == 27) {
+                /* arrow keys: ESC [ A/B/C/D -> prev/next/descend/ascend */
+                int c2 = getchar();
+                if (c2 == '[') {
+                    int c3 = getchar();
+                    const char *atok = (c3 == 'A') ? "'QUOTE"   /* up    -> prev   */
+                                     : (c3 == 'B') ? "'CDR"     /* down  -> next   */
+                                     : (c3 == 'C') ? "'CAR"     /* right -> descend*/
+                                     : (c3 == 'D') ? "'BACK"    /* left  -> ascend */
+                                     : NULL;
+                    if (atok) {
+                        char src[128];
+                        snprintf(src, sizeof src,
+                                 "(mode-dispatch ':nemacs-nav %s ':tap *edit*)", atok);
+                        edit_do(S, src, status, sizeof status);
+                    }
+                }
             } else if (c == 't') {
                 edit_do(S, "(buffer-transpose! *edit*)", status, sizeof status);
             } else if (c == 'u') {
                 edit_do(S, "(buffer-undo! *edit*)", status, sizeof status);
             } else if (c == 'e') {
+                /* eval the current TOP-LEVEL form (L4.5) */
                 fe_Object *v = NULL;
                 if (kec_eval_string(S,
-                        "(try (fn () (repr (eval (buffer-focus *edit*)))))", &v) == 0
+                        "(try (fn () (repr (eval (buffer-current-form *edit*)))))", &v) == 0
                     && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
                     char r[1024];
                     fe_tostring(kec_fe(S), v, r, sizeof r);
                     snprintf(status, sizeof status, "=> %s", r);
                 }
             } else if (c == 'i') {
-                char line[1024];
-                edit_raw_off();
-                printf("\ninsert: ");
-                fflush(stdout);
-                if (fgets(line, sizeof line, stdin)) {
-                    Strbuf src = {0};
-                    size_t n = strlen(line);
-                    if (n && line[n - 1] == '\n') { line[n - 1] = '\0'; }
-                    sb_puts(&src, "(buffer-insert-leaf! *edit* (read-string \"");
-                    sb_put_escaped(&src, line);
-                    sb_puts(&src, "\"))");
-                    edit_do(S, src.p, status, sizeof status);
-                    free(src.p);
-                }
-                edit_raw_on();
+                edit_do(S, "(buffer-enter-literal! *edit*)", status, sizeof status);
             } else if (c == 'W') {
                 fe_Object *v = NULL;
                 if (!file) {

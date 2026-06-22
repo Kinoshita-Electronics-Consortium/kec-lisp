@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+- **Editor input layer — literal entry, arrow keys, eval-current, structural REPL
+  prompt** (ADR-0002, L3.2/L4.2/L4.5/L1.5). The buffer gains **literal entry**
+  (`buffer-enter-literal!` / `-literal-push!` / `-backspace!` / `-commit-literal!`
+  / `-cancel-literal!` / `buffer-in-literal?`) — type a value, then commit it as a
+  leaf or cancel — and **`buffer-current-form`** (the top-level form containing the
+  cursor, for eval-current). A new **`:repl-prompt`** mode (`editor/92-prompt.lsp`)
+  makes the REPL prompt itself a structural buffer: compose the input form with the
+  editor verbs, `EVAL` submits it to the REPL engine and resets the prompt. In
+  `kec edit`: `i` now enters live literal entry (echoed in the echo line), **arrow
+  keys** navigate (↑↓ siblings, →/← descend/ascend), and `e` evaluates the current
+  top-level form. `tests/editor/{buffer,prompt}.lsp` (+10 checks);
+  `tests/cli/edit-smoke.sh` covers literal insert.
+
 ### Changed
 - **REPL pretty-printer is now structurally indented** (`editor/90-repl.lsp`).
   `repl-format` breaks a result wider than the host width into nested lines
