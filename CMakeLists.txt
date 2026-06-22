@@ -151,7 +151,7 @@ set_tests_properties(tests/examples/black-ice-trace.lsp PROPERTIES
 # demand (not baked into Core), so the tests `load` editor/*.lsp relative to the
 # source dir; run from the repo root.
 foreach(t editor/zipper editor/undo editor/buffer editor/view editor/keymap
-          editor/persist editor/lifecycle)
+          editor/persist editor/lifecycle editor/ranker)
   add_test(NAME tests/${t}.lsp
     COMMAND kec test ${CMAKE_SOURCE_DIR}/tests/${t}.lsp)
   set_tests_properties(tests/${t}.lsp PROPERTIES
