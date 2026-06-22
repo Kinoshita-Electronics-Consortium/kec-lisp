@@ -150,7 +150,7 @@ set_tests_properties(tests/examples/black-ice-trace.lsp PROPERTIES
 # Editor tier (ADR-0002) — the knEmacs/REPL host-agnostic modules. Loaded on
 # demand (not baked into Core), so the tests `load` editor/*.lsp relative to the
 # source dir; run from the repo root.
-foreach(t editor/zipper editor/undo editor/buffer editor/view)
+foreach(t editor/zipper editor/undo editor/buffer editor/view editor/keymap)
   add_test(NAME tests/${t}.lsp
     COMMAND kec test ${CMAKE_SOURCE_DIR}/tests/${t}.lsp)
   set_tests_properties(tests/${t}.lsp PROPERTIES
