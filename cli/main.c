@@ -22,6 +22,7 @@
 #include "kec.h"
 #include "kec_harness_embed.h" /* generated: static const char KEC_HARNESS_SRC[] */
 #include "kec_suite_embed.h"   /* generated: static const char KEC_SUITE_SRC[]   */
+#include "kec_editor_embed.h"  /* generated: static const char KEC_EDITOR_SRC[]  */
 
 #ifndef KEC_VERSION
 #define KEC_VERSION "0.1.0"
@@ -154,6 +155,79 @@ static int do_repl(void) {
                 fe_writefp(kec_fe(S), v, stdout);
                 printf("\n");
             }
+        }
+        acc[0] = '\0';
+        acclen = 0;
+    }
+    kec_close(S);
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* nemacs — the strong REPL over the embedded editor/REPL tier.        */
+/* ------------------------------------------------------------------ */
+
+/* Append `s` to `b` escaped for embedding inside a Lisp "..." literal. */
+static void sb_put_escaped(Strbuf *b, const char *s) {
+    for (; *s; s++) {
+        char c = *s;
+        if (c == '\\' || c == '"') { sb_putn(b, "\\", 1); sb_putn(b, &c, 1); }
+        else if (c == '\n') { sb_puts(b, "\\n"); }
+        else { sb_putn(b, &c, 1); }
+    }
+}
+
+/* `kec nemacs` — load the embedded editor/REPL tier (ADR-0002) and drive its
+** REPL engine: read a (paren-balanced) form, hand it to (host-repl-line ...),
+** print the engine's formatted output. The structural editor + history ring +
+** pretty-printer + error recovery all live in the Lisp tier; this is just the
+** terminal host (the SEAM's reference implementation). */
+static int do_nemacs(void) {
+    kec_State *S = cli_open();
+    char line[4096], acc[16384];
+    int depth = 0;
+    size_t acclen = 0;
+    if (!S) { fprintf(stderr, "kec: failed to open interpreter\n"); return 1; }
+    if (kec_eval_string(S, KEC_EDITOR_SRC, NULL) != 0) {
+        fprintf(stderr, "kec: editor tier failed to load: %s\n", kec_error(S));
+        kec_close(S);
+        return 1;
+    }
+    if (kec_eval_string(S, "(set *nemacs* (make-session 64 72))", NULL) != 0) {
+        fprintf(stderr, "kec: nemacs session failed: %s\n", kec_error(S));
+        kec_close(S);
+        return 1;
+    }
+    /* Prompts + banner go to stderr so stdout carries only results (scriptable);
+    ** both are still visible on an interactive terminal. */
+    fprintf(stderr, "nEmacs (KEC Lisp %s)  —  structural REPL  —  :q to quit\n", KEC_VERSION);
+    acc[0] = '\0';
+    for (;;) {
+        fprintf(stderr, depth > 0 ? "..      " : "nemacs> ");
+        fflush(stderr);
+        if (!fgets(line, sizeof line, stdin)) { printf("\n"); break; }
+        if (depth == 0 && (strcmp(line, ":q\n") == 0 || strcmp(line, ":quit\n") == 0)) { break; }
+        if (acclen + strlen(line) < sizeof acc) {
+            strcpy(acc + acclen, line);
+            acclen += strlen(line);
+        }
+        depth += paren_delta(line);
+        if (depth > 0) { continue; } /* form still open — keep reading */
+        depth = 0;
+        {
+            Strbuf src = {0};
+            fe_Object *v = NULL;
+            sb_puts(&src, "(host-repl-line *nemacs* \"");
+            sb_put_escaped(&src, acc);
+            sb_puts(&src, "\")");
+            if (kec_eval_string(S, src.p, &v) != 0) {
+                fprintf(stderr, "error: %s\n", kec_error(S));
+            } else if (v && fe_type(kec_fe(S), v) == FE_TSTRING) {
+                char out[16384];
+                fe_tostring(kec_fe(S), v, out, sizeof out);
+                printf("%s\n", out);
+            }
+            free(src.p);
         }
         acc[0] = '\0';
         acclen = 0;
@@ -404,6 +478,7 @@ static int usage(FILE *fp) {
         "KEC Lisp %s — the KN-86 Standard authoring language\n\n"
         "usage:\n"
         "  kec                      start the REPL\n"
+        "  kec nemacs               start the knEmacs structural REPL (editor tier)\n"
         "  kec run FILE [args...]   evaluate FILE (args reach (args))\n"
         "  kec eval \"EXPR\"          evaluate EXPR and print the result\n"
         "  kec build FILE [-o OUT]  inline top-level loads, parse-check, write a .kec\n"
@@ -416,6 +491,7 @@ static int usage(FILE *fp) {
 int main(int argc, char **argv) {
     if (argc < 2) { return do_repl(); }
     if (strcmp(argv[1], "repl") == 0) { return do_repl(); }
+    if (strcmp(argv[1], "nemacs") == 0) { return do_nemacs(); }
     if (strcmp(argv[1], "run") == 0) { return do_run(argc - 2, argv + 2); }
     if (strcmp(argv[1], "eval") == 0) {
         if (argc < 3) { fprintf(stderr, "kec eval: missing EXPR\n"); return 2; }

@@ -103,9 +103,30 @@ add_custom_command(
   DEPENDS mkembed ${SUITE_SRCS}
   COMMENT "Embedding conformance suite")
 
+# Editor/REPL tier (ADR-0002) — the knEmacs/REPL host-agnostic modules, embedded
+# so `kec nemacs` is self-contained. Order is dependency order; loaded on demand
+# (NOT part of Core), so it stays out of the minimal device prelude.
+set(EDITOR_SRCS
+  ${CMAKE_SOURCE_DIR}/editor/10-zipper.lsp
+  ${CMAKE_SOURCE_DIR}/editor/20-undo.lsp
+  ${CMAKE_SOURCE_DIR}/editor/30-buffer.lsp
+  ${CMAKE_SOURCE_DIR}/editor/40-view.lsp
+  ${CMAKE_SOURCE_DIR}/editor/50-keymap.lsp
+  ${CMAKE_SOURCE_DIR}/editor/60-persist.lsp
+  ${CMAKE_SOURCE_DIR}/editor/70-lifecycle.lsp
+  ${CMAKE_SOURCE_DIR}/editor/80-ranker.lsp
+  ${CMAKE_SOURCE_DIR}/editor/90-repl.lsp
+  ${CMAKE_SOURCE_DIR}/editor/95-host.lsp)
+
+add_custom_command(
+  OUTPUT ${GEN_DIR}/kec_editor_embed.h
+  COMMAND mkembed ${GEN_DIR}/kec_editor_embed.h KEC_EDITOR_SRC ${EDITOR_SRCS}
+  DEPENDS mkembed ${EDITOR_SRCS}
+  COMMENT "Embedding KEC editor/REPL tier")
+
 add_custom_target(kec_generated
   DEPENDS ${GEN_DIR}/kec_core_embed.h ${GEN_DIR}/kec_harness_embed.h
-          ${GEN_DIR}/kec_suite_embed.h)
+          ${GEN_DIR}/kec_suite_embed.h ${GEN_DIR}/kec_editor_embed.h)
 
 # ---------------------------------------------------------------------------
 # Library + CLI.
@@ -151,7 +172,7 @@ set_tests_properties(tests/examples/black-ice-trace.lsp PROPERTIES
 # demand (not baked into Core), so the tests `load` editor/*.lsp relative to the
 # source dir; run from the repo root.
 foreach(t editor/zipper editor/undo editor/buffer editor/view editor/keymap
-          editor/persist editor/lifecycle editor/ranker editor/repl)
+          editor/persist editor/lifecycle editor/ranker editor/repl editor/host)
   add_test(NAME tests/${t}.lsp
     COMMAND kec test ${CMAKE_SOURCE_DIR}/tests/${t}.lsp)
   set_tests_properties(tests/${t}.lsp PROPERTIES
@@ -166,6 +187,11 @@ set_tests_properties(cli/test-default PROPERTIES
 
 add_test(NAME cli/build-reader
   COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/build-reader.sh $<TARGET_FILE:kec>)
+
+# The `kec nemacs` strong REPL end-to-end (loads the embedded editor tier, drives
+# the REPL engine over piped input).
+add_test(NAME cli/nemacs-smoke
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/nemacs-smoke.sh $<TARGET_FILE:kec>)
 
 # ---------------------------------------------------------------------------
 # C-level embedding tests — the no-malloc arena seam the .lsp suite can't reach.
