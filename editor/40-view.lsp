@@ -62,12 +62,17 @@
 (defn buffer-modeline (b)
   (string-append (buffer-name b) (if (buffer-modified? b) " *" "")))
 
-;; (buffer-echo b) -> a cursor-context hint: the focus kind and its depth.
-;; ("list" for a pair, else the type-of keyword, e.g. :symbol / :number.)
+;; (buffer-echo b) -> a cursor-context hint. While composing a literal it shows
+;; the pending text with a caret; otherwise the focus kind and its depth ("list"
+;; for a pair, else the type-of keyword, e.g. :symbol / :number).
 (defn buffer-echo (b)
-  (let focus (buffer-focus b))
-  (let kind (if (pair? focus) ":list" (repr (type-of focus))))
-  (string-append kind " @ depth " (number->string (length (loc-crumbs (buffer-loc b))))))
+  (if (buffer-in-literal? b)
+      (string-append "literal: " (buffer-literal-text b) "_")
+      (do
+        (let focus (buffer-focus b))
+        (let kind (if (pair? focus) ":list" (repr (type-of focus))))
+        (string-append kind " @ depth "
+                       (number->string (length (loc-crumbs (buffer-loc b))))))))
 
 ;; (completion-signature token) -> "token (params)" | nil
 ;;   Lifted from nemacs/signature-for: when `token` names a symbol bound in this

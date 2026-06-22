@@ -10,15 +10,17 @@
 ;;
 ;; Load order: after 10-zipper and 20-undo.
 ;;
-;; record = vector [loc clipboard modified? name undo-ring]
+;; record = vector [loc clipboard modified? name undo-ring literal-text]
+;; literal-text is nil except while a literal value is being typed (L3.2 / L4.2):
+;; the in-progress text, committed (as a leaf) or cancelled.
 
 (define BUFFER-UNDO-DEPTH 64)
 
 ;; (make-buffer name forms) — a buffer named `name` over the top-level `forms`
 ;; (a list of s-expressions, e.g. from read-all). Cursor seated on the first
-;; form; clipboard empty; not modified.
+;; form; clipboard empty; not modified; not in literal entry.
 (defn make-buffer (name forms)
-  (vector (buffer-from-forms forms) nil nil name (make-undo-ring BUFFER-UNDO-DEPTH)))
+  (vector (buffer-from-forms forms) nil nil name (make-undo-ring BUFFER-UNDO-DEPTH) nil))
 
 (defn buffer-loc (b) (vector-ref b 0))
 (defn buffer-clipboard (b) (vector-ref b 1))
@@ -78,5 +80,49 @@
   (if (nil? snap) b (%buffer-move! b snap)))
 
 (defn buffer-can-undo? (b) (not (undo-empty? (buffer-undo-ring b))))
+
+;; ----- literal entry (L3.2 / L4.2): type a value, then commit or cancel ----
+(defn buffer-literal-text (b) (vector-ref b 5))
+(defn buffer-in-literal? (b) (not (nil? (vector-ref b 5))))
+
+;; (buffer-enter-literal! b) — begin composing a literal (empty pending text).
+(defn buffer-enter-literal! (b) (vector-set! b 5 "") b)
+
+;; (buffer-literal-push! b s) — append the character(s) `s` to the pending text.
+(defn buffer-literal-push! (b s)
+  (if (buffer-in-literal? b) (vector-set! b 5 (string-append (vector-ref b 5) s)) nil)
+  b)
+
+;; (buffer-literal-backspace! b) — drop the last character of the pending text.
+(defn buffer-literal-backspace! (b)
+  (let txt (vector-ref b 5))
+  (if (and txt (< 0 (string-length txt)))
+      (vector-set! b 5 (substring txt 0 (- (string-length txt) 1)))
+      nil)
+  b)
+
+;; (buffer-cancel-literal! b) — discard the pending text, leave literal entry.
+(defn buffer-cancel-literal! (b) (vector-set! b 5 nil) b)
+
+;; (buffer-commit-literal! b) — read the pending text as a form and insert it as
+;; a new leaf at the cursor, then leave literal entry. A blank/empty literal just
+;; cancels. Returns b.
+(defn buffer-commit-literal! (b)
+  (let txt (vector-ref b 5))
+  (vector-set! b 5 nil)
+  (if (nil? txt)
+      b
+      (do
+        (let form (read-string txt))
+        (if (nil? form) b (buffer-insert-leaf! b form)))))
+
+;; ----- current form (L4.5): the top-level form containing the cursor --------
+;; Ascend to the form that is a direct child of the buffer root, for eval-current
+;; (the host supplies eval — SEAM S1 — and evaluates this).
+(defn buffer-current-form (b)
+  (let cur (buffer-loc b))
+  (while (< 1 (length (loc-crumbs cur)))
+    (set cur (zip-up cur)))
+  (loc-focus cur))
 
 (provide 'editor/buffer)

@@ -35,6 +35,7 @@
   (vector-set! b 0 (buffer-from-forms (read-all s)))   ; loc <- new root, cursor (root,0)
   (vector-set! b 1 nil)                                 ; clipboard cleared
   (vector-set! b 2 nil)                                 ; modified cleared
+  (vector-set! b 5 nil)                                 ; literal entry cleared
   b)
 
 (provide 'editor/persist)

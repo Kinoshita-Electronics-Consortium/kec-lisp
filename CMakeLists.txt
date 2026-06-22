@@ -116,6 +116,7 @@ set(EDITOR_SRCS
   ${CMAKE_SOURCE_DIR}/editor/70-lifecycle.lsp
   ${CMAKE_SOURCE_DIR}/editor/80-ranker.lsp
   ${CMAKE_SOURCE_DIR}/editor/90-repl.lsp
+  ${CMAKE_SOURCE_DIR}/editor/92-prompt.lsp
   ${CMAKE_SOURCE_DIR}/editor/95-host.lsp
   ${CMAKE_SOURCE_DIR}/editor/96-tty.lsp)
 
@@ -174,7 +175,7 @@ set_tests_properties(tests/examples/black-ice-trace.lsp PROPERTIES
 # source dir; run from the repo root.
 foreach(t editor/zipper editor/undo editor/buffer editor/view editor/keymap
           editor/persist editor/lifecycle editor/ranker editor/repl editor/host
-          editor/tty)
+          editor/tty editor/prompt)
   add_test(NAME tests/${t}.lsp
     COMMAND kec test ${CMAKE_SOURCE_DIR}/tests/${t}.lsp)
   set_tests_properties(tests/${t}.lsp PROPERTIES
