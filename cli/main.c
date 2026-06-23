@@ -220,29 +220,60 @@ static void edit_raw_off(void) {
     g_raw = 0;
 }
 
-/* A keystroke -> a structural command token (and its event type), or NULL for
-** a non-structural key (handled directly as a session command). The structural
-** keys drive the engine through the keymap — the same :nemacs-nav grammar the
-** device uses. */
-static const char *edit_token(int c, const char **etype) {
-    *etype = "':tap";
-    switch (c) {
-        case 'l': return "'CAR";    /* descend into first child */
-        case 'h': return "'BACK";   /* ascend to parent */
-        case 'j': return "'CDR";    /* next sibling */
-        case 'k': return "'QUOTE";  /* prev sibling */
-        case 'w': return "'CONS";   /* wrap focus in a list */
-        case 's': return "'LINK";   /* splice a list into its parent */
-        case 'd': *etype = "':long-press"; return "'CDR"; /* delete (cut) */
-        default: return NULL;
+/* Map a zipper boundary ("invalid move: ...") to a calm, Emacs-style echo-area
+** message preceded by a BEL — hitting an edge is a non-event in Emacs (it beeps
+** and says "End of buffer"), never an error. Real errors keep the "! " prefix. */
+static void soft_status(char *status, size_t ssz, const char *err) {
+    const char *m;
+    if (!strstr(err, "invalid move:")) { snprintf(status, ssz, "! %s", err); return; }
+    if      (strstr(err, "end of buffer"))       m = "End of buffer";
+    else if (strstr(err, "beginning of buffer")) m = "Beginning of buffer";
+    else if (strstr(err, "past last")  || strstr(err, "next-sibling at root")) m = "End of list";
+    else if (strstr(err, "past first") || strstr(err, "prev-sibling at root")) m = "Beginning of list";
+    else if (strstr(err, "descend into leaf")) m = "No list to enter";
+    else if (strstr(err, "ascend"))            m = "At top level";
+    else if (strstr(err, "transpose"))         m = "Nothing to transpose";
+    else if (strstr(err, "splice"))            m = "Nothing to splice here";
+    else if (strstr(err, "insert"))            m = "Cannot insert here";
+    else if (strstr(err, "delete"))            m = "Cannot delete the top level";
+    else if (strstr(err, "paste"))             m = "Nothing to yank";
+    else                                       m = "No move";
+    snprintf(status, ssz, "\a%s", m);   /* BEL + calm message, no "!" */
+}
+
+/* Eval a Lisp expression for its side effect; on a structural boundary render a
+** soft echo (BEL + message), on a real error the "! ..." message. */
+static void edit_do(kec_State *S, const char *src, char *status, size_t ssz) {
+    if (kec_eval_string(S, src, NULL) != 0) {
+        soft_status(status, ssz, kec_error(S));
     }
 }
 
-/* Eval a Lisp expression for its side effect; on error stash the message in
-** `status`. */
-static void edit_do(kec_State *S, const char *src, char *status, size_t ssz) {
-    if (kec_eval_string(S, src, NULL) != 0) {
-        snprintf(status, ssz, "! %s", kec_error(S));
+/* C-x C-e — evaluate the top-level form containing point (eval-last-sexp). */
+static void eval_current(kec_State *S, char *status, size_t ssz) {
+    fe_Object *v = NULL;
+    if (kec_eval_string(S,
+            "(try (fn () (repr (eval (buffer-current-form *nemacs*)))))", &v) == 0
+        && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
+        char r[1024];
+        fe_tostring(kec_fe(S), v, r, sizeof r);
+        snprintf(status, ssz, "=> %s", r);
+    }
+}
+
+/* C-x C-s — write the buffer back to FILE (save-buffer). */
+static void save_buffer(kec_State *S, const char *file, char *status, size_t ssz) {
+    fe_Object *v = NULL;
+    if (!file) { snprintf(status, ssz, "No file (open with: kec nemacs FILE)"); return; }
+    if (kec_eval_string(S, "(buffer->string *nemacs*)", &v) == 0
+        && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
+        static char buf[1 << 16];
+        FILE *fp;
+        fe_tostring(kec_fe(S), v, buf, sizeof buf);
+        fp = fopen(file, "wb");
+        if (fp) { fputs(buf, fp); fputc('\n', fp); fclose(fp);
+                  snprintf(status, ssz, "Wrote %s", file); }
+        else    { snprintf(status, ssz, "! cannot write %s", file); }
     }
 }
 
@@ -253,10 +284,52 @@ static int lisp_truthy(kec_State *S, const char *expr) {
     return !fe_isnil(kec_fe(S), v);
 }
 
+/* Eval `expr`, expecting a string; copy it into `out`. Returns 1 on success. */
+static int lisp_str(kec_State *S, const char *expr, char *out, size_t n) {
+    fe_Object *v = NULL;
+    if (kec_eval_string(S, expr, &v) == 0 && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
+        fe_tostring(kec_fe(S), v, out, n);
+        return 1;
+    }
+    return 0;
+}
+
+/* Normalize one terminal keystroke into canonical Emacs key notation
+** ("C-n", "C-M-f", "M-(", "<up>", "a", "RET", ...). Reads the extra bytes an
+** ESC-prefixed Meta key or arrow needs. This is ALL the key knowledge the host
+** has — what each key *does* lives in the Lisp keymap (editor/55-emacs). */
+static void norm_key(int c, char *out, size_t n) {
+    if (c == 27) {                         /* ESC: arrow keys or a Meta prefix */
+        int c2 = getchar();
+        if (c2 == '[') {
+            int c3 = getchar();
+            const char *a = (c3 == 'A') ? "<up>"  : (c3 == 'B') ? "<down>"
+                          : (c3 == 'C') ? "<right>" : (c3 == 'D') ? "<left>" : "";
+            snprintf(out, n, "%s", a);
+        } else if (c2 >= 1 && c2 <= 26) {  /* ESC + C-x  ->  C-M-x */
+            snprintf(out, n, "C-M-%c", c2 + 96);
+        } else if (c2 >= 32 && c2 < 127) { /* ESC + g    ->  M-g */
+            snprintf(out, n, "M-%c", c2);
+        } else {
+            snprintf(out, n, "ESC");
+        }
+    } else if (c == 31) {                   /* C-/ (a.k.a. C-_) */
+        snprintf(out, n, "C-/");
+    } else if (c == 9)  { snprintf(out, n, "TAB"); }
+    else if (c == 13 || c == 10) { snprintf(out, n, "RET"); }
+    else if (c >= 1 && c <= 26) {           /* C-<letter> */
+        snprintf(out, n, "C-%c", c + 96);
+    } else if (c >= 32 && c < 127) {        /* graphic: the key is itself */
+        snprintf(out, n, "%c", c);
+    } else {
+        snprintf(out, n, "");
+    }
+}
+
 /* `kec nemacs [FILE]` — open FILE (or a scratch buffer) in the knEmacs structural
-** editor. Renders the view model each frame and dispatches keys through the
-** :nemacs-nav keymap; structural edits, eval, insert, undo, and save are all
-** driven from the Lisp tier (the C side is the terminal host). */
+** editor. Renders the view model each frame and binds Emacs keys directly to the
+** engine's device-agnostic buffer API; motion, structural edits, eval, insert,
+** undo, and save all live in the Lisp tier (the C side is just the terminal host). */
 static int do_nemacs(const char *file) {
     kec_State *S = cli_open();
     char status[256];
@@ -283,7 +356,7 @@ static int do_nemacs(const char *file) {
         sb_puts(&src, "(set *nemacs* (buffer-load \"");
         sb_put_escaped(&src, file ? file : "*scratch*");
         sb_puts(&src, "\" \"");
-        sb_put_escaped(&src, init.len ? init.p : "()");
+        sb_put_escaped(&src, init.len ? init.p : "");   /* *scratch*: empty buffer */
         sb_puts(&src, "\"))");
         if (kec_eval_string(S, src.p, NULL) != 0) {
             fprintf(stderr, "kec nemacs: %s\n", kec_error(S));
@@ -317,10 +390,11 @@ static int do_nemacs(const char *file) {
         if (c == EOF) { break; }
         status[0] = '\0';
 
-        /* Literal entry (S3): keystrokes compose text until Enter commits or Esc
-        ** cancels — the structural keymap is bypassed while typing a value. */
+        /* Literal entry (S3): self-inserting text composes a value until RET
+        ** commits or ESC / C-g aborts — the command keymap is bypassed while
+        ** typing (the minibuffer model: one editor, two uses). */
         if (lisp_truthy(S, "(buffer-in-literal? *nemacs*)")) {
-            if (c == 27) {
+            if (c == 27 || c == 7) {   /* ESC or C-g: keyboard-quit */
                 edit_do(S, "(buffer-cancel-literal! *nemacs*)", status, sizeof status);
             } else if (c == '\n' || c == '\r') {
                 edit_do(S, "(buffer-commit-literal! *nemacs*)", status, sizeof status);
@@ -339,65 +413,66 @@ static int do_nemacs(const char *file) {
             continue;
         }
 
-        if (c == 'q') { break; }
+        /* ----- Emacs command dispatch (keymap-as-data; field-notes A.1) --------
+        ** The host normalizes the keystroke to canonical notation, then asks the
+        ** Lisp keymap (editor/55-emacs) what it means. The host knows no bindings
+        ** of its own — only how to perform the three I/O commands and self-insert.
+        ** C-x and C-h are prefix keys assembled here into full sequences. */
         {
-            const char *etype;
-            const char *tok = edit_token(c, &etype);
-            if (tok) {
-                char src[160];
-                snprintf(src, sizeof src,
-                         "(mode-dispatch ':nemacs-nav %s %s *nemacs*)", tok, etype);
-                edit_do(S, src, status, sizeof status);   /* boundary -> status */
-            } else if (c == 27) {
-                /* arrow keys: ESC [ A/B/C/D -> prev/next/descend/ascend */
-                int c2 = getchar();
-                if (c2 == '[') {
-                    int c3 = getchar();
-                    const char *atok = (c3 == 'A') ? "'QUOTE"   /* up    -> prev   */
-                                     : (c3 == 'B') ? "'CDR"     /* down  -> next   */
-                                     : (c3 == 'C') ? "'CAR"     /* right -> descend*/
-                                     : (c3 == 'D') ? "'BACK"    /* left  -> ascend */
-                                     : NULL;
-                    if (atok) {
-                        char src[128];
-                        snprintf(src, sizeof src,
-                                 "(mode-dispatch ':nemacs-nav %s ':tap *nemacs*)", atok);
-                        edit_do(S, src, status, sizeof status);
-                    }
-                }
-            } else if (c == 't') {
-                edit_do(S, "(buffer-transpose! *nemacs*)", status, sizeof status);
-            } else if (c == 'u') {
-                edit_do(S, "(buffer-undo! *nemacs*)", status, sizeof status);
-            } else if (c == 'e') {
-                /* eval the current TOP-LEVEL form (L4.5) */
-                fe_Object *v = NULL;
-                if (kec_eval_string(S,
-                        "(try (fn () (repr (eval (buffer-current-form *nemacs*)))))", &v) == 0
-                    && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
-                    char r[1024];
-                    fe_tostring(kec_fe(S), v, r, sizeof r);
-                    snprintf(status, sizeof status, "=> %s", r);
-                }
-            } else if (c == 'i') {
+            char key[48], tag[96];
+            Strbuf q = {0};
+
+            if (c == 24) {                     /* C-x ...  -> "C-x <key>" */
+                char k2[24];
+                norm_key(getchar(), k2, sizeof k2);
+                snprintf(key, sizeof key, "C-x %s", k2);
+            } else if (c == 8) {               /* C-h help: describe the next key */
+                int h = getchar();
+                char k2[24];
+                Strbuf d = {0};
+                if (h == 'k') { norm_key(getchar(), k2, sizeof k2); }
+                else          { norm_key(h, k2, sizeof k2); }   /* lenient: C-h <key> */
+                sb_puts(&d, "(emacs-describe-key \"");
+                sb_put_escaped(&d, k2);
+                sb_puts(&d, "\")");
+                lisp_str(S, d.p, status, sizeof status);
+                free(d.p);
+                continue;
+            } else {
+                norm_key(c, key, sizeof key);
+            }
+
+            /* ask the keymap what this key resolves to */
+            sb_puts(&q, "(emacs-resolve \"");
+            sb_put_escaped(&q, key);
+            sb_puts(&q, "\")");
+            if (!lisp_str(S, q.p, tag, sizeof tag)) { tag[0] = '\0'; }
+            free(q.p);
+
+            if (strcmp(tag, "self-insert") == 0) {        /* begin a literal value */
+                Strbuf src = {0};
+                char one[2];
+                one[0] = key[0]; one[1] = '\0';
                 edit_do(S, "(buffer-enter-literal! *nemacs*)", status, sizeof status);
-            } else if (c == 'W') {
-                fe_Object *v = NULL;
-                if (!file) {
-                    snprintf(status, sizeof status, "! no file to save");
-                } else if (kec_eval_string(S, "(buffer->string *nemacs*)", &v) == 0
-                           && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
-                    static char buf[1 << 16];
-                    FILE *fp;
-                    fe_tostring(kec_fe(S), v, buf, sizeof buf);
-                    fp = fopen(file, "wb");
-                    if (fp) {
-                        fputs(buf, fp); fputc('\n', fp); fclose(fp);
-                        snprintf(status, sizeof status, "saved %s", file);
-                    } else {
-                        snprintf(status, sizeof status, "! cannot write %s", file);
-                    }
-                }
+                sb_puts(&src, "(buffer-literal-push! *nemacs* \"");
+                sb_put_escaped(&src, one);
+                sb_puts(&src, "\")");
+                edit_do(S, src.p, status, sizeof status);
+                free(src.p);
+            } else if (strncmp(tag, "buffer:", 7) == 0) { /* an editor verb */
+                char src[96];
+                snprintf(src, sizeof src, "(%s *nemacs*)", tag + 7);
+                edit_do(S, src, status, sizeof status);
+            } else if (strcmp(tag, "host:save-buffer") == 0) {
+                save_buffer(S, file, status, sizeof status);
+            } else if (strcmp(tag, "host:exit-editor") == 0) {
+                break;
+            } else if (strcmp(tag, "host:eval-current") == 0) {
+                eval_current(S, status, sizeof status);
+            } else if (strcmp(tag, "host:keyboard-quit") == 0) {
+                snprintf(status, sizeof status, "\aQuit");
+            } else if (key[0]) {                          /* "undefined" */
+                snprintf(status, sizeof status, "\a%s is undefined  (C-h k describes a key)", key);
             }
         }
     }
