@@ -144,6 +144,41 @@
     (set cur (descend cur)))
   cur)
 
+;; descend-to-last: descend to the deepest LAST child (mirror of descend-to-leaf,
+;; used to find the rendered line directly above a node).
+(defn descend-to-last (loc)
+  (let cur loc)
+  (while (and (branch? (loc-focus cur)) (pair? (loc-focus cur)))
+    (set cur (descend cur))
+    (while (frame-right (car (loc-crumbs cur)))
+      (set cur (next-sibling cur))))
+  cur)
+
+;; line-next / line-prev: move by RENDERED LINE — the pre-order DFS successor /
+;; predecessor over the tree. This is plain "cursor down / up" (Emacs C-n / C-p):
+;; every node is one line, so down = first child, else next sibling, else the
+;; nearest ancestor's next sibling. Raises at the first / last line.
+(defn line-next (loc)
+  (if (and (branch? (loc-focus loc)) (pair? (loc-focus loc)))
+      (descend loc)                              ; into the first child
+      (do
+        (let cur loc)
+        (while (and (not (at-root? cur))
+                    (nil? (frame-right (car (loc-crumbs cur)))))
+          (set cur (ascend cur)))                ; climb to an ancestor with a sibling
+        (if (at-root? cur)
+            (raise "invalid move: end of buffer")
+            (next-sibling cur)))))
+
+(defn line-prev (loc)
+  (if (at-root? loc)
+      (raise "invalid move: beginning of buffer")
+      (if (frame-left (car (loc-crumbs loc)))
+          (descend-to-last (prev-sibling loc))   ; the prev sibling's deepest-last line
+          (if (at-root? (ascend loc))
+              (raise "invalid move: beginning of buffer")
+              (ascend loc)))))                    ; else the parent is the line above
+
 ;; ============================================================================
 ;; MANIPULATION verbs. Each returns (new-loc . clipboard-or-nil) where useful,
 ;; or just new-loc. We keep the clipboard external (the caller threads it).

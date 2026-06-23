@@ -22,7 +22,9 @@
   (if (view-line-cursor? rec) (string-append %REV txt %RST) txt))
 
 (define %TTY-HELP
-  "  [h/j/k/l move  w wrap  s splice  d del  t swap  e eval  i ins  u undo  W save  q quit]")
+  (string-append
+    "  C-n/C-p line  C-M-f/b sexp  C-M-d/u in/out  C-M-k kill  M-( wrap  "
+    "C-x C-e eval  C-/ undo  C-x C-s save  C-x C-c exit"))
 
 ;; (tty-screen b cols rows) -> the full screen as one string.
 (defn tty-screen (b cols rows)

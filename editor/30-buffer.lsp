@@ -41,6 +41,9 @@
 (defn buffer-prev! (b)     (%buffer-move! b (prev-sibling (buffer-loc b))))
 (defn buffer-ascend! (b)   (%buffer-move! b (ascend (buffer-loc b))))
 (defn buffer-to-leaf! (b)  (%buffer-move! b (descend-to-leaf (buffer-loc b))))
+;; line motion (Emacs C-n / C-p): move the cursor down / up one rendered line.
+(defn buffer-line-next! (b) (%buffer-move! b (line-next (buffer-loc b))))
+(defn buffer-line-prev! (b) (%buffer-move! b (line-prev (buffer-loc b))))
 
 ;; ----- structural edits: snapshot for undo, then mark modified ----------
 ;; Snapshot the CURRENT location before the edit, so undo restores it.
@@ -114,7 +117,13 @@
       b
       (do
         (let form (read-string txt))
-        (if (nil? form) b (buffer-insert-leaf! b form)))))
+        (if (nil? form)
+            b
+            ;; empty buffer (cursor on the nil root): seat the first top-level form
+            ;; and put the cursor on it; otherwise insert as a sibling to the right.
+            (if (and (at-root? (buffer-loc b)) (nil? (buffer-focus b)))
+                (%buffer-edit! b (buffer-from-forms (list form)))
+                (buffer-insert-leaf! b form))))))
 
 ;; ----- current form (L4.5): the top-level form containing the cursor --------
 ;; Ascend to the form that is a direct child of the buffer root, for eval-current
