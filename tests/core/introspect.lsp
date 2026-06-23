@@ -66,3 +66,13 @@
 (deftest "introspect/fn-params-needs-a-function"
   (check-err (fn-params 42))
   (check-err (fn-params "nope")))
+
+(deftest "introspect/protected-load-bearing-bindings"
+  (check-err (set map (fn (f xs) 'BROKEN)))
+  (check-err (eval (read-string "(let map (fn (f xs) 'BROKEN))")))
+  (check-err (set cons (fn (a b) 'BROKEN)))
+  (check-err (set %append nil))
+  ;; Failed protective rebinds must leave the standard methods intact.
+  (check (equal? (map (fn (x) (+ x 1)) (list 1 2 3)) (list 2 3 4)))
+  (check (is (car (cons 'a 'b)) 'a))
+  (check (bound? '%append)))

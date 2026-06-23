@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- **Native matrices and binary blobs.** Containers now include flat row-major
+  matrices (`make-matrix`, `matrix-ref`, `matrix-set!`, dimensions, predicate,
+  and iterative Core helpers) and binary-safe byte blobs (`make-blob`,
+  `blob-ref`, `blob-set!`, length, predicate). Both use the context-owned
+  container allocator and typed `FE_TPTR` lifecycle; matrix entries are marked
+  through GC and blob bytes are freed on sweep/teardown.
 - **Editor input layer — literal entry, arrow keys, eval-current, structural REPL
   prompt** (ADR-0002, L3.2/L4.2/L4.5/L1.5). The buffer gains **literal entry**
   (`buffer-enter-literal!` / `-literal-push!` / `-backspace!` / `-commit-literal!`
@@ -17,6 +23,12 @@
   `tests/cli/edit-smoke.sh` covers literal insert.
 
 ### Changed
+- **Load-bearing standard globals are protected from rebinding.** Kernel
+  primitives, host/runtime primitives, Core functions/macros, and private Core
+  helper bindings such as `%append` are frozen after Core loads. Attempts to
+  `set` them or clobber them with a top-level `let` raise a catchable error and
+  leave the standard method table intact; mutable registries such as `%plists`
+  remain writable by their owning functions.
 - **Recent language additions hardened for embedding** (GWP-235). Runtime error
   recovery and SplitMix64 RNG state are now per interpreter. Containers use
   composable typed-`FE_TPTR` lifecycles and remember the context allocator/free

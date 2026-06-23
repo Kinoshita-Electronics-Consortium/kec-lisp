@@ -415,7 +415,7 @@ The `kec` CLI uses `FULL`.
 | Reflection | `type-of`, `gensym`, `bound?`, `globals`, `fn-params` | both |
 | Math | `mod`, `floor`, `ceil`, `round`, `abs`, `sqrt`, `pow` | both |
 | Bitwise | `bit-and`, `bit-or`, `bit-xor`, `bit-not`, `bit-shl`, `bit-shr` | both |
-| Containers | `make-vector`, `vector`, `vector-ref`, `vector-set!`, `vector-length`, `vector?`, `make-hash-table`, `hash-set!`, `hash-ref`, `hash-has?`, `hash-del!`, `hash-count`, `hash-keys`, `hash-table?` | both |
+| Containers | `make-vector`, `vector`, `vector-ref`, `vector-set!`, `vector-length`, `vector?`, `make-matrix`, `matrix-ref`, `matrix-set!`, `matrix-rows`, `matrix-cols`, `matrix?`, `make-blob`, `blob-ref`, `blob-set!`, `blob-length`, `blob?`, `make-hash-table`, `hash-set!`, `hash-ref`, `hash-has?`, `hash-del!`, `hash-count`, `hash-keys`, `hash-table?` | both |
 | String | `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` | both |
 | I/O | `princ`, `newline`, `repr` | both |
 | System | `set-seed!`, `rand`, `rand-int`, `clock` | both |
@@ -453,14 +453,15 @@ Common host forms:
 
 ### Containers
 
-Vectors and hash tables (ADR-0003) are **foreign (`:ptr`) objects** with O(1)
-access — the optimized alternative to cons-list and alist traversal for grids,
-rings, and keyed tables. Because they are foreign objects, `=` / `is` compare
-them **by identity**, not contents: use `vector->list` / `hash->alist` + `equal?`
-to compare contents. Core (`core/52-container.lsp`) layers the Lisp conveniences
+Vectors, matrices, blobs, and hash tables are **foreign (`:ptr`) objects** with
+O(1) access — the optimized alternative to cons-list and alist traversal for
+grids, binary assets, rings, and keyed tables. Because they are foreign objects,
+`=` / `is` compare them **by identity**, not contents: use helpers such as
+`vector->list` / `hash->alist` + `equal?` when you need content comparison. Core
+(`core/52-container.lsp`) layers iterative Lisp conveniences over the primitives:
 `vector->list`, `list->vector`, `vector-fill!`, `vector-copy`, `vector-map`,
-`vector-for-each`, `hash->alist`, `alist->hash`, `hash-values`, `hash-for-each`
-over the primitives.
+`vector-for-each`, `matrix-fill!`, `matrix-map`, `matrix-for-each`,
+`hash->alist`, `alist->hash`, `hash-values`, and `hash-for-each`.
 
 | Form | Meaning |
 |---|---|
@@ -468,6 +469,13 @@ over the primitives.
 | `(vector a b ...)` | A vector of the given elements. |
 | `(vector-ref v i)` / `(vector-set! v i x)` | 0-based integer indexed read / write; both raise on a fractional or out-of-range index. `vector-set!` returns `x`. |
 | `(vector-length v)` / `(vector? x)` | Element count / type test. |
+| `(make-matrix rows cols [init])` | A flat row-major 2D array of integer dimensions, each cell `init` (default `nil`). Negative, fractional, non-finite, or oversized dimensions raise. |
+| `(matrix-ref m row col)` / `(matrix-set! m row col x)` | 0-based integer indexed read / write; row-major O(1). Both raise on fractional or out-of-range indices. `matrix-set!` returns `x`. |
+| `(matrix-rows m)` / `(matrix-cols m)` / `(matrix? x)` | Dimension accessors / type test. |
+| `(matrix-fill! m x)` / `(matrix-map f m)` / `(matrix-for-each f m)` | Iterative row-major helpers. `matrix-fill!` mutates and returns `m`; `matrix-map` returns a fresh matrix with the same dimensions; `matrix-for-each` returns `nil`. |
+| `(make-blob length [init-byte])` | A binary-safe byte buffer of integer length, filled with `init-byte` (default `0`). The byte must be an exact integer in `0..255`. |
+| `(blob-ref b i)` / `(blob-set! b i byte)` | 0-based byte read / write. Indices must be exact integers; bytes must be exact integers in `0..255`. `blob-set!` returns the byte. |
+| `(blob-length b)` / `(blob? x)` | Byte length / type test. |
 | `(make-hash-table)` | An empty hash table. Keys may be **numbers** (by value), **symbols** (by identity), or **strings** (by content); any other key type raises. |
 | `(hash-set! h k v)` / `(hash-ref h k [default])` | Associate `k`→`v` (returns `v`) / look `k` up, returning `default` (or `nil`) when absent. |
 | `(hash-has? h k)` / `(hash-del! h k)` | Membership test / delete (returns `t` if present, else `nil`). |
@@ -489,6 +497,16 @@ or `(try ...)`.
 `try` returns the thunk value on success. On failure, it returns the same
 `(:error . "message")` shape produced by Core's `error` helper.
 
+## Protected Standard Bindings
+
+After the runtime loads the kernel primitives, host primitives, and Core prelude,
+standard globals are protected from rebinding. Attempts to `(set map ...)`,
+`(set cons ...)`, `(set %append ...)`, or evaluate a top-level `(let map ...)`
+raise a catchable error and leave the original binding intact. Local lexical
+bindings are still allowed; the guard protects the global method table that
+macros and the prelude depend on. Mutable runtime registries such as `%plists`
+remain writable by their owning Core/runtime functions.
+
 ## Limits And Portability
 
 | Limit | Practical effect |
@@ -496,10 +514,11 @@ or `(try ...)`.
 | Single-precision numbers | Treat numbers as floats; exact integer work is limited to +/-2^24. |
 | Bounded GC root stack | Prefer `while`, `dotimes`, `dolist`, or `fold-left` for deep traversals. |
 | No tail-call optimization | Deep recursive code can overflow. Core list functions are iterative for this reason. |
-| Vectors/hash compare by identity | They are `:ptr` objects; `=`/`is` test identity. Use `vector->list`/`hash->alist` + `equal?` for content. String hash keys compare over their first 1024 bytes. |
+| Containers compare by identity | Vectors, matrices, blobs, and hashes are `:ptr` objects; `=`/`is` test identity. Use conversion helpers where a structural comparison is needed. String hash keys compare over their first 1024 bytes. |
 | `eval` is `FULL`-tier | `SANDBOX` contexts have no `eval`; use macros for code generation and `read-string`/`read-all` to parse data. |
-| Strings are null-terminated | Strings are not binary-safe. |
-| Integer-only host APIs validate | Vector sizes/indices, bitwise operands, RNG seeds, and `rand-int` bounds reject fractional, non-finite, or unsafe values instead of silently narrowing them. |
+| Strings are null-terminated | Strings are not binary-safe; use blobs for embedded NULs and binary asset bytes. |
+| Standard globals are protected | Rebinding load-bearing kernel/host/Core names raises a catchable error. Define new names for overrides or use local lexical bindings. |
+| Integer-only host APIs validate | Vector/matrix/blob sizes and indices, blob bytes, bitwise operands, RNG seeds, and `rand-int` bounds reject fractional, non-finite, or unsafe values instead of silently narrowing them. |
 
 For implementation details, see [Fe Kernel - Internals](/kec-lisp/fe-kernel/)
 and [Memory Model](/kec-lisp/memory-model/).
@@ -516,7 +535,7 @@ and [Memory Model](/kec-lisp/memory-model/).
 | Lists/alists | `nth`, `length`, `reverse`, `append`, `last`, `member`, `assoc`, `take`, `drop`, `range`, `get`, `put`, `has?`, `keys`, `values`, `merge` |
 | Comparison/predicates | `=`, `==`, `/=`, `equal?`, `>`, `>=`, `zero?`, `positive?`, `negative?`, `nil?`, `pair?`, `even?`, `odd?`, `number?`, `symbol?`, `string?`, `fn?` |
 | Higher-order | `map`, `filter`, `remove`, `fold-left`, `fold-right`, `for-each`, `find`, `any?`, `every?`, `count` |
-| Containers | `make-vector`, `vector`, `vector-ref`, `vector-set!`, `vector-length`, `vector?`, `vector->list`, `list->vector`, `vector-map`, `vector-for-each`, `vector-fill!`, `vector-copy`, `make-hash-table`, `hash-set!`, `hash-ref`, `hash-has?`, `hash-del!`, `hash-count`, `hash-keys`, `hash-table?`, `hash-values`, `hash->alist`, `alist->hash`, `hash-for-each` |
+| Containers | `make-vector`, `vector`, `vector-ref`, `vector-set!`, `vector-length`, `vector?`, `vector->list`, `list->vector`, `vector-map`, `vector-for-each`, `vector-fill!`, `vector-copy`, `make-matrix`, `matrix-ref`, `matrix-set!`, `matrix-rows`, `matrix-cols`, `matrix?`, `matrix-fill!`, `matrix-map`, `matrix-for-each`, `make-blob`, `blob-ref`, `blob-set!`, `blob-length`, `blob?`, `make-hash-table`, `hash-set!`, `hash-ref`, `hash-has?`, `hash-del!`, `hash-count`, `hash-keys`, `hash-table?`, `hash-values`, `hash->alist`, `alist->hash`, `hash-for-each` |
 | Strings | `str`, `join`, `split`, `format`, `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` |
 | String toolkit | `char-upcase`, `char-downcase`, `string-upcase`, `string-downcase`, `pad-left`, `pad-right`, `string-repeat`, `string-prefix?`, `string-suffix?`, `string-contains?` |
 | Bitwise | `bit-and`, `bit-or`, `bit-xor`, `bit-not`, `bit-shl`, `bit-shr` |

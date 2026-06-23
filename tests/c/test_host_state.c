@@ -66,11 +66,13 @@ static void test_containers_remember_their_allocator(void) {
     if (!S) { return; }
 
     kec_set_container_allocator_for(S, alloc_a, free_a);
-    CHECK(kec_eval_string(S, "(set held-a (vector 1 2 3))", NULL) == 0,
-          "allocator-A vector creation failed");
+    CHECK(kec_eval_string(S, "(do (set held-a (vector 1 2 3))"
+                             "    (set held-ma (make-matrix 2 2 'x)))", NULL) == 0,
+          "allocator-A vector/matrix creation failed");
     kec_set_container_allocator_for(S, alloc_b, free_b);
-    CHECK(kec_eval_string(S, "(set held-b (make-hash-table))", NULL) == 0,
-          "allocator-B hash creation failed");
+    CHECK(kec_eval_string(S, "(do (set held-b (make-hash-table))"
+                             "    (set held-bb (make-blob 8 255)))", NULL) == 0,
+          "allocator-B hash/blob creation failed");
     kec_close(S);
 
     CHECK(g_alloc_a > 0 && g_alloc_b > 0, "custom allocators were not used");

@@ -35,11 +35,13 @@
 #define cfunc(x)      ( (x)->cdr.f )
 #define strbuf(x)     ( &(x)->car.c + 1 )
 #define symbound(x)   ( strbuf(x)[0] )
+#define symflags(x)   ( strbuf(x)[1] )
 
 #define STRBUFSIZE    ( (int) sizeof(fe_Object*) - 1 )
 #define GCMARKBIT     ( 0x2 )
 #define PTRTYPEMAX    ( 8 )
 #define USERDATAMAX   ( 4 )
+#define SYM_PROTECTED ( 0x1 )
 /* KEC: recursion ceiling is configurable. The standalone desktop build raises
    it (CMake -DGCSTACKSIZE=...); the 256 default is kept for memory-tight hosts
    (e.g. the 256 KB device arena) that vendor this kernel as-is. */
@@ -101,6 +103,7 @@ struct fe_Context {
    * means "unlimited" (default; preserves original Fe behavior). */
   int instr_count;
   int instr_budget;
+  int protect_symbols;
 };
 
 static fe_Object nil = {{ (void*) (FE_TNIL << 2 | 1) }, { NULL }};
@@ -577,9 +580,25 @@ static fe_Object* getbound(fe_Object *sym, fe_Object *env) {
 }
 
 
+static int protected_global(fe_Object *sym, fe_Object *binding) {
+  return binding == cdr(sym) && (symflags(sym) & SYM_PROTECTED);
+}
+
+
+static void protected_error(fe_Context *ctx, fe_Object *sym) {
+  char name[64], msg[128];
+  fe_tostring(ctx, sym, name, sizeof name);
+  snprintf(msg, sizeof msg, "cannot rebind load-bearing primitive: %s", name);
+  fe_error(ctx, msg);
+}
+
+
 void fe_set(fe_Context *ctx, fe_Object *sym, fe_Object *v) {
-  unused(ctx);
-  cdr(getbound(sym, &nil)) = v;
+  fe_Object *binding = getbound(checktype(ctx, sym, FE_TSYMBOL), &nil);
+  if (ctx->protect_symbols && protected_global(sym, binding)) {
+    protected_error(ctx, sym);
+  }
+  cdr(binding) = v;
   symbound(sym) = 1;
 }
 
@@ -587,6 +606,24 @@ void fe_set(fe_Context *ctx, fe_Object *sym, fe_Object *v) {
 int fe_bound(fe_Context *ctx, fe_Object *sym) {
   checktype(ctx, sym, FE_TSYMBOL);
   return symbound(sym) != 0;
+}
+
+
+void fe_protect_symbol(fe_Context *ctx, fe_Object *sym) {
+  unused(ctx);
+  checktype(ctx, sym, FE_TSYMBOL);
+  symflags(sym) |= SYM_PROTECTED;
+}
+
+
+int fe_symbol_protected(fe_Context *ctx, fe_Object *sym) {
+  checktype(ctx, sym, FE_TSYMBOL);
+  return (symflags(sym) & SYM_PROTECTED) != 0;
+}
+
+
+void fe_set_symbol_protection_enabled(fe_Context *ctx, int enabled) {
+  ctx->protect_symbols = enabled ? 1 : 0;
 }
 
 
@@ -808,6 +845,9 @@ static fe_Object* eval(fe_Context *ctx, fe_Object *obj, fe_Object *env, fe_Objec
                footgun where (let x v) at the REPL / script top level was a
                no-op. Identical to `set` here. */
             fe_Object *binding = getbound(va, env);
+            if (ctx->protect_symbols && protected_global(va, binding)) {
+              protected_error(ctx, va);
+            }
             cdr(binding) = res = evalarg();
             if (binding == cdr(va)) { symbound(va) = 1; }
           }
@@ -817,6 +857,9 @@ static fe_Object* eval(fe_Context *ctx, fe_Object *obj, fe_Object *env, fe_Objec
           va = checktype(ctx, fe_nextarg(ctx, &arg), FE_TSYMBOL);
           {
             fe_Object *binding = getbound(va, env);
+            if (ctx->protect_symbols && protected_global(va, binding)) {
+              protected_error(ctx, va);
+            }
             cdr(binding) = evalarg();
             if (binding == cdr(va)) { symbound(va) = 1; }
           }
@@ -1042,7 +1085,11 @@ fe_Context* fe_open(void *ptr, int size) {
     fe_Object *v = object(ctx);
     settype(v, FE_TPRIM);
     prim(v) = i;
-    fe_set(ctx, fe_symbol(ctx, primnames[i]), v);
+    {
+      fe_Object *sym = fe_symbol(ctx, primnames[i]);
+      fe_set(ctx, sym, v);
+      fe_protect_symbol(ctx, sym);
+    }
     fe_restoregc(ctx, save);
   }
 

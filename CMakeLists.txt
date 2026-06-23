@@ -80,7 +80,9 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/macro-robustness.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/hof.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/vector.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/matrix.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/hash.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/blob.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/container-gc.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/util.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/str.lsp

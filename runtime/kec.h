@@ -37,6 +37,11 @@ void kec_set_container_allocator_for(kec_State *S,
                                      void *(*alloc)(size_t),
                                      void (*free_)(void *));
 
+/* Re-mark the currently bound standard globals as protected and enable
+** protection. Intended for the CLI's KEC_CORE_DIR dev reload path after it has
+** deliberately disabled enforcement while refreshing Core from source. */
+void kec_protect_standard_globals(kec_State *S);
+
 /* Underlying Fe context — for downstream FFI extension (kec_bind_fe). */
 fe_Context *kec_fe(kec_State *S);
 
