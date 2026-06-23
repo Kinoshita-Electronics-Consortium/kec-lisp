@@ -80,6 +80,7 @@ static void maybe_load_dev_core(kec_State *S) {
         fprintf(stderr, "kec: KEC_CORE_DIR=%s cannot be read; using embedded Core\n", dir);
         return;
     }
+    fe_set_symbol_protection_enabled(kec_fe(S), 0);
     for (i = 0; i < n; i++) {
         const char *nm = names[i]->d_name;
         size_t len = strlen(nm);
@@ -95,6 +96,7 @@ static void maybe_load_dev_core(kec_State *S) {
         free(names[i]);
     }
     free(names);
+    kec_protect_standard_globals(S);
     if (loaded > 0) {
         fprintf(stderr, "kec: dev mode — reloaded %d Core file(s) from %s\n", loaded, dir);
     }

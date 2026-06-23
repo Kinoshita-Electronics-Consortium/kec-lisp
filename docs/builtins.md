@@ -31,13 +31,19 @@ kernel plus Core plus the runtime/host primitives.
 
 | Built-in | Semantics |
 |---|---|
-| `(let sym value)` | Bind `sym`. In a body → a local for the rest of that body; at the top level → a global. Returns `value`. |
-| `(set sym value)` | **Assignment** to an existing binding (or a top-level global). |
+| `(let sym value)` | Bind `sym`. In a body -> a local for the rest of that body; at the top level -> a global. Protected standard globals cannot be rebound. Returns `value`. |
+| `(set sym value)` | **Assignment** to an existing binding (or a top-level global). Protected standard globals cannot be rebound. |
 | `(fn (params…) body…)` | Construct a closure (lexical). `(fn (a . rest) …)` and `(fn args …)` bind rest/variadic args. |
 | `(mac (params…) body…)` | Construct a macro: args unevaluated, the expansion is re-evaluated. |
 
 There is no `define` / `defn` / `defmacro` in the kernel — Core supplies those
 (they expand to `set` + `fn`/`mac`).
+
+After the runtime loads Core, load-bearing standard names are protected. A script
+that attempts to rebind a kernel primitive such as `cons`, a host primitive, a
+Core function such as `map`, or a private Core helper such as `%append` receives
+a catchable error and the original global value remains in place. Lexical locals
+are still ordinary bindings.
 
 ## Control flow
 
@@ -113,6 +119,10 @@ environment (safe in any profile).
 `eval` evaluates an already-read data form in the live image — the editor/REPL
 keystone — but is a **`FULL`-tier capability**, deliberately not bound into
 `SANDBOX` contexts. There is no socket I/O at the kernel level.
+
+Foreign containers are host primitives, not kernel built-ins. The current
+portable set includes vectors, flat row-major matrices, hash tables, and
+binary-safe blobs; see the [Language Reference](/kec-lisp/language/#containers).
 
 ---
 

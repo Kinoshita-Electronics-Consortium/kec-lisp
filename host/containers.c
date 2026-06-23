@@ -1,11 +1,13 @@
 /*
-** containers.c — KEC Lisp container types: vectors and hash tables (ADR-0003).
+** containers.c — KEC Lisp container types: vectors, matrices, hash tables,
+** and blobs (ADR-0003).
 **
-** Both are FE_TPTR foreign objects. The frozen Fe kernel exposes fe_ptr/fe_toptr
-** plus composable typed-pointer lifecycle handlers. The fe_Object cell holds a
-** backing pointer (in its cdr) and a small registered pointer-type id;
-** the actual storage — a vector's element array, a hash table's slot array —
-** is a C struct that lives OUTSIDE the Fe arena, reached through that pointer.
+** These are FE_TPTR foreign objects. The frozen Fe kernel exposes
+** fe_ptr/fe_toptr plus composable typed-pointer lifecycle handlers. The
+** fe_Object cell holds a backing pointer (in its cdr) and a small registered
+** pointer-type id; the actual storage — a vector/matrix element array, a hash
+** table's slot array, or a blob's byte array — is a C struct that lives
+** OUTSIDE the Fe arena, reached through that pointer.
 ** Element / key / value cells themselves are ordinary Fe objects in the arena.
 **
 ** GC integration. One mark and one gc handler are installed on the context:
@@ -59,9 +61,10 @@ void kec_host_state_set_container_allocator(kec_HostState *state,
 /* ------------------------------------------------------------------ */
 
 #define KEC_VECTOR_MAX (1 << 24) /* exact-float ceiling; far past practical use */
+#define KEC_BLOB_MAX   (1 << 24) /* same exact-integer boundary */
 #define KEC_HASH_KEYMAX 1024 /* string key compare/hash window (symbols/numbers exact) */
 
-enum { KEC_KIND_VECTOR = 1, KEC_KIND_HASH = 2 };
+enum { KEC_KIND_VECTOR = 1, KEC_KIND_HASH = 2, KEC_KIND_MATRIX = 3, KEC_KIND_BLOB = 4 };
 
 typedef struct {
     int kind;
@@ -76,6 +79,19 @@ typedef struct {
     int len;
     fe_Object *items[1]; /* len cells, allocated inline */
 } Vector;
+
+typedef struct {
+    CHeader head;
+    int rows;
+    int cols;
+    fe_Object *items[1]; /* rows*cols cells, row-major, allocated inline */
+} Matrix;
+
+typedef struct {
+    CHeader head;
+    int len;
+    unsigned char *bytes;
+} Blob;
 
 enum { SLOT_EMPTY = 0, SLOT_USED = 1, SLOT_DEAD = 2 /* tombstone */ };
 
@@ -111,6 +127,16 @@ static int checked_int_arg(fe_Context *ctx, fe_Object **args, const char *who) {
     return (int)n;
 }
 
+static int checked_byte_arg(fe_Context *ctx, fe_Object **args, const char *who) {
+    int n = checked_int_arg(ctx, args, who);
+    char msg[96];
+    if (n < 0 || n > 255) {
+        snprintf(msg, sizeof msg, "%s: expected byte 0..255", who);
+        fe_error(ctx, msg);
+    }
+    return n;
+}
+
 /* ------------------------------------------------------------------ */
 /* GC handlers (installed once on the context).                       */
 /* ------------------------------------------------------------------ */
@@ -122,6 +148,12 @@ static void container_mark(fe_Context *ctx, void *ptr) {
         int i;
         for (i = 0; i < v->len; i++) {
             if (v->items[i]) { fe_mark(ctx, v->items[i]); }
+        }
+    } else if (c && c->kind == KEC_KIND_MATRIX) {
+        Matrix *m = (Matrix *)c;
+        int i, n = m->rows * m->cols;
+        for (i = 0; i < n; i++) {
+            if (m->items[i]) { fe_mark(ctx, m->items[i]); }
         }
     } else if (c && c->kind == KEC_KIND_HASH) {
         Hash *h = (Hash *)c;
@@ -142,6 +174,9 @@ static void container_gc(fe_Context *ctx, void *ptr) {
         if (c->kind == KEC_KIND_HASH) {
             Hash *h = (Hash *)c;
             if (h->slots) { c->free_(h->slots); }
+        } else if (c->kind == KEC_KIND_BLOB) {
+            Blob *b = (Blob *)c;
+            if (b->bytes) { c->free_(b->bytes); }
         }
         c->free_(c);
     }
@@ -234,6 +269,173 @@ static fe_Object *h_vector_length(fe_Context *ctx, fe_Object *args) {
 static fe_Object *h_vector_p(fe_Context *ctx, fe_Object *args) {
     CHeader *c = backing(ctx, fe_nextarg(ctx, &args));
     return fe_bool(ctx, c && c->kind == KEC_KIND_VECTOR);
+}
+
+/* ------------------------------------------------------------------ */
+/* Matrices (flat row-major 2D arrays).                               */
+/* ------------------------------------------------------------------ */
+
+static Matrix *as_matrix(fe_Context *ctx, fe_Object *obj, const char *who) {
+    CHeader *c = backing(ctx, obj);
+    if (c && c->kind == KEC_KIND_MATRIX) { return (Matrix *)c; }
+    fe_error(ctx, who);
+    return NULL; /* unreachable */
+}
+
+static int matrix_index(fe_Context *ctx, Matrix *m, int row, int col, const char *who) {
+    char msg[96];
+    if (row < 0 || row >= m->rows || col < 0 || col >= m->cols) {
+        snprintf(msg, sizeof msg, "%s: index out of range", who);
+        fe_error(ctx, msg);
+    }
+    return row * m->cols + col;
+}
+
+static Matrix *alloc_matrix(fe_Context *ctx, int rows, int cols, fe_Object *init) {
+    kec_HostState *state = kec_host_state(ctx);
+    Matrix *m;
+    size_t count, bytes;
+    int i;
+    if (rows < 0) { fe_error(ctx, "make-matrix: negative rows"); }
+    if (cols < 0) { fe_error(ctx, "make-matrix: negative cols"); }
+    count = (size_t)rows * (size_t)cols;
+    if (rows != 0 && count / (size_t)rows != (size_t)cols) {
+        fe_error(ctx, "make-matrix: size too large");
+    }
+    if (count > (size_t)KEC_VECTOR_MAX) { fe_error(ctx, "make-matrix: size too large"); }
+    bytes = sizeof(Matrix) + (count > 0 ? count - 1 : 0) * sizeof(fe_Object *);
+    m = state->container_alloc(bytes);
+    if (!m) { fe_error(ctx, "make-matrix: out of memory"); }
+    m->head.kind = KEC_KIND_MATRIX;
+    m->head.alloc = state->container_alloc;
+    m->head.free_ = state->container_free;
+    m->rows = rows;
+    m->cols = cols;
+    for (i = 0; i < (int)count; i++) { m->items[i] = init; }
+    return m;
+}
+
+/* (make-matrix rows cols [init]) — flat row-major matrix. */
+static fe_Object *h_make_matrix(fe_Context *ctx, fe_Object *args) {
+    int rows = checked_int_arg(ctx, &args, "make-matrix");
+    int cols = checked_int_arg(ctx, &args, "make-matrix");
+    fe_Object *init = fe_isnil(ctx, args) ? fe_bool(ctx, 0) : fe_nextarg(ctx, &args);
+    int gc = fe_savegc(ctx);
+    fe_Object *mat;
+    fe_pushgc(ctx, init);
+    mat = fe_ptr_typed(ctx, alloc_matrix(ctx, rows, cols, init), &g_container_tag);
+    fe_restoregc(ctx, gc);
+    fe_pushgc(ctx, mat);
+    return mat;
+}
+
+/* (matrix-ref m row col) — O(1) row-major lookup. */
+static fe_Object *h_matrix_ref(fe_Context *ctx, fe_Object *args) {
+    Matrix *m = as_matrix(ctx, fe_nextarg(ctx, &args), "matrix-ref: not a matrix");
+    int row = checked_int_arg(ctx, &args, "matrix-ref");
+    int col = checked_int_arg(ctx, &args, "matrix-ref");
+    return m->items[matrix_index(ctx, m, row, col, "matrix-ref")];
+}
+
+/* (matrix-set! m row col x) — O(1) row-major mutation, returns x. */
+static fe_Object *h_matrix_set(fe_Context *ctx, fe_Object *args) {
+    Matrix *m = as_matrix(ctx, fe_nextarg(ctx, &args), "matrix-set!: not a matrix");
+    int row = checked_int_arg(ctx, &args, "matrix-set!");
+    int col = checked_int_arg(ctx, &args, "matrix-set!");
+    fe_Object *x = fe_nextarg(ctx, &args);
+    m->items[matrix_index(ctx, m, row, col, "matrix-set!")] = x;
+    return x;
+}
+
+static fe_Object *h_matrix_rows(fe_Context *ctx, fe_Object *args) {
+    Matrix *m = as_matrix(ctx, fe_nextarg(ctx, &args), "matrix-rows: not a matrix");
+    return fe_number(ctx, (fe_Number)m->rows);
+}
+
+static fe_Object *h_matrix_cols(fe_Context *ctx, fe_Object *args) {
+    Matrix *m = as_matrix(ctx, fe_nextarg(ctx, &args), "matrix-cols: not a matrix");
+    return fe_number(ctx, (fe_Number)m->cols);
+}
+
+static fe_Object *h_matrix_p(fe_Context *ctx, fe_Object *args) {
+    CHeader *c = backing(ctx, fe_nextarg(ctx, &args));
+    return fe_bool(ctx, c && c->kind == KEC_KIND_MATRIX);
+}
+
+/* ------------------------------------------------------------------ */
+/* Blobs (binary-safe byte buffers).                                  */
+/* ------------------------------------------------------------------ */
+
+static Blob *as_blob(fe_Context *ctx, fe_Object *obj, const char *who) {
+    CHeader *c = backing(ctx, obj);
+    if (c && c->kind == KEC_KIND_BLOB) { return (Blob *)c; }
+    fe_error(ctx, who);
+    return NULL; /* unreachable */
+}
+
+static int blob_index(fe_Context *ctx, Blob *b, int idx, const char *who) {
+    char msg[96];
+    if (idx < 0 || idx >= b->len) {
+        snprintf(msg, sizeof msg, "%s: index out of range", who);
+        fe_error(ctx, msg);
+    }
+    return idx;
+}
+
+static Blob *alloc_blob(fe_Context *ctx, int len, int init) {
+    kec_HostState *state = kec_host_state(ctx);
+    Blob *b;
+    if (len < 0) { fe_error(ctx, "make-blob: negative length"); }
+    if (len > KEC_BLOB_MAX) { fe_error(ctx, "make-blob: length too large"); }
+    b = state->container_alloc(sizeof(Blob));
+    if (!b) { fe_error(ctx, "make-blob: out of memory"); }
+    b->head.kind = KEC_KIND_BLOB;
+    b->head.alloc = state->container_alloc;
+    b->head.free_ = state->container_free;
+    b->len = len;
+    b->bytes = NULL;
+    if (len > 0) {
+        b->bytes = state->container_alloc((size_t)len);
+        if (!b->bytes) {
+            state->container_free(b);
+            fe_error(ctx, "make-blob: out of memory");
+        }
+        memset(b->bytes, init, (size_t)len);
+    }
+    return b;
+}
+
+/* (make-blob length [init-byte]) — binary-safe byte storage. */
+static fe_Object *h_make_blob(fe_Context *ctx, fe_Object *args) {
+    int len = checked_int_arg(ctx, &args, "make-blob");
+    int init = fe_isnil(ctx, args) ? 0 : checked_byte_arg(ctx, &args, "make-blob");
+    return fe_ptr_typed(ctx, alloc_blob(ctx, len, init), &g_container_tag);
+}
+
+static fe_Object *h_blob_ref(fe_Context *ctx, fe_Object *args) {
+    Blob *b = as_blob(ctx, fe_nextarg(ctx, &args), "blob-ref: not a blob");
+    int idx = checked_int_arg(ctx, &args, "blob-ref");
+    idx = blob_index(ctx, b, idx, "blob-ref");
+    return fe_number(ctx, (fe_Number)b->bytes[idx]);
+}
+
+static fe_Object *h_blob_set(fe_Context *ctx, fe_Object *args) {
+    Blob *b = as_blob(ctx, fe_nextarg(ctx, &args), "blob-set!: not a blob");
+    int idx = checked_int_arg(ctx, &args, "blob-set!");
+    int byte = checked_byte_arg(ctx, &args, "blob-set!");
+    idx = blob_index(ctx, b, idx, "blob-set!");
+    b->bytes[idx] = (unsigned char)byte;
+    return fe_number(ctx, (fe_Number)byte);
+}
+
+static fe_Object *h_blob_length(fe_Context *ctx, fe_Object *args) {
+    Blob *b = as_blob(ctx, fe_nextarg(ctx, &args), "blob-length: not a blob");
+    return fe_number(ctx, (fe_Number)b->len);
+}
+
+static fe_Object *h_blob_p(fe_Context *ctx, fe_Object *args) {
+    CHeader *c = backing(ctx, fe_nextarg(ctx, &args));
+    return fe_bool(ctx, c && c->kind == KEC_KIND_BLOB);
 }
 
 /* ------------------------------------------------------------------ */
@@ -469,6 +671,19 @@ void kec_containers_register(fe_Context *ctx) {
     kec_bind_fe(ctx, "vector-set!", h_vector_set);
     kec_bind_fe(ctx, "vector-length", h_vector_length);
     kec_bind_fe(ctx, "vector?", h_vector_p);
+
+    kec_bind_fe(ctx, "make-matrix", h_make_matrix);
+    kec_bind_fe(ctx, "matrix-ref", h_matrix_ref);
+    kec_bind_fe(ctx, "matrix-set!", h_matrix_set);
+    kec_bind_fe(ctx, "matrix-rows", h_matrix_rows);
+    kec_bind_fe(ctx, "matrix-cols", h_matrix_cols);
+    kec_bind_fe(ctx, "matrix?", h_matrix_p);
+
+    kec_bind_fe(ctx, "make-blob", h_make_blob);
+    kec_bind_fe(ctx, "blob-ref", h_blob_ref);
+    kec_bind_fe(ctx, "blob-set!", h_blob_set);
+    kec_bind_fe(ctx, "blob-length", h_blob_length);
+    kec_bind_fe(ctx, "blob?", h_blob_p);
 
     kec_bind_fe(ctx, "make-hash-table", h_make_hash);
     kec_bind_fe(ctx, "hash-set!", h_hash_set);

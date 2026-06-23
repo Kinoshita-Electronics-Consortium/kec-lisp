@@ -119,6 +119,27 @@ static fe_Object *global_value(fe_Context *ctx, const char *name) {
     return fe_eval(ctx, fe_symbol(ctx, name));
 }
 
+static int mutable_standard_global(const char *name) {
+    /* `%plists` is Core's property-list registry; `provide`/`require` own the
+    ** load registries. They are standard globals, but intentionally mutable. */
+    return strcmp(name, "%plists") == 0 ||
+           strcmp(name, "%provided") == 0 ||
+           strcmp(name, "%required") == 0;
+}
+
+static void protect_context_globals(fe_Context *ctx) {
+    fe_Object *p;
+    char name[128];
+    for (p = fe_symbols(ctx); !fe_isnil(ctx, p); p = fe_cdr(ctx, p)) {
+        fe_Object *sym = fe_car(ctx, p);
+        if (!fe_bound(ctx, sym)) { continue; }
+        fe_tostring(ctx, sym, name, sizeof name);
+        if (mutable_standard_global(name)) { continue; }
+        fe_protect_symbol(ctx, sym);
+    }
+    fe_set_symbol_protection_enabled(ctx, 1);
+}
+
 static int global_string_list_has(fe_Context *ctx, const char *global, const char *needle) {
     return string_list_has(ctx, global_value(ctx, global), needle);
 }
@@ -446,6 +467,7 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
             return NULL;
         }
     }
+    kec_protect_standard_globals(S);
     S->depth = 0; /* setup complete — drop the setup guard */
     return S;
 }
@@ -477,6 +499,11 @@ void kec_set_container_allocator_for(kec_State *S,
                                      void (*free_)(void *)) {
     if (!S) { return; }
     kec_host_state_set_container_allocator(&S->host, alloc, free_);
+}
+
+void kec_protect_standard_globals(kec_State *S) {
+    if (!S) { return; }
+    protect_context_globals(S->ctx);
 }
 
 fe_Context *kec_fe(kec_State *S) { return S->ctx; }

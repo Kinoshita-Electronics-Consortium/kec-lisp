@@ -1,6 +1,8 @@
-;; KEC Core — container : Lisp conveniences over the vector + hash-table C
+;; KEC Core — container : Lisp conveniences over the vector/matrix/hash/blob C
 ;; primitives (ADR-0003). The primitives live in host/containers.c:
 ;;   make-vector vector vector-ref vector-set! vector-length vector?
+;;   make-matrix matrix-ref matrix-set! matrix-rows matrix-cols matrix?
+;;   make-blob blob-ref blob-set! blob-length blob?
 ;;   make-hash-table hash-set! hash-ref hash-has? hash-del! hash-count
 ;;   hash-keys hash-table?
 ;; Loads after the higher-order functions (50) so it can use map / for-each.
@@ -60,6 +62,45 @@
   (while (< i n)
     (vector-set! out i (f (vector-ref v i)))
     (set i (+ i 1)))
+  out)
+
+;; (matrix-fill! m x) — set every matrix cell to x; returns m.
+(defn matrix-fill! (m x)
+  (let rows (matrix-rows m))
+  (let cols (matrix-cols m))
+  (let r 0)
+  (while (< r rows)
+    (let c 0)
+    (while (< c cols)
+      (matrix-set! m r c x)
+      (set c (+ c 1)))
+    (set r (+ r 1)))
+  m)
+
+;; (matrix-for-each f m) — call (f cell) in row-major order; nil.
+(defn matrix-for-each (f m)
+  (let rows (matrix-rows m))
+  (let cols (matrix-cols m))
+  (let r 0)
+  (while (< r rows)
+    (let c 0)
+    (while (< c cols)
+      (f (matrix-ref m r c))
+      (set c (+ c 1)))
+    (set r (+ r 1))))
+
+;; (matrix-map f m) — a fresh matrix of (f cell), preserving dimensions.
+(defn matrix-map (f m)
+  (let rows (matrix-rows m))
+  (let cols (matrix-cols m))
+  (let out (make-matrix rows cols nil))
+  (let r 0)
+  (while (< r rows)
+    (let c 0)
+    (while (< c cols)
+      (matrix-set! out r c (f (matrix-ref m r c)))
+      (set c (+ c 1)))
+    (set r (+ r 1)))
   out)
 
 ;; (hash-values h) — list of values, order matching (hash-keys h).
