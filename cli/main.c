@@ -297,7 +297,7 @@ static int lisp_str(kec_State *S, const char *expr, char *out, size_t n) {
 /* Normalize one terminal keystroke into canonical Emacs key notation
 ** ("C-n", "C-M-f", "M-(", "<up>", "a", "RET", ...). Reads the extra bytes an
 ** ESC-prefixed Meta key or arrow needs. This is ALL the key knowledge the host
-** has — what each key *does* lives in the Lisp keymap (editor/55-emacs). */
+** has — what each key *does* lives in the Lisp binding table (editor/55-bindings). */
 static void norm_key(int c, char *out, size_t n) {
     if (c == 27) {                         /* ESC: arrow keys or a Meta prefix */
         int c2 = getchar();
@@ -415,7 +415,7 @@ static int do_nemacs(const char *file) {
 
         /* ----- Emacs command dispatch (keymap-as-data; field-notes A.1) --------
         ** The host normalizes the keystroke to canonical notation, then asks the
-        ** Lisp keymap (editor/55-emacs) what it means. The host knows no bindings
+        ** Lisp binding table (editor/55-bindings) what it means. The host knows no bindings
         ** of its own — only how to perform the three I/O commands and self-insert.
         ** C-x and C-h are prefix keys assembled here into full sequences. */
         {
@@ -432,7 +432,7 @@ static int do_nemacs(const char *file) {
                 Strbuf d = {0};
                 if (h == 'k') { norm_key(getchar(), k2, sizeof k2); }
                 else          { norm_key(h, k2, sizeof k2); }   /* lenient: C-h <key> */
-                sb_puts(&d, "(emacs-describe-key \"");
+                sb_puts(&d, "(describe-key \"");
                 sb_put_escaped(&d, k2);
                 sb_puts(&d, "\")");
                 lisp_str(S, d.p, status, sizeof status);
@@ -443,7 +443,7 @@ static int do_nemacs(const char *file) {
             }
 
             /* ask the keymap what this key resolves to */
-            sb_puts(&q, "(emacs-resolve \"");
+            sb_puts(&q, "(resolve-key \"");
             sb_put_escaped(&q, key);
             sb_puts(&q, "\")");
             if (!lisp_str(S, q.p, tag, sizeof tag)) { tag[0] = '\0'; }
