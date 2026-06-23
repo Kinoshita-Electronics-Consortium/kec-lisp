@@ -62,6 +62,11 @@ A string is a linked chain of `FE_TSTRING` nodes. Each node stores `sizeof(fe_Ob
 
 Symbols are **interned**: `fe_symbol(ctx, "foo")` always returns the same object. The global binding lives in the symbol's `cdr` (a cons cell containing the name string). Every `fe_symbol` call walks `ctx->symlist` to check for an existing intern.
 
+KEC uses one otherwise-unused byte in a symbol's `car` word to record whether a
+global binding has been established. This distinguishes an unbound symbol from
+a symbol deliberately bound to `nil`; `fe_bound`, `bound?`, `globals`, and
+`defvar` use that distinction.
+
 The reader reads tokens into a 64-byte buffer (`char buf[64]`). **Symbol names longer than 63 bytes** raise `"symbol too long"`.
 
 ### Environments
@@ -95,6 +100,14 @@ Overflow calls `fe_error("gc stack overflow")`. Because the stack is bounded, [C
 `fe_mark` recurses on `car` of pairs but iterates on `cdr` (via `goto`). A structure with many levels of nesting in the **`car` dimension** — for example `((((…))))` — may overflow the **C call stack** during GC mark. `cdr` chains of any depth are safe.
 
 In practice this affects hand-constructed deeply-nested data more than ordinary Lisp programs; it is rarely triggered.
+
+### Typed foreign pointers
+
+`fe_register_ptr_type` registers up to eight composable `FE_TPTR` lifecycle
+types per context. `fe_ptr_typed` stores the type id in an unused byte of the
+object's `car` word. Mark/sweep dispatches only to that type's callbacks, so one
+extension cannot replace another's lifecycle or inspect an unowned raw pointer.
+Untyped `fe_ptr` values continue to use the legacy `fe_Handlers.mark/gc` pair.
 
 ---
 
@@ -139,6 +152,9 @@ Changes applied on top of rxi/fe 1.0, in `kernel/fe.c` and `kernel/fe.h`:
 | **Arena introspection API** | GWP-233 | `fe_arena_stats` / `fe_object_size` / `fe_min_arena_bytes` — inspect live/total object counts and minimum safe arena size. |
 | **Symbol-list accessor** | CHANGELOG Unreleased | `fe_symbols` — read-only view of the interned-symbol list, for host introspection (the `bound?` / `globals` primitives). Returns live internal structure; the host builds a fresh list from it and never hands it to Lisp. |
 | **Closure-params accessor** | CHANGELOG Unreleased | `fe_fn_params` — parameter list of a `FE_TFUNC`/`FE_TMACRO` (cadr of its `(env params . body)`), for the `fn-params` primitive; `nil` for built-ins. Returns live internal structure; the host copies it before handing it to Lisp. |
+| **Binding-presence accessor** | GWP-235 | `fe_bound` plus a symbol binding-presence bit distinguish unbound from deliberately bound-to-`nil`; used by `bound?`, `globals`, and `defvar`. |
+| **Tagged context userdata** | GWP-235 | `fe_set_userdata` / `fe_userdata` provide four fixed, non-owning tagged entries for runtime and portable-host state without numeric slot collisions. |
+| **Composable typed pointers** | GWP-235 | `fe_register_ptr_type` / `fe_ptr_typed` / `fe_ptr_is_type` dispatch foreign-pointer lifecycle callbacks by registered tag while retaining legacy raw-pointer handlers. |
 
 ---
 
@@ -154,4 +170,7 @@ The [upstream rxi/fe documentation](https://github.com/rxi/fe) is accurate for t
 | Comments end on `\n` only | Also terminate on `\r` |
 | Quasiquote not mentioned | `` ` `` / `,` / `,@` are in the reader |
 
-Everything else in the upstream docs — object types, `is` equality semantics, `ptr` GC handlers, the environment model, the freelist GC, and the known-issues list — describes this kernel accurately.
+Everything else in the upstream docs — object types, `is` equality semantics,
+the environment model, the freelist GC, and the known-issues list — describes
+this kernel accurately. KEC additionally supports composable typed-pointer
+handlers as documented above.

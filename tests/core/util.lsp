@@ -19,3 +19,8 @@
   (check (is %dv-y 1))
   (defvar %dv-y 999)
   (check (is %dv-y 1)))      ; unchanged
+
+(deftest "util/defvar-preserves-nil-binding"
+  (set %dv-nil nil)
+  (defvar %dv-nil 42)
+  (check (nil? %dv-nil)))

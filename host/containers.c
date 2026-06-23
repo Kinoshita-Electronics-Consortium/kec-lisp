@@ -2,8 +2,8 @@
 ** containers.c — KEC Lisp container types: vectors and hash tables (ADR-0003).
 **
 ** Both are FE_TPTR foreign objects. The frozen Fe kernel exposes fe_ptr/fe_toptr
-** plus a single pair of mark/gc handler hooks, so new aggregate types need no
-** kernel change. The fe_Object cell only holds a backing pointer (in its cdr);
+** plus composable typed-pointer lifecycle handlers. The fe_Object cell holds a
+** backing pointer (in its cdr) and a small registered pointer-type id;
 ** the actual storage — a vector's element array, a hash table's slot array —
 ** is a C struct that lives OUTSIDE the Fe arena, reached through that pointer.
 ** Element / key / value cells themselves are ordinary Fe objects in the arena.
@@ -13,14 +13,13 @@
 **     vector elements and hash keys+values survive the sweep.
 **   - gc handler:   when a container's FE_TPTR is collected (including at
 **     fe_close, which sweeps everything), free its backing.
-** Both are MAGIC-guarded: a foreign FE_TPTR that is not one of ours is left
-** untouched. The standalone language creates no other ptr objects; the guard
-** keeps the handlers safe if a downstream host (the firmware) later adds its own.
+** Typed dispatch means a foreign FE_TPTR owned by firmware never reaches the
+** container callbacks and is never dereferenced by them.
 **
-** Backing memory goes through a settable allocator (kec_set_container_allocator),
-** defaulting to malloc/free, so the no-malloc device path can install an
-** arena-bump allocator instead of libc malloc — this resolves ADR-0001's
-** deferred container backing-memory concern (see ADR-0003).
+** Backing memory goes through a per-context allocator. Every backing remembers
+** the matching allocator/free pair that created it, so later reconfiguration
+** cannot mismatch allocation domains. The process-default setter remains for
+** compatibility; new embedders should use kec_set_container_allocator_for.
 **
 ** Equality / hashing of keys mirrors the language's own rules: numbers by value,
 ** symbols by identity (they are interned, so identity == name), strings by
@@ -30,7 +29,9 @@
 */
 #include "host.h"
 
+#include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -38,28 +39,37 @@
 /* Allocator seam (defaults to malloc/free).                          */
 /* ------------------------------------------------------------------ */
 
-static void *(*g_alloc)(size_t) = malloc;
-static void (*g_free)(void *) = free;
+static void *(*g_default_alloc)(size_t) = malloc;
+static void (*g_default_free)(void *) = free;
 
 void kec_set_container_allocator(void *(*alloc)(size_t), void (*free_)(void *)) {
-    g_alloc = alloc ? alloc : malloc;
-    g_free = free_ ? free_ : free;
+    g_default_alloc = alloc ? alloc : malloc;
+    g_default_free = free_ ? free_ : free;
+}
+
+void kec_host_state_set_container_allocator(kec_HostState *state,
+                                            void *(*alloc)(size_t),
+                                            void (*free_)(void *)) {
+    state->container_alloc = alloc ? alloc : g_default_alloc;
+    state->container_free = free_ ? free_ : g_default_free;
 }
 
 /* ------------------------------------------------------------------ */
 /* Backing structs.                                                   */
 /* ------------------------------------------------------------------ */
 
-#define KEC_CMAGIC 0x4B454343u /* 'KECC' — guards foreign ptr objects */
 #define KEC_VECTOR_MAX (1 << 24) /* exact-float ceiling; far past practical use */
 #define KEC_HASH_KEYMAX 1024 /* string key compare/hash window (symbols/numbers exact) */
 
 enum { KEC_KIND_VECTOR = 1, KEC_KIND_HASH = 2 };
 
 typedef struct {
-    unsigned magic;
     int kind;
+    void *(*alloc)(size_t);
+    void (*free_)(void *);
 } CHeader;
+
+static const char g_container_tag;
 
 typedef struct {
     CHeader head;
@@ -85,18 +95,28 @@ typedef struct {
 
 static CHeader *backing(fe_Context *ctx, fe_Object *obj) {
     CHeader *c;
-    if (fe_type(ctx, obj) != FE_TPTR) { return NULL; }
+    if (!fe_ptr_is_type(ctx, obj, &g_container_tag)) { return NULL; }
     c = fe_toptr(ctx, obj);
-    if (!c || c->magic != KEC_CMAGIC) { return NULL; }
+    if (!c) { return NULL; }
     return c;
+}
+
+static int checked_int_arg(fe_Context *ctx, fe_Object **args, const char *who) {
+    double n = (double)fe_tonumber(ctx, fe_nextarg(ctx, args));
+    char msg[96];
+    if (!isfinite(n) || floor(n) != n || n < (double)INT32_MIN || n > (double)INT32_MAX) {
+        snprintf(msg, sizeof msg, "%s: expected an integer", who);
+        fe_error(ctx, msg);
+    }
+    return (int)n;
 }
 
 /* ------------------------------------------------------------------ */
 /* GC handlers (installed once on the context).                       */
 /* ------------------------------------------------------------------ */
 
-static fe_Object *container_mark(fe_Context *ctx, fe_Object *obj) {
-    CHeader *c = backing(ctx, obj);
+static void container_mark(fe_Context *ctx, void *ptr) {
+    CHeader *c = ptr;
     if (c && c->kind == KEC_KIND_VECTOR) {
         Vector *v = (Vector *)c;
         int i;
@@ -113,19 +133,18 @@ static fe_Object *container_mark(fe_Context *ctx, fe_Object *obj) {
             }
         }
     }
-    return fe_bool(ctx, 0); /* return value ignored by the kernel */
 }
 
-static fe_Object *container_gc(fe_Context *ctx, fe_Object *obj) {
-    CHeader *c = backing(ctx, obj);
+static void container_gc(fe_Context *ctx, void *ptr) {
+    CHeader *c = ptr;
+    (void)ctx;
     if (c) {
         if (c->kind == KEC_KIND_HASH) {
             Hash *h = (Hash *)c;
-            if (h->slots) { g_free(h->slots); }
+            if (h->slots) { c->free_(h->slots); }
         }
-        g_free(c);
+        c->free_(c);
     }
-    return fe_bool(ctx, 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -140,16 +159,18 @@ static Vector *as_vector(fe_Context *ctx, fe_Object *obj, const char *who) {
 }
 
 static Vector *alloc_vector(fe_Context *ctx, int len, fe_Object *init) {
+    kec_HostState *state = kec_host_state(ctx);
     Vector *v;
     size_t bytes;
     int i;
     if (len < 0) { fe_error(ctx, "make-vector: negative length"); }
     if (len > KEC_VECTOR_MAX) { fe_error(ctx, "make-vector: length too large"); }
     bytes = sizeof(Vector) + (size_t)(len > 0 ? len - 1 : 0) * sizeof(fe_Object *);
-    v = g_alloc(bytes);
+    v = state->container_alloc(bytes);
     if (!v) { fe_error(ctx, "make-vector: out of memory"); }
-    v->head.magic = KEC_CMAGIC;
     v->head.kind = KEC_KIND_VECTOR;
+    v->head.alloc = state->container_alloc;
+    v->head.free_ = state->container_free;
     v->len = len;
     for (i = 0; i < len; i++) { v->items[i] = init; }
     return v;
@@ -157,12 +178,12 @@ static Vector *alloc_vector(fe_Context *ctx, int len, fe_Object *init) {
 
 /* (make-vector n [init]) — a vector of n elements, each init (default nil). */
 static fe_Object *h_make_vector(fe_Context *ctx, fe_Object *args) {
-    int len = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int len = checked_int_arg(ctx, &args, "make-vector");
     fe_Object *init = fe_isnil(ctx, args) ? fe_bool(ctx, 0) : fe_nextarg(ctx, &args);
     int gc = fe_savegc(ctx);
     fe_Object *vec;
     fe_pushgc(ctx, init); /* keep init alive across the FE_TPTR alloc (may GC) */
-    vec = fe_ptr(ctx, alloc_vector(ctx, len, init));
+    vec = fe_ptr_typed(ctx, alloc_vector(ctx, len, init), &g_container_tag);
     fe_restoregc(ctx, gc); /* pop init + vec ... */
     fe_pushgc(ctx, vec); /* ... re-root vec (its items are now reachable) */
     return vec;
@@ -179,7 +200,7 @@ static fe_Object *h_vector(fe_Context *ctx, fe_Object *args) {
     v = alloc_vector(ctx, n, fe_bool(ctx, 0));
     p = args;
     for (i = 0; i < n; i++) { v->items[i] = fe_nextarg(ctx, &p); }
-    vec = fe_ptr(ctx, v);
+    vec = fe_ptr_typed(ctx, v, &g_container_tag);
     fe_restoregc(ctx, gc);
     fe_pushgc(ctx, vec);
     return vec;
@@ -188,7 +209,7 @@ static fe_Object *h_vector(fe_Context *ctx, fe_Object *args) {
 /* (vector-ref v i) — element i (0-based). Errors out of range. */
 static fe_Object *h_vector_ref(fe_Context *ctx, fe_Object *args) {
     Vector *v = as_vector(ctx, fe_nextarg(ctx, &args), "vector-ref: not a vector");
-    int i = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int i = checked_int_arg(ctx, &args, "vector-ref");
     if (i < 0 || i >= v->len) { fe_error(ctx, "vector-ref: index out of range"); }
     return v->items[i];
 }
@@ -196,7 +217,7 @@ static fe_Object *h_vector_ref(fe_Context *ctx, fe_Object *args) {
 /* (vector-set! v i x) — set element i to x; returns x. Errors out of range. */
 static fe_Object *h_vector_set(fe_Context *ctx, fe_Object *args) {
     Vector *v = as_vector(ctx, fe_nextarg(ctx, &args), "vector-set!: not a vector");
-    int i = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int i = checked_int_arg(ctx, &args, "vector-set!");
     fe_Object *x = fe_nextarg(ctx, &args);
     if (i < 0 || i >= v->len) { fe_error(ctx, "vector-set!: index out of range"); }
     v->items[i] = x; /* x becomes reachable via the (rooted) vector; no alloc here */
@@ -294,16 +315,18 @@ static int hash_index(fe_Context *ctx, Hash *h, fe_Object *key, int *found) {
 }
 
 static Hash *alloc_hash(fe_Context *ctx) {
-    Hash *h = g_alloc(sizeof(Hash));
+    kec_HostState *state = kec_host_state(ctx);
+    Hash *h = state->container_alloc(sizeof(Hash));
     int cap = 8, i;
     if (!h) { fe_error(ctx, "make-hash-table: out of memory"); }
-    h->slots = g_alloc((size_t)cap * sizeof(HashSlot));
+    h->slots = state->container_alloc((size_t)cap * sizeof(HashSlot));
     if (!h->slots) {
-        g_free(h);
+        state->container_free(h);
         fe_error(ctx, "make-hash-table: out of memory");
     }
-    h->head.magic = KEC_CMAGIC;
     h->head.kind = KEC_KIND_HASH;
+    h->head.alloc = state->container_alloc;
+    h->head.free_ = state->container_free;
     h->count = 0;
     h->used = 0;
     h->cap = cap;
@@ -318,7 +341,7 @@ static Hash *alloc_hash(fe_Context *ctx) {
 static void hash_grow(fe_Context *ctx, Hash *h) {
     int newcap = h->cap * 2, oldcap = h->cap, i;
     HashSlot *old = h->slots;
-    HashSlot *ns = g_alloc((size_t)newcap * sizeof(HashSlot));
+    HashSlot *ns = h->head.alloc((size_t)newcap * sizeof(HashSlot));
     if (!ns) { fe_error(ctx, "hash: out of memory"); }
     for (i = 0; i < newcap; i++) {
         ns[i].state = SLOT_EMPTY;
@@ -340,13 +363,13 @@ static void hash_grow(fe_Context *ctx, Hash *h) {
             h->used++;
         }
     }
-    g_free(old);
+    h->head.free_(old);
 }
 
 /* (make-hash-table) — a new empty hash table. */
 static fe_Object *h_make_hash(fe_Context *ctx, fe_Object *args) {
     (void)args;
-    return fe_ptr(ctx, alloc_hash(ctx)); /* empty: nothing to keep alive across GC */
+    return fe_ptr_typed(ctx, alloc_hash(ctx), &g_container_tag);
 }
 
 /* (hash-set! h k v) — associate k -> v; returns v. */
@@ -436,9 +459,9 @@ static fe_Object *h_hash_p(fe_Context *ctx, fe_Object *args) {
 /* ------------------------------------------------------------------ */
 
 void kec_containers_register(fe_Context *ctx) {
-    /* The single mark/gc handler pair services every container FE_TPTR. */
-    fe_handlers(ctx)->mark = container_mark;
-    fe_handlers(ctx)->gc = container_gc;
+    if (fe_register_ptr_type(ctx, &g_container_tag, container_mark, container_gc) != 0) {
+        fe_error(ctx, "container foreign pointer type registration failed");
+    }
 
     kec_bind_fe(ctx, "make-vector", h_make_vector);
     kec_bind_fe(ctx, "vector", h_vector);

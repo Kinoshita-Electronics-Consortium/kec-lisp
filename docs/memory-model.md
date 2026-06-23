@@ -3,9 +3,10 @@ title: Memory Model
 description: KEC Lisp runs against a fixed-size arena per context — how arenas are sized, who owns them, the no-malloc entry point, and what bounds recursion.
 ---
 
-KEC Lisp runs against a **fixed-size memory arena per interpreter context**.
-There is no heap that grows during evaluation: you hand the runtime a block of
-memory once, and all Lisp objects live inside it until the context is torn down.
+KEC Lisp runs against a **fixed-size Fe object arena per interpreter context**.
+You hand the runtime a block of memory once, and all Fe objects live inside it
+until the context is torn down. Container backing arrays are explicitly managed
+outside that arena through a configurable per-context allocator, described below.
 
 ## One state, one context, one arena
 
@@ -27,6 +28,13 @@ arena. The GC runs *inside* a context: it reclaims dead objects but does not gro
 the pool. Exhausting the arena is a runtime error (see
 [Errors](/kec-lisp/language/#errors)).
 
+Vectors and hash tables are the deliberate exception to "all storage is in the
+Fe arena": their `FE_TPTR` cells live in the arena, while their backing arrays
+use the context's container allocator. The default is `malloc`/`free`; a device
+can install a fixed-pool or bump allocator with
+`kec_set_container_allocator_for`. Every backing remembers its matching free
+callback, and typed foreign-pointer GC releases it at sweep or `fe_close`.
+
 ## The no-malloc entry point
 
 To run without `malloc`ing the arena — for example on the KN-86 device — supply
@@ -47,6 +55,12 @@ if (!S) { /* buffer too small to even load Core */ }
 This seam is exercised by the C-level arena tests (`tests/c/test_arena.c`,
 ctest name `c/arena`), which cover sizing and the undersized-buffer path that the
 `.lsp` suite can't reach.
+
+`kec_open_with_arena` means the **Fe object arena** is caller-owned; it does not
+by itself select a no-heap container allocator. Firmware that prohibits libc
+allocation must configure the container allocator explicitly before creating
+vectors or hash tables. The C host-state tests verify allocator ownership and
+cross-context isolation.
 
 ## Lifetime
 

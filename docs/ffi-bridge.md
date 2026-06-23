@@ -48,15 +48,38 @@ Arguments arrive as a pre-evaluated list; pull them with `fe_nextarg`.
 | Number | `fe_tonumber` → `float` (single-precision; integers exact to ±2²⁴) |
 | String | `fe_tostring(ctx, x, buf, size)` into a fixed buffer; `fe_string(ctx, cstr)` to return |
 | Symbol / keyword | `fe_symbol(ctx, ":text")` — keywords are symbols |
-| Opaque handle | `fe_ptr(ctx, p)` / `fe_toptr`; supply `mark`/`gc` handlers (§3) |
+| Opaque handle | `fe_ptr_typed(ctx, p, tag)` / `fe_toptr`; register a typed lifecycle (§3) |
 | Unit | return `fe_bool(ctx, 0)` (nil) from side-effecting primitives |
 
 ## 3. Opaque handles (`FE_TPTR`)
 
-A C struct handed to KEC Lisp crosses as `FE_TPTR`:
+A C struct handed to KEC Lisp crosses as a typed `FE_TPTR`. Use a stable tag
+(normally the address of a private static object), register its lifecycle once
+per context, and construct handles with the same tag:
 
-- Supply `mark` (root nested Fe objects) and `gc` (release) handlers via
-  `fe_handlers(ctx)` so the handle survives mark-sweep.
+```c
+static const char SENSOR_HANDLE_TAG;
+
+static void sensor_mark(fe_Context *ctx, void *ptr) {
+    Sensor *s = ptr;
+    if (s->callback) { fe_mark(ctx, s->callback); }
+}
+
+static void sensor_gc(fe_Context *ctx, void *ptr) {
+    (void)ctx;
+    sensor_release(ptr);
+}
+
+fe_register_ptr_type(ctx, &SENSOR_HANDLE_TAG, sensor_mark, sensor_gc);
+fe_Object *handle = fe_ptr_typed(ctx, sensor, &SENSOR_HANDLE_TAG);
+```
+
+- Typed lifecycles compose: registering a firmware handle does not replace the
+  vector/hash lifecycle. A callback receives only pointers created with its tag,
+  so it never probes or dereferences another extension's raw pointer.
+- `mark` roots nested Fe objects; `gc` releases C-side backing. Both are optional.
+- Plain `fe_ptr` and the legacy `fe_handlers(ctx)->mark/gc` pair remain available
+  for older single-owner embedders, but new code should use typed pointers.
 - A handle is **invalid across an arena reset** (`fe_close`+`fe_open`). A
   primitive must never retain one across a reset, and Lisp must never stash one
   expecting it to survive.
@@ -89,6 +112,13 @@ A C struct handed to KEC Lisp crosses as `FE_TPTR`:
 - Integrity-critical state (save data, ledgers, timing-critical cadence) stays
   C-side and is reached *through* primitives — carts never get a raw pointer
   into it.
+- Portable host state is interpreter-local: error recovery, RNG sequence, and
+  container allocation settings in one `kec_State` do not affect another.
+- Configure container backing for one interpreter with
+  `kec_set_container_allocator_for(S, alloc, free)`. Existing containers remember
+  the allocator/free pair that created them, so changing the setting affects
+  only future containers. `kec_set_container_allocator` remains a compatibility
+  setter for the default used by subsequently opened contexts.
 
 ---
 

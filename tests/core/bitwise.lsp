@@ -25,3 +25,9 @@
 (deftest "bitwise/logical-shr-zero-fills"
   ;; -1 is 0xFFFFFFFF; a logical >>28 leaves the top nibble = 15, not -1.
   (check (is (bit-shr -1 28) 15)))
+
+(deftest "bitwise/rejects-non-integer-and-unsafe-operands"
+  (check-err (bit-and 3.9 1))
+  (check-err (bit-or 1 0.5))
+  (check-err (bit-shl 1 1.25))
+  (check-err (bit-not 1e30)))

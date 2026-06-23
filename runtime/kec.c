@@ -20,6 +20,7 @@
 
 struct kec_State {
     fe_Context *ctx;
+    kec_HostState host;
     void *arena;
     int owns_arena; /* 1 if kec malloc'd the arena and must free it */
     kec_Profile profile;
@@ -29,17 +30,14 @@ struct kec_State {
     int depth; /* number of active guards */
 };
 
-/* Single-threaded interpreter: the error handler and runtime primitives reach
-** the live State through this. */
-static kec_State *g_state = NULL;
+static const char g_runtime_state_tag;
 
 /* ------------------------------------------------------------------ */
 /* Error handler.                                                      */
 /* ------------------------------------------------------------------ */
 
 static void on_error(fe_Context *ctx, const char *err, fe_Object *cl) {
-    kec_State *S = g_state;
-    (void)ctx;
+    kec_State *S = fe_userdata(ctx, &g_runtime_state_tag);
     (void)cl;
     if (S) {
         snprintf(S->errmsg, sizeof S->errmsg, "%s", err);
@@ -245,23 +243,6 @@ static fe_Object *h_apply(fe_Context *ctx, fe_Object *args) {
     }
 }
 
-/* (read-string s) — parse the FIRST s-expression of s and return it, WITHOUT
-** evaluating it. Pure reader, available in any profile: it hands back the parsed
-** datum, nothing runs. To then evaluate it, use `eval` (a FULL-tier capability,
-** so SANDBOX contexts can read forms without being able to run them). Empty /
-** blank input -> nil. */
-static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
-    char buf[4096];
-    StrReader r;
-    fe_Object *form;
-    fe_tostring(ctx, fe_nextarg(ctx, &args), buf, sizeof buf);
-    r.s = buf;
-    r.i = 0;
-    form = fe_read(ctx, str_readfn, &r);
-    if (form == NULL) { return fe_bool(ctx, 0); } /* EOF -> nil */
-    return form;
-}
-
 /* (eval form) — evaluate an already-read data form in the live image and
 ** return its value. The keystone the editor model (nEmacs) needs: evaluate a
 ** form read from a buffer (eval-defun), a scratch-REPL line, or config-as-code.
@@ -283,6 +264,31 @@ static void fill_writefn(fe_Context *ctx, void *udata, char chr) {
     FillBuf *b = udata;
     (void)ctx;
     if (b->n < b->cap) { b->p[b->n++] = chr; }
+}
+
+/* (read-string s) — parse the FIRST s-expression of s and return it, WITHOUT
+** evaluating it. Input is measured and copied exactly; there is no fixed
+** reader buffer ceiling. Empty / blank input -> nil. */
+static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
+    fe_Object *src = fe_nextarg(ctx, &args);
+    size_t len = 0;
+    char *buf;
+    FillBuf b;
+    StrReader r;
+    fe_Object *form;
+
+    fe_write(ctx, src, count_writefn, &len, 0);
+    buf = malloc(len + 1);
+    if (!buf) { fe_error(ctx, "read-string: out of memory"); }
+    b.p = buf; b.n = 0; b.cap = len;
+    fe_write(ctx, src, fill_writefn, &b, 0);
+    buf[b.n] = '\0';
+    r.s = buf;
+    r.i = 0;
+    form = fe_read(ctx, str_readfn, &r);
+    free(buf);
+    if (form == NULL) { return fe_bool(ctx, 0); }
+    return form;
 }
 
 /* (read-all s) — parse EVERY top-level form of s and return them as a list, in
@@ -349,7 +355,7 @@ static fe_Object *h_raise(fe_Context *ctx, fe_Object *args) {
 ** (GWP-532). check-err in the test harness keys off the :error car. */
 static fe_Object *h_try(fe_Context *ctx, fe_Object *args) {
     fe_Object *thunk = fe_nextarg(ctx, &args);
-    kec_State *S = g_state;
+    kec_State *S = fe_userdata(ctx, &g_runtime_state_tag);
     int slot = S->depth;
     int gc = fe_savegc(ctx);
     if (slot >= KEC_GUARD_MAX) { fe_error(ctx, "try: nesting too deep"); }
@@ -393,7 +399,9 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
     S->profile = profile;
     S->depth = 0;
 
-    g_state = S;
+    fe_set_userdata(S->ctx, &g_runtime_state_tag, S);
+    kec_host_state_init(&S->host);
+    kec_host_attach_state(S->ctx, &S->host);
     fe_handlers(S->ctx)->error = on_error;
 
     /* Guard the whole setup. Both host registration and Core load allocate, and
@@ -461,8 +469,14 @@ void kec_close(kec_State *S) {
     if (!S) { return; }
     if (S->ctx) { fe_close(S->ctx); }
     if (S->owns_arena) { free(S->arena); }
-    if (g_state == S) { g_state = NULL; }
     free(S);
+}
+
+void kec_set_container_allocator_for(kec_State *S,
+                                     void *(*alloc)(size_t),
+                                     void (*free_)(void *)) {
+    if (!S) { return; }
+    kec_host_state_set_container_allocator(&S->host, alloc, free_);
 }
 
 fe_Context *kec_fe(kec_State *S) { return S->ctx; }

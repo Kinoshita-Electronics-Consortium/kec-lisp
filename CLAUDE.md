@@ -106,8 +106,10 @@ stack on a long list.
 
 ### Memory model
 
-Fe is arena-allocated with no GC heap churn — one `kec_State` owns one Fe
-context + one arena. `kec_open(bytes, profile)` mallocs the arena; desktop uses
+Fe objects are arena-allocated with no GC heap growth — one `kec_State` owns one
+Fe context + one arena. Vector/hash backing is external and uses a per-context
+allocator (`kec_set_container_allocator_for`), with malloc/free as the desktop
+default. `kec_open(bytes, profile)` mallocs the Fe arena; desktop uses
 16 MB (`ARENA_BYTES` in `cli/main.c`). `kec_open_with_arena(buf, size, profile)`
 is the no-malloc entry point for the device: you supply a static/stack buffer,
 it's never freed by `kec_close`, and it returns NULL cleanly if the buffer is
@@ -140,6 +142,10 @@ The kernel is frozen except for these deliberate deltas (also in CHANGELOG):
 - **`GCSTACKSIZE` is compile-time configurable** (default 256 for the device).
   The desktop build raises it to 8192 (`target_compile_definitions` in
   `CMakeLists.txt`) so recursive user code has headroom.
+- **Symbols track binding presence separately from value**, so bound-to-`nil`
+  differs from unbound (`fe_bound`). Fe also has four tagged userdata entries and
+  composable typed-`FE_TPTR` lifecycle registration; legacy raw pointer handlers
+  remain available.
 
 ## Language gotchas
 

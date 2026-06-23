@@ -25,6 +25,24 @@
 ** char). The string primitives below do NOT use this: they size to the real
 ** string length so nothing past ~4 KB is silently truncated (GWP-528). */
 #define KEC_STRBUF 4096
+#define KEC_RNG_DEFAULT 0x9E3779B97F4A7C15ULL
+
+static const char g_host_state_tag;
+
+void kec_host_state_init(kec_HostState *state) {
+    state->rng_state = KEC_RNG_DEFAULT;
+    kec_host_state_set_container_allocator(state, NULL, NULL);
+}
+
+void kec_host_attach_state(fe_Context *ctx, kec_HostState *state) {
+    fe_set_userdata(ctx, &g_host_state_tag, state);
+}
+
+kec_HostState *kec_host_state(fe_Context *ctx) {
+    kec_HostState *state = fe_userdata(ctx, &g_host_state_tag);
+    if (!state) { fe_error(ctx, "host state is not attached"); }
+    return state;
+}
 
 /* ------------------------------------------------------------------ */
 /* The bind seam — GC-safe symbol→cfunc registration.                  */
@@ -44,6 +62,16 @@ void kec_bind_fe(fe_Context *ctx, const char *name, fe_CFunc fn) {
 
 static fe_Number arg_num(fe_Context *ctx, fe_Object **args) {
     return fe_tonumber(ctx, fe_nextarg(ctx, args));
+}
+
+static int32_t arg_i32(fe_Context *ctx, fe_Object **args, const char *who) {
+    double n = (double)arg_num(ctx, args);
+    char msg[96];
+    if (!isfinite(n) || floor(n) != n || n < (double)INT32_MIN || n > (double)INT32_MAX) {
+        snprintf(msg, sizeof msg, "%s: expected a 32-bit integer", who);
+        fe_error(ctx, msg);
+    }
+    return (int32_t)n;
 }
 
 /* Pull the next arg as a C string into a caller buffer; returns length.
@@ -137,18 +165,17 @@ static fe_Object *h_gensym(fe_Context *ctx, fe_Object *args) {
     return fe_symbol(ctx, buf);
 }
 
-/* (bound? sym) -> truthy if sym has a non-nil global binding, else nil. Reads
-** the binding the way evaluation would (a plain lookup, no side effect). nil is
-** absence in this Lisp, so a symbol bound to nil reads as unbound. Errors if the
-** argument isn't a symbol. Read-only — safe in any profile (AMOP "fair use"). */
+/* (bound? sym) -> truthy if sym has a global binding, including a binding whose
+** value is nil. Errors if the argument isn't a symbol. Read-only — safe in any
+** profile (AMOP "fair use"). */
 static fe_Object *h_bound_p(fe_Context *ctx, fe_Object *args) {
     fe_Object *sym = fe_nextarg(ctx, &args);
     if (fe_type(ctx, sym) != FE_TSYMBOL) { fe_error(ctx, "bound?: expected a symbol"); }
-    return fe_bool(ctx, !fe_isnil(ctx, fe_eval(ctx, sym)));
+    return fe_bool(ctx, fe_bound(ctx, sym));
 }
 
 /* (globals) / (globals prefix) -> a FRESH list of the interned symbols that
-** have a non-nil global binding, optionally filtered to those whose name starts
+** have a global binding, optionally filtered to those whose name starts
 ** with `prefix`. Order is unspecified. The list is the caller's to keep; the
 ** symbols are interned singletons (their identity is the public contract), but
 ** the runtime never hands out its internal symbol list (AMOP "fair use rules"):
@@ -168,7 +195,7 @@ static fe_Object *h_globals(fe_Context *ctx, fe_Object *args) {
     gc = fe_savegc(ctx);
     for (p = fe_symbols(ctx); !fe_isnil(ctx, p); p = fe_cdr(ctx, p)) {
         fe_Object *sym = fe_car(ctx, p);
-        if (fe_isnil(ctx, fe_eval(ctx, sym))) { continue; } /* unbound */
+        if (!fe_bound(ctx, sym)) { continue; }
         if (has_prefix) {
             fe_tostring(ctx, sym, name, sizeof name);
             if (strncmp(name, prefix, plen) != 0) { continue; }
@@ -254,34 +281,34 @@ static fe_Object *h_pow(fe_Context *ctx, fe_Object *args) {
 /* to avoid shifting by >= the width (which is undefined in C).        */
 /* ------------------------------------------------------------------ */
 
-static uint32_t arg_u32(fe_Context *ctx, fe_Object **args) {
-    return (uint32_t)(int32_t)arg_num(ctx, args);
+static uint32_t arg_u32(fe_Context *ctx, fe_Object **args, const char *who) {
+    return (uint32_t)arg_i32(ctx, args, who);
 }
 
 static fe_Object *h_bit_and(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args), b = arg_u32(ctx, &args);
+    uint32_t a = arg_u32(ctx, &args, "bit-and"), b = arg_u32(ctx, &args, "bit-and");
     return fe_number(ctx, (fe_Number)(int32_t)(a & b));
 }
 static fe_Object *h_bit_or(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args), b = arg_u32(ctx, &args);
+    uint32_t a = arg_u32(ctx, &args, "bit-or"), b = arg_u32(ctx, &args, "bit-or");
     return fe_number(ctx, (fe_Number)(int32_t)(a | b));
 }
 static fe_Object *h_bit_xor(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args), b = arg_u32(ctx, &args);
+    uint32_t a = arg_u32(ctx, &args, "bit-xor"), b = arg_u32(ctx, &args, "bit-xor");
     return fe_number(ctx, (fe_Number)(int32_t)(a ^ b));
 }
 static fe_Object *h_bit_not(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args);
+    uint32_t a = arg_u32(ctx, &args, "bit-not");
     return fe_number(ctx, (fe_Number)(int32_t)(~a));
 }
 static fe_Object *h_bit_shl(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args);
-    uint32_t n = arg_u32(ctx, &args) & 31u;
+    uint32_t a = arg_u32(ctx, &args, "bit-shl");
+    uint32_t n = arg_u32(ctx, &args, "bit-shl") & 31u;
     return fe_number(ctx, (fe_Number)(int32_t)(a << n));
 }
 static fe_Object *h_bit_shr(fe_Context *ctx, fe_Object *args) {
-    uint32_t a = arg_u32(ctx, &args);
-    uint32_t n = arg_u32(ctx, &args) & 31u; /* logical (zero-fill) shift */
+    uint32_t a = arg_u32(ctx, &args, "bit-shr");
+    uint32_t n = arg_u32(ctx, &args, "bit-shr") & 31u; /* logical (zero-fill) shift */
     return fe_number(ctx, (fe_Number)(int32_t)(a >> n));
 }
 
@@ -466,12 +493,12 @@ static fe_Object *h_repr(fe_Context *ctx, fe_Object *args) {
 ** contracts from deck-state-seeded templates, so reproducible procedural
 ** generation must be byte-identical on every host. A fixed seed therefore
 ** yields a fixed sequence everywhere — see tests/core/rng.lsp (golden value).
-** The state is a single 64-bit word, initialized to a fixed nonzero default
-** so an unseeded `rand` is still deterministic across runs. */
-static uint64_t g_rng_state = 0x9E3779B97F4A7C15ULL;
-
-static uint64_t rng_next(void) {
-    uint64_t z = (g_rng_state += 0x9E3779B97F4A7C15ULL);
+** Each interpreter owns one 64-bit state word, initialized to a fixed nonzero
+** default so an unseeded `rand` is deterministic without leaking across
+** contexts. */
+static uint64_t rng_next(fe_Context *ctx) {
+    kec_HostState *state = kec_host_state(ctx);
+    uint64_t z = (state->rng_state += 0x9E3779B97F4A7C15ULL);
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
     z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
     return z ^ (z >> 31);
@@ -480,21 +507,21 @@ static uint64_t rng_next(void) {
 /* (set-seed! n) — reseed the PRNG from n, returning n. Used so deck-state seeds
 ** make `rand`/`rand-int` reproducible. */
 static fe_Object *h_set_seed(fe_Context *ctx, fe_Object *args) {
-    fe_Number n = arg_num(ctx, &args);
-    g_rng_state = (uint64_t)(int64_t)n;
-    return fe_number(ctx, n);
+    int32_t n = arg_i32(ctx, &args, "set-seed!");
+    kec_host_state(ctx)->rng_state = (uint64_t)(int64_t)n;
+    return fe_number(ctx, (fe_Number)n);
 }
 
 static fe_Object *h_rand(fe_Context *ctx, fe_Object *args) {
     /* Top 53 bits -> a double in [0,1), then narrowed to fe_Number. */
     (void)args;
-    return fe_number(ctx, (fe_Number)((double)(rng_next() >> 11) *
+    return fe_number(ctx, (fe_Number)((double)(rng_next(ctx) >> 11) *
                                       (1.0 / 9007199254740992.0)));
 }
 static fe_Object *h_rand_int(fe_Context *ctx, fe_Object *args) {
-    int n = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int32_t n = arg_i32(ctx, &args, "rand-int");
     if (n <= 0) { return fe_number(ctx, 0); }
-    return fe_number(ctx, (fe_Number)(uint32_t)((rng_next() >> 16) % (uint64_t)n));
+    return fe_number(ctx, (fe_Number)(uint32_t)((rng_next(ctx) >> 16) % (uint64_t)n));
 }
 static fe_Object *h_clock(fe_Context *ctx, fe_Object *args) {
     (void)args;
@@ -688,7 +715,7 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     kec_bind_fe(ctx, "rand-int", h_rand_int);
     kec_bind_fe(ctx, "clock", h_clock);
     /* Containers (vectors + hash tables) — portable, safe in any profile.
-    ** Also installs the FE_TPTR mark/gc handlers (see host/containers.c). */
+    ** Registers a composable typed-FE_TPTR lifecycle (see containers.c). */
     kec_containers_register(ctx);
 
     if (profile == KEC_PROFILE_FULL) {

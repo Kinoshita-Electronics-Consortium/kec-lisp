@@ -125,8 +125,8 @@ Evaluation follows the usual Lisp shape:
 6. Special forms such as `if`, `let`, `set`, `fn`, `mac`, `quote`, `and`, `or`,
    `while`, and `do` control their own evaluation rules.
 
-There is no Lisp-level `eval`. `(read-string s)` parses one s-expression and
-returns it as data; it does not run it.
+`(read-string s)` parses one s-expression and returns it as data; it does not
+run it. `FULL` contexts also bind Lisp-level `eval`; `SANDBOX` contexts do not.
 
 ## Binding And Functions
 
@@ -238,8 +238,8 @@ numeric filename order.
 
 Each definition form returns the value it defines, which makes REPL output and
 definition chaining more useful than bare `set`. `defvar` only assigns when
-`name` is currently **unbound**, so a user/config value set earlier survives a
-later library load.
+`name` is currently **unbound**, so a user/config value set earlier—including
+`nil`—survives a later library load.
 
 ### Lists
 
@@ -379,7 +379,7 @@ and substring tests.
 |---|---|
 | `(char-upcase c)` / `(char-downcase c)` | Shift an `a`–`z` / `A`–`Z` char code; any other code passes through unchanged. |
 | `(string-upcase s)` / `(string-downcase s)` | Case-fold every character of `s`. |
-| `(pad-left s width [pad])` / `(pad-right s width [pad])` | Pad `s` to `width` with `pad` (default `" "`). Never truncates: an `s` already ≥ `width` is returned unchanged. |
+| `(pad-left s width [pad])` / `(pad-right s width [pad])` | Pad `s` to `width` with the one-character string `pad` (default `" "`). Empty or multi-character pads raise. Never truncates: an `s` already ≥ `width` is returned unchanged. |
 | `(string-repeat s n)` | `s` concatenated `n` times; `n ≤ 0` yields `""`. |
 | `(string-prefix? s affix)` / `(string-suffix? s affix)` | Does `s` start / end with `affix`? Empty affix → true; an affix longer than `s` → false. |
 | `(string-contains? s needle)` | Truthy if `needle` occurs anywhere in `s` (empty needle → true). |
@@ -431,12 +431,12 @@ Common host forms:
 | `(try thunk)` | Run `(thunk)`. Return its value, or an error value `(:error . "message")` on failure. |
 | `(raise message)` | Raise a catchable script error. `message` is stringified before it reaches the runtime error handler. |
 | `(apply f arglist)` | Call `f` with the elements of `arglist`; `f` may be a closure, host primitive, or kernel primitive. |
-| `(read-string s)` | Parse the first s-expression in `s` and return it as data, without evaluating it. Empty input returns `nil`. |
+| `(read-string s)` | Parse the first s-expression in `s` and return it as data, without evaluating it. Empty input returns `nil`; input length is not clipped to a fixed reader buffer. |
 | `(macroexpand-1 form)` | Expand one symbolic macro call, or return `form` unchanged. Quote the form to inspect: `(macroexpand-1 '(when 1 2))`. |
 | `(macroexpand form)` | Full expansion: loop `macroexpand-1` to a fixpoint. Core macro (`core/36-recover`), not a host primitive. |
-| `(bit-and a b)` / `(bit-or a b)` / `(bit-xor a b)` / `(bit-not a)` / `(bit-shl a n)` / `(bit-shr a n)` | 32-bit integer bitwise ops. Operands are taken mod 2³² (a negative number uses its two's-complement bits, e.g. `(bit-and -1 255)` → `255`). `bit-shr` is a **logical** (zero-fill) right shift; shift counts are masked to `n & 31`. Exact only within ±2²⁴ like any KEC number. |
-| `(set-seed! n)` | Reseed the self-contained PRNG from `n` and return `n`. A fixed seed makes `rand` / `rand-int` **reproducible** across runs and platforms (deck-state-seeded generation). |
-| `(bound? sym)` | Truthy if `sym` has a non-nil global binding. `nil` is absence here, so a symbol bound to `nil` reads as unbound. Errors if the argument is not a symbol: `(bound? 'car)`. |
+| `(bit-and a b)` / `(bit-or a b)` / `(bit-xor a b)` / `(bit-not a)` / `(bit-shl a n)` / `(bit-shr a n)` | 32-bit integer bitwise ops. Operands must be finite, integral, and in signed 32-bit range; invalid inputs raise instead of truncating. Negative operands use two's-complement bits, e.g. `(bit-and -1 255)` → `255`. `bit-shr` is a **logical** (zero-fill) right shift; shift counts are masked to `n & 31`. Results remain subject to KEC's single-precision number limit. |
+| `(set-seed! n)` | Reseed this interpreter's self-contained PRNG from a signed 32-bit integer and return `n`. A fixed seed makes `rand` / `rand-int` **reproducible** across runs and platforms without sharing state between contexts. `rand-int` likewise requires an integral bound. |
+| `(bound? sym)` | Truthy if `sym` has a global binding, even when its value is `nil`. Errors if the argument is not a symbol: `(bound? 'car)`. |
 | `(globals [prefix])` | A fresh list of the globally-bound symbols, optionally filtered to names starting with `prefix`. Order is unspecified; treat the list as read-only (it is yours to keep, but the symbols are interned). `(globals "string-")`. |
 | `(fn-params f)` | The parameter list of a closure or macro (a fresh copy), `nil` for a built-in (no Lisp parameters), or an error if `f` is not a function. For `describe-function`-style help. |
 | `(read-all s)` | Parse **every** top-level form of `s` and return them as a list in source order (the multi-form companion to `read-string`). Nothing is evaluated. Empty/blank input returns `nil`. |
@@ -464,9 +464,9 @@ over the primitives.
 
 | Form | Meaning |
 |---|---|
-| `(make-vector n [init])` | A fixed-length vector of `n` elements, each `init` (default `nil`). |
+| `(make-vector n [init])` | A fixed-length vector of integer length `n`, each element `init` (default `nil`). Fractional or unsafe lengths raise. |
 | `(vector a b ...)` | A vector of the given elements. |
-| `(vector-ref v i)` / `(vector-set! v i x)` | 0-based indexed read / write; both raise on an out-of-range index. `vector-set!` returns `x`. |
+| `(vector-ref v i)` / `(vector-set! v i x)` | 0-based integer indexed read / write; both raise on a fractional or out-of-range index. `vector-set!` returns `x`. |
 | `(vector-length v)` / `(vector? x)` | Element count / type test. |
 | `(make-hash-table)` | An empty hash table. Keys may be **numbers** (by value), **symbols** (by identity), or **strings** (by content); any other key type raises. |
 | `(hash-set! h k v)` / `(hash-ref h k [default])` | Associate `k`→`v` (returns `v`) / look `k` up, returning `default` (or `nil`) when absent. |
@@ -499,6 +499,7 @@ or `(try ...)`.
 | Vectors/hash compare by identity | They are `:ptr` objects; `=`/`is` test identity. Use `vector->list`/`hash->alist` + `equal?` for content. String hash keys compare over their first 1024 bytes. |
 | `eval` is `FULL`-tier | `SANDBOX` contexts have no `eval`; use macros for code generation and `read-string`/`read-all` to parse data. |
 | Strings are null-terminated | Strings are not binary-safe. |
+| Integer-only host APIs validate | Vector sizes/indices, bitwise operands, RNG seeds, and `rand-int` bounds reject fractional, non-finite, or unsafe values instead of silently narrowing them. |
 
 For implementation details, see [Fe Kernel - Internals](/kec-lisp/fe-kernel/)
 and [Memory Model](/kec-lisp/memory-model/).

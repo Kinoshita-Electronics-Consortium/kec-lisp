@@ -31,6 +31,12 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile);
 
 void kec_close(kec_State *S);
 
+/* Select the allocator used by containers subsequently created in this
+** interpreter. Existing containers retain their original allocator/free pair. */
+void kec_set_container_allocator_for(kec_State *S,
+                                     void *(*alloc)(size_t),
+                                     void (*free_)(void *));
+
 /* Underlying Fe context — for downstream FFI extension (kec_bind_fe). */
 fe_Context *kec_fe(kec_State *S);
 
