@@ -28,20 +28,11 @@
 
 ;; ---- line splitting (on byte 10 = newline) ---------------------------------
 ;; Always returns at least one line. "" -> ("") ; "a\nb" -> ("a" "b") ;
-;; "a\n" -> ("a" "") ; "\n" -> ("" "").
-(defn %split-lines (s)
-  (let lines nil)                       ; accumulated reversed
-  (let n (string-length s))
-  (let start 0)
-  (let i 0)
-  (while (< i n)
-    (if (is (string-ref s i) 10)
-        (do
-          (set lines (cons (substring s start i) lines))
-          (set start (+ i 1))))
-    (set i (+ i 1)))
-  (set lines (cons (substring s start n) lines))   ; trailing segment
-  (reverse lines))
+;; "a\n" -> ("a" "") ; "\n" -> ("" ""). One O(n) pass via the host `string-split`
+;; primitive — the old per-index `(string-ref s i)` loop was O(n^2) (string-ref
+;; restringifies the whole object each call), so opening a large file hung for
+;; tens of seconds.
+(defn %split-lines (s) (string-split s 10))
 
 ;; ---- constructor ------------------------------------------------------------
 ;; (text-open name content) — a text buffer named `name` holding `content`.

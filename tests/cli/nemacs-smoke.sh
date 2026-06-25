@@ -59,9 +59,17 @@ if ! cmp -s "$tmp" "$exp"; then
   rm -f "$tmp" "$exp"; exit 1
 fi
 
-# NOTE: a >64 KB byte-exact round-trip (covering the 64 KB save-truncation fix)
-# lives with the linear file-open work — until %split-lines is O(n), opening a
-# large file is too slow to use as a smoke test. See the O(n^2) file-open task.
+# --- large file (>64 KB) round-trips byte-exact. Covers two fixes: save no
+#     longer truncates at a 64 KB C buffer (it routes through write-file), and
+#     opening is now O(n) (linear %split-lines) so this completes instantly
+#     instead of hanging ~20s on the old O(n^2) splitter. ---
+{ head -c 70000 /dev/zero | tr '\0' 'a'; printf '\n'; } > "$tmp"
+cp "$tmp" "$exp"
+printf '\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
+if ! cmp -s "$tmp" "$exp"; then
+  echo "FAIL: large-file save not byte-exact; expected $(wc -c < "$exp") bytes, got $(wc -c < "$tmp")"
+  rm -f "$tmp" "$exp"; exit 1
+fi
 
 # --- quit guard, save path: edit then C-x C-c answered 'y' SAVES before exit. ---
 printf 'orig\n' > "$tmp"

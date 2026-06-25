@@ -21,6 +21,24 @@
   keys** navigate (↑↓ siblings, →/← descend/ascend), and `e` evaluates the current
   top-level form. `tests/editor/{buffer,prompt}.lsp` (+10 checks);
   `tests/cli/edit-smoke.sh` covers literal insert.
+- **`string-split`** (host, both profiles) — `(string-split s sepcode)` splits a
+  string on every occurrence of a byte (a char code, as `string-ref` returns) in
+  one O(n) pass; N separators yield N+1 segments. The char-level sibling of
+  `string-ref`/`substring`. Core `split` and the knEmacs line splitter
+  (`%split-lines`) are rewritten on top of it.
+
+### Fixed
+- **knEmacs file-open is no longer O(n²).** `%split-lines` (and Core `split`) used
+  `(string-ref s i)` per index, and `string-ref` restringifies the whole object
+  each call, so opening a ~70 KB file hung for ~23s. Now linear via `string-split`
+  (instant). `tests/cli/nemacs-smoke.sh` adds a >64 KB byte-exact round-trip.
+- **knEmacs save is byte-exact and never accretes a trailing line.** `C-x C-s`
+  routes through the length-aware `write-file` instead of a fixed 64 KB C buffer
+  (no silent truncation past 64 KB) and writes the buffer verbatim — the old
+  unconditional trailing `\n` grew the file by a blank line on every save. A
+  successful save also clears the modeline `*`.
+- **knEmacs `C-x C-c` guards unsaved edits.** Quitting a modified buffer now
+  prompts (y saves / n drops / C-g cancels) instead of discarding silently.
 
 ### Changed
 - **Load-bearing standard globals are protected from rebinding.** Kernel
