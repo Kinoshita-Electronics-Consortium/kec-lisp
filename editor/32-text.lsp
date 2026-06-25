@@ -67,6 +67,10 @@
 ;; ---- internal helpers -------------------------------------------------------
 (defn %text-set-col! (b c) (vector-set! b 3 c) b)
 (defn %text-mark! (b) (vector-set! b 5 t) b)
+;; (text-mark-saved! b) — clear the dirty flag after a successful save, so the
+;; modeline drops its "*" and the host's quit guard knows there is nothing to
+;; lose. The host calls this once `write-file` has succeeded; content is untouched.
+(defn text-mark-saved! (b) (vector-set! b 5 nil) b)
 ;; clamp col into [0, len cur] (after a vertical move onto a shorter line)
 (defn %text-clamp-col! (b)
   (let n (string-length (text-cur b)))

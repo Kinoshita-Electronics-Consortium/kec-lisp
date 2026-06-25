@@ -251,20 +251,26 @@ static void edit_do(kec_State *S, const char *src, char *status, size_t ssz) {
     }
 }
 
-/* C-x C-s — write the buffer back to FILE (save-buffer). */
+/* C-x C-s — write the buffer back to FILE (save-buffer).
+** Routed through the length-aware (write-file ...) FFI primitive: the whole
+** buffer is written byte-exact at any size (no fixed C buffer to truncate) and
+** VERBATIM. text->string already carries the buffer's trailing newline, so we
+** must NOT append one — the old `fputc('\n')` grew the file by a blank line on
+** every save. On success the dirty flag is cleared so the modeline drops its "*"
+** and the quit guard knows there is nothing left to lose. */
 static void save_buffer(kec_State *S, const char *file, char *status, size_t ssz) {
-    fe_Object *v = NULL;
+    Strbuf q = {0};
     if (!file) { snprintf(status, ssz, "No file (open with: kec nemacs FILE)"); return; }
-    if (kec_eval_string(S, "(text->string *nemacs*)", &v) == 0
-        && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
-        static char buf[1 << 16];
-        FILE *fp;
-        fe_tostring(kec_fe(S), v, buf, sizeof buf);
-        fp = fopen(file, "wb");
-        if (fp) { fputs(buf, fp); fputc('\n', fp); fclose(fp);
-                  snprintf(status, ssz, "Wrote %s", file); }
-        else    { snprintf(status, ssz, "! cannot write %s", file); }
+    sb_puts(&q, "(write-file \"");
+    sb_put_escaped(&q, file);
+    sb_puts(&q, "\" (text->string *nemacs*))");
+    if (kec_eval_string(S, q.p, NULL) == 0) {
+        kec_eval_string(S, "(text-mark-saved! *nemacs*)", NULL);
+        snprintf(status, ssz, "Wrote %s", file);
+    } else {
+        snprintf(status, ssz, "! cannot write %s", file);
     }
+    free(q.p);
 }
 
 /* Eval `expr`, expecting a string; copy it into `out`. Returns 1 on success. */
@@ -275,6 +281,61 @@ static int lisp_str(kec_State *S, const char *expr, char *out, size_t n) {
         return 1;
     }
     return 0;
+}
+
+/* Does the buffer have unsaved edits? Drives the quit guard. */
+static int buffer_modified(kec_State *S) {
+    char m[4];
+    return lisp_str(S, "(if (text-modified? *nemacs*) \"1\" \"0\")", m, sizeof m)
+           && m[0] == '1';
+}
+
+/* Paint one editor frame: clear the screen, ask the Lisp renderer for the
+** modeline + text window + echo line (with `status` on the echo line) and print
+** it. text-screen emits only the visible window, so the screen buffer is bounded
+** by the terminal size, never the buffer size. */
+static void render_frame(kec_State *S, int cols, int rows, const char *status) {
+    Strbuf call = {0};
+    char dims[40];
+    fe_Object *v = NULL;
+    printf("\x1b[2J\x1b[H");
+    sb_puts(&call, "(text-screen *nemacs*");
+    snprintf(dims, sizeof dims, " %d %d \"", cols, rows);
+    sb_puts(&call, dims);
+    sb_put_escaped(&call, status);
+    sb_puts(&call, "\")");
+    if (kec_eval_string(S, call.p, &v) == 0 && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
+        static char scr[1 << 16];
+        fe_tostring(kec_fe(S), v, scr, sizeof scr);
+        fputs(scr, stdout);
+    }
+    free(call.p);
+    fflush(stdout);
+}
+
+/* C-x C-c with unsaved edits: ask before discarding (Emacs never drops work
+** silently). Returns 1 to proceed with the exit — saving first when the user
+** answers y and a file is open — or 0 to cancel and stay. A clean buffer has
+** nothing to ask, so it exits straight away. */
+static int confirm_quit(kec_State *S, const char *file, int cols, int rows,
+                        char *status, size_t ssz) {
+    const char *prompt;
+    if (!buffer_modified(S)) { return 1; }
+    prompt = file ? "Save modified buffer before quit? (y/n, C-g cancel)"
+                  : "Modified buffer has no file; quit and lose changes? (y/n, C-g cancel)";
+    for (;;) {
+        int c;
+        render_frame(S, cols, rows, prompt);
+        c = getchar();
+        if (c == EOF) { return 1; }                          /* input closed: exit */
+        if (c == 'y' || c == 'Y') {
+            if (file) { save_buffer(S, file, status, ssz); }
+            return 1;
+        }
+        if (c == 'n' || c == 'N') { return 1; }
+        if (c == 7) { snprintf(status, ssz, "\aQuit cancelled"); return 0; }  /* C-g */
+        /* any other key: re-ask */
+    }
 }
 
 /* Normalize one terminal keystroke into canonical Emacs key notation
@@ -359,24 +420,7 @@ static int do_nemacs(const char *file) {
         /* Render the frame: clear, then paint the text buffer. The renderer lays
         ** out modeline + text window + the status/echo line and parks the cursor
         ** at point, so the host just prints what it returns. */
-        printf("\x1b[2J\x1b[H");
-        {
-            Strbuf call = {0};
-            char dims[40];
-            fe_Object *v = NULL;
-            sb_puts(&call, "(text-screen *nemacs*");
-            snprintf(dims, sizeof dims, " %d %d \"", cols, rows);
-            sb_puts(&call, dims);
-            sb_put_escaped(&call, status);
-            sb_puts(&call, "\")");
-            if (kec_eval_string(S, call.p, &v) == 0 && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
-                static char scr[1 << 16];
-                fe_tostring(kec_fe(S), v, scr, sizeof scr);
-                fputs(scr, stdout);
-            }
-            free(call.p);
-        }
-        fflush(stdout);
+        render_frame(S, cols, rows, status);
 
         c = getchar();
         if (c == EOF) { break; }
@@ -434,7 +478,7 @@ static int do_nemacs(const char *file) {
             } else if (strcmp(tag, "host:save-buffer") == 0) {
                 save_buffer(S, file, status, sizeof status);
             } else if (strcmp(tag, "host:exit-editor") == 0) {
-                break;
+                if (confirm_quit(S, file, cols, rows, status, sizeof status)) { break; }
             } else if (strcmp(tag, "host:keyboard-quit") == 0) {
                 snprintf(status, sizeof status, "\aQuit");
             } else if (key[0]) {                          /* "undefined" */

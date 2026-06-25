@@ -106,3 +106,11 @@
   (check (string-contains? s "ready"))
   ;; ends with a cursor-park escape: ESC [ row ; col H
   (check (string-suffix? s "H")))
+
+(deftest "text/mark-saved-clears-modified"
+  (let b (mk "abc"))
+  (text-insert! b "x")                   ; now dirty
+  (check (text-modified? b))
+  (text-mark-saved! b)                   ; a successful save clears the dirty flag
+  (check (not (text-modified? b)))
+  (check (= (text->string b) "xabc")))   ; content is untouched

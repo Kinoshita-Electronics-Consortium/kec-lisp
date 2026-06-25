@@ -64,11 +64,15 @@ after a save, a help line after `C-h k`, or `… is undefined` for an unbound ke
 
 ## Saving and quitting
 
-- `C-x C-s` writes the buffer back to its file and reports `Wrote …`.
+- `C-x C-s` writes the buffer back to its file (byte-exact, at any size) and
+  reports `Wrote …`. A successful save clears the modeline `*`.
 - A bare `kec nemacs` (no file) has nothing to save to — `C-x C-s` will say
   *"No file"*. Pass a path if you want to keep what you type.
-- There is **no prompt-to-save on quit yet** — `C-x C-c` exits immediately and
-  unsaved edits are dropped. Save first.
+- `C-x C-c` **prompts before discarding unsaved edits**. With a clean buffer it
+  exits immediately; with unsaved changes it asks `Save modified buffer before
+  quit? (y/n, C-g cancel)` — `y` saves and exits, `n` exits and drops the edits,
+  `C-g` cancels and returns you to the buffer. (A modified `*scratch*` with no
+  file warns that the changes will be lost.)
 
 ## How it works
 
