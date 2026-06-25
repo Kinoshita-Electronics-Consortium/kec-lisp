@@ -49,6 +49,16 @@
 - **knEmacs `Tab` indents** to the next width-2 tab stop with soft spaces (kept
   in sync with the fixed grid), instead of beeping "TAB is undefined".
 
+### Added (knEmacs undo)
+- **knEmacs undo/redo, command-based.** Each edit records its inverse operation
+  (an insert/delete span) rather than a whole-buffer snapshot, so history is cheap
+  on large files. `C-/` / `C-x u` undo, `M-/` redo; consecutive typing coalesces
+  into one undo step; a fresh edit clears the redo stack. Bounded history (512
+  records). The edit ops are split into raw mutators (`%text-raw-*`) and recording
+  wrappers so undo replay never re-records. `tests/editor/text.lsp` covers
+  insert/newline/backspace/forward-delete/join undo, redo, coalescing, and
+  redo-clear; the nemacs smoke covers a type→undo→redo round-trip.
+
 ### Changed
 - **Load-bearing standard globals are protected from rebinding.** Kernel
   primitives, host/runtime primitives, Core functions/macros, and private Core

@@ -150,6 +150,73 @@
   (check (string-contains? s ";10H"))    ; cursor parked at col 10 (== cols), on-screen
   (check (not (string-contains? s ";21H"))))   ; NOT off the right edge (pcol+1)
 
+;; ---- undo / redo (command-based) -------------------------------------------
+(deftest "text/undo-insert"
+  (let b (mk "abc"))
+  (text-insert! b "X")                   ; "Xabc"
+  (check (= (text->string b) "Xabc"))
+  (text-undo! b)
+  (check (= (text->string b) "abc")))
+
+(deftest "text/undo-coalesces-typing"
+  (let b (mk ""))
+  (text-insert! b "h") (text-insert! b "i") (text-insert! b "!")
+  (check (= (text->string b) "hi!"))
+  (text-undo! b)                         ; one undo removes the whole contiguous run
+  (check (= (text->string b) "")))
+
+(deftest "text/undo-newline"
+  (let b (mk "abcd"))
+  (text-forward! b) (text-forward! b)    ; col 2
+  (text-newline! b)                      ; "ab\ncd"
+  (check (= (text->string b) "ab\ncd"))
+  (text-undo! b)                         ; rejoin
+  (check (= (text->string b) "abcd")))
+
+(deftest "text/undo-backspace"
+  (let b (mk "abc"))
+  (text-eol! b)                          ; col 3
+  (text-backspace! b)                    ; "ab"
+  (check (= (text->string b) "ab"))
+  (text-undo! b)                         ; restore the deleted char
+  (check (= (text->string b) "abc")))
+
+(deftest "text/undo-delete-forward"
+  (let b (mk "abc"))                     ; col 0
+  (text-delete! b)                       ; "bc"
+  (check (= (text->string b) "bc"))
+  (text-undo! b)
+  (check (= (text->string b) "abc")))
+
+(deftest "text/undo-backspace-join-resplits"
+  (let b (mk "ab\ncd"))
+  (text-next-line! b) (text-bol! b)      ; row1 col0
+  (text-backspace! b)                    ; join -> "abcd"
+  (check (= (text->string b) "abcd"))
+  (text-undo! b)                         ; must re-split
+  (check (= (text->string b) "ab\ncd")))
+
+(deftest "text/redo"
+  (let b (mk ""))
+  (text-insert! b "x")
+  (text-undo! b)
+  (check (= (text->string b) ""))
+  (text-redo! b)
+  (check (= (text->string b) "x")))
+
+(deftest "text/edit-clears-redo"
+  (let b (mk ""))
+  (text-insert! b "x") (text-undo! b)    ; redo now has the insert
+  (text-insert! b "y")                   ; a fresh edit clears redo
+  (text-redo! b)                         ; no-op
+  (check (= (text->string b) "y")))
+
+(deftest "text/undo-empty-is-noop"
+  (let b (mk "abc"))
+  (check (not (text-can-undo? b)))
+  (text-undo! b)
+  (check (= (text->string b) "abc")))
+
 (deftest "text/mark-saved-clears-modified"
   (let b (mk "abc"))
   (text-insert! b "x")                   ; now dirty

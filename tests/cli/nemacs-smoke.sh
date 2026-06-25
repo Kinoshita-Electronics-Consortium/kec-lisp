@@ -81,6 +81,16 @@ if ! cmp -s "$tmp" "$exp"; then
   rm -f "$tmp" "$exp"; exit 1
 fi
 
+# --- undo + redo: type "hi", C-/ undoes the run, M-/ redoes it, save -> "hi".
+#     Exercises host dispatch of C-/ (byte 037) and M-/ (ESC /) to buffer verbs. ---
+printf '' > "$tmp"
+printf 'hi\037\033/\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
+printf 'hi' > "$exp"
+if ! cmp -s "$tmp" "$exp"; then
+  echo "FAIL: undo/redo expected 'hi', got: [$(cat "$tmp")]"
+  rm -f "$tmp" "$exp"; exit 1
+fi
+
 # --- quit guard, save path: edit then C-x C-c answered 'y' SAVES before exit. ---
 printf 'orig\n' > "$tmp"
 printf 'X\030\003y' | "$KEC" nemacs "$tmp" >/dev/null 2>&1

@@ -10,7 +10,8 @@
 ;; command (the lite "structure-as-a-lens" pattern). See the plan / ADR-0046.
 ;;
 ;; Representation: a LINE ZIPPER (the classic editor structure, no list indexing)
-;;   record = vector [above cur below col name modified? scroll goal hscroll]
+;;   record = vector [above cur below col name modified? scroll goal hscroll
+;;                     undo redo]
 ;;     above  : reversed list of the lines ABOVE the cursor line
 ;;     cur    : the current line (a string)
 ;;     below  : the lines BELOW the cursor line, in order
@@ -21,6 +22,8 @@
 ;;     goal   : desired column for vertical motion — C-n/C-p aim here and clamp
 ;;              to shorter lines without forgetting it (Emacs goal-column feel)
 ;;     hscroll: leftmost visible column (owned by the renderer; long-line scroll)
+;;     undo   : stack of inverse edit records (command-based undo; head = newest)
+;;     redo   : stack of records undone, for redo (cleared by any fresh edit)
 ;;   point-row is implicit = (length above).
 ;;
 ;; Every keystroke touches only `cur` (a substring/string-append splice) or
@@ -42,8 +45,8 @@
 ;; Cursor seated at the top-left (row 0, col 0); not modified.
 (defn text-open (name content)
   (let lines (%split-lines content))
-  ;; slots: above cur below col name modified? scroll goal hscroll
-  (vector nil (car lines) (cdr lines) 0 name nil 0 0 0))
+  ;; slots: above cur below col name modified? scroll goal hscroll undo redo
+  (vector nil (car lines) (cdr lines) 0 name nil 0 0 0 nil nil))
 
 ;; ---- accessors --------------------------------------------------------------
 (defn text-above (b)     (vector-ref b 0))
@@ -142,41 +145,42 @@
   (text-eol! b))
 
 ;; ============================================================================
-;; EDITING — splice `cur` or join/split lines; marks modified.
+;; EDITING
+;;
+;; Two layers. The %text-raw-* ops are the pure mutators: they splice `cur` or
+;; join/split lines and mark the buffer dirty, but DO NOT touch undo. The public
+;; text-* wrappers RECORD the inverse edit on the undo stack (slot 9) and clear
+;; the redo stack (slot 10), then call the raw op. Undo/redo replay records via
+;; the raw ops, so they never re-record. Undo is COMMAND-BASED (we store the
+;; inverse operation, not a whole-buffer snapshot) so it stays cheap on a large
+;; file — only the changed span is kept.
+;;
+;; An undo record is (op row col text): op is ':ins (insert `text` at row/col) or
+;; ':del (delete `text`, which is currently at row/col). The two are inverses.
 ;; ============================================================================
 
-;; (text-insert! b s) — insert string s (usually one char) at point; advance col.
-(defn text-insert! (b s)
+;; ---- raw mutators (no undo) -------------------------------------------------
+(defn %text-raw-insert! (b s)
   (let cur (text-cur b))
   (let c (text-col b))
-  (let left (substring cur 0 c))
-  (let right (substring cur c (string-length cur)))
-  (vector-set! b 1 (string-append left s right))
+  (vector-set! b 1 (string-append (substring cur 0 c) s (substring cur c (string-length cur))))
   (vector-set! b 3 (+ c (string-length s)))
   (%text-mark! b))
 
-;; (text-newline! b) — split cur at point; the left half becomes a finished line
-;; above, the right half becomes the new cur; col -> 0.
-(defn text-newline! (b)
+(defn %text-raw-newline! (b)
   (let cur (text-cur b))
   (let c (text-col b))
-  (let left (substring cur 0 c))
-  (let right (substring cur c (string-length cur)))
-  (vector-set! b 0 (cons left (text-above b)))
-  (vector-set! b 1 right)
+  (vector-set! b 0 (cons (substring cur 0 c) (text-above b)))
+  (vector-set! b 1 (substring cur c (string-length cur)))
   (vector-set! b 3 0)
   (%text-mark! b))
 
-;; (text-backspace! b) — delete the char before point; at col 0, join with the
-;; previous line (cursor lands at the seam). No-op at the very start of buffer.
-(defn text-backspace! (b)
+(defn %text-raw-backspace! (b)
   (let cur (text-cur b))
   (let c (text-col b))
   (if (< 0 c)
       (do
-        (let left (substring cur 0 (- c 1)))
-        (let right (substring cur c (string-length cur)))
-        (vector-set! b 1 (string-append left right))
+        (vector-set! b 1 (string-append (substring cur 0 (- c 1)) (substring cur c (string-length cur))))
         (vector-set! b 3 (- c 1))
         (%text-mark! b))
       (if (text-above b)
@@ -188,24 +192,100 @@
             (%text-mark! b))
           b)))
 
-;; (text-delete! b) — delete the char at point (forward); at end-of-line, join
-;; the next line up. No-op at the very end of buffer.
-(defn text-delete! (b)
+(defn %text-raw-delete! (b)
   (let cur (text-cur b))
   (let c (text-col b))
   (let n (string-length cur))
   (if (< c n)
       (do
-        (let left (substring cur 0 c))
-        (let right (substring cur (+ c 1) n))
-        (vector-set! b 1 (string-append left right))
+        (vector-set! b 1 (string-append (substring cur 0 c) (substring cur (+ c 1) n)))
         (%text-mark! b))
       (if (text-below b)
           (do
-            (let nxt (car (text-below b)))
+            (let nxt (car (text-below b)))        ; capture BEFORE mutating below
             (vector-set! b 2 (cdr (text-below b)))
             (vector-set! b 1 (string-append cur nxt))
             (%text-mark! b))
+          b)))
+
+;; raw compound ops used by undo replay (and by yank): insert a string that may
+;; contain newlines, and delete k forward "characters" (a line join counts as 1).
+(defn %text-raw-insert-string! (b s)
+  (let parts (%split-lines s))
+  (%text-raw-insert! b (car parts))
+  (set parts (cdr parts))
+  (while parts
+    (%text-raw-newline! b)
+    (%text-raw-insert! b (car parts))
+    (set parts (cdr parts)))
+  b)
+
+(defn %text-raw-delete-forward! (b k)
+  (let i 0)
+  (while (< i k) (%text-raw-delete! b) (set i (+ i 1)))
+  b)
+
+;; ---- undo / redo bookkeeping ------------------------------------------------
+(define %text-undo-cap 512)            ; bounded history (device discipline)
+
+;; push `rec` onto the undo stack (slot 9), bounded; clear redo (slot 10).
+(defn %text-record! (b rec)
+  (vector-set! b 9 (take (cons rec (vector-ref b 9)) %text-undo-cap))
+  (vector-set! b 10 nil)
+  b)
+
+;; ---- recording edit commands (the bound verbs) ------------------------------
+;; (text-insert! b s) — insert s (one line, no newline) at point. Consecutive
+;; inserts that abut the previous run COALESCE into one undo step (typing a word
+;; undoes at once).
+(defn text-insert! (b s)
+  (let r (text-point-row b))
+  (let c (text-col b))
+  (let stack (vector-ref b 9))
+  (let top (if stack (car stack) nil))
+  (if (and top (is (nth top 0) ':del) (is (nth top 1) r)
+           (is (+ (nth top 2) (string-length (nth top 3))) c))
+      (do                                ; extend the pending delete-span
+        (vector-set! b 9 (cons (list ':del (nth top 1) (nth top 2)
+                                     (string-append (nth top 3) s))
+                               (cdr stack)))
+        (vector-set! b 10 nil))
+      (%text-record! b (list ':del r c s)))
+  (%text-raw-insert! b s))
+
+;; (text-newline! b) — split the line at point.
+(defn text-newline! (b)
+  (%text-record! b (list ':del (text-point-row b) (text-col b) (char->string 10)))
+  (%text-raw-newline! b))
+
+;; (text-backspace! b) — delete the char before point; at col 0 join the previous
+;; line. No-op (and no undo record) at the very start of buffer.
+(defn text-backspace! (b)
+  (let r (text-point-row b))
+  (let c (text-col b))
+  (let cur (text-cur b))
+  (if (< 0 c)
+      (do (%text-record! b (list ':ins r (- c 1) (substring cur (- c 1) c)))
+          (%text-raw-backspace! b))
+      (if (text-above b)
+          (do (%text-record! b (list ':ins (- r 1) (string-length (car (text-above b)))
+                                     (char->string 10)))
+              (%text-raw-backspace! b))
+          b)))
+
+;; (text-delete! b) — delete the char at point (forward); at end-of-line join the
+;; next line. No-op (and no undo record) at the very end of buffer.
+(defn text-delete! (b)
+  (let r (text-point-row b))
+  (let c (text-col b))
+  (let cur (text-cur b))
+  (let n (string-length cur))
+  (if (< c n)
+      (do (%text-record! b (list ':ins r c (substring cur c (+ c 1))))
+          (%text-raw-delete! b))
+      (if (text-below b)
+          (do (%text-record! b (list ':ins r c (char->string 10)))
+              (%text-raw-delete! b))
           b)))
 
 ;; (text-insert-tab! b) — TAB: insert spaces up to the next tab stop (width 2),
@@ -215,6 +295,48 @@
 (define %text-tab-width 2)
 (defn text-insert-tab! (b)
   (text-insert! b (pad-right "" (- %text-tab-width (mod (text-col b) %text-tab-width)))))
+
+;; ---- jump to an absolute position (for undo replay) -------------------------
+;; (text-goto! b row col) — move point to (row, col), clamping col to the line.
+(defn text-goto! (b row col)
+  (text-beg! b)
+  (let r 0)
+  (while (< r row) (text-next-line! b) (set r (+ r 1)))
+  (let n (string-length (text-cur b)))
+  (%text-set-col! b (if (< n col) n col)))
+
+;; (%text-apply-record! b rec) — perform an undo record via the RAW ops and
+;; return its inverse (for the opposite stack). Does not record.
+(defn %text-apply-record! (b rec)
+  (let op (nth rec 0)) (let row (nth rec 1)) (let col (nth rec 2)) (let txt (nth rec 3))
+  (text-goto! b row col)
+  (if (is op ':ins)
+      (do (%text-raw-insert-string! b txt) (list ':del row col txt))
+      (do (%text-raw-delete-forward! b (string-length txt)) (list ':ins row col txt))))
+
+;; (text-undo! b) — undo the most recent edit; push its inverse onto redo.
+(defn text-undo! (b)
+  (let u (vector-ref b 9))
+  (if (nil? u)
+      b
+      (do
+        (vector-set! b 9 (cdr u))
+        (vector-set! b 10 (cons (%text-apply-record! b (car u)) (vector-ref b 10)))
+        b)))
+
+;; (text-redo! b) — redo the most recently undone edit; push its inverse back
+;; onto undo. (Replay uses raw ops, so the redo stack is NOT cleared.)
+(defn text-redo! (b)
+  (let rdo (vector-ref b 10))
+  (if (nil? rdo)
+      b
+      (do
+        (vector-set! b 10 (cdr rdo))
+        (vector-set! b 9 (cons (%text-apply-record! b (car rdo)) (vector-ref b 9)))
+        b)))
+
+(defn text-can-undo? (b) (if (vector-ref b 9) t nil))
+(defn text-can-redo? (b) (if (vector-ref b 10) t nil))
 
 ;; ============================================================================
 ;; RENDER — paint the buffer for a (cols x rows) terminal, ANSI.

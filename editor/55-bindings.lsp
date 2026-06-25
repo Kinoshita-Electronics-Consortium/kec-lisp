@@ -81,6 +81,10 @@
 (bind-key "DEL"     'text-backspace!)     ; delete-backward-char (Backspace)
 (bind-key "C-d"     'text-delete!)        ; delete-char (forward)
 (bind-key "TAB"     'text-insert-tab!)    ; indent: soft spaces to the next stop
+;; Undo / redo (command-based; see editor/32-text).
+(bind-key "C-/"     'text-undo!)          ; undo (terminal C-_ / C-/ arrive as this)
+(bind-key "C-x u"   'text-undo!)          ; undo (Emacs alias)
+(bind-key "M-/"     'text-redo!)          ; redo
 ;; Host-I/O commands (the host performs these).
 (bind-key "C-x C-s" 'save-buffer)
 (bind-key "C-x C-c" 'exit-editor)

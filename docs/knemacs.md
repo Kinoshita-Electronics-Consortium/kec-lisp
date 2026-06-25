@@ -38,6 +38,7 @@ two-key sequence (`C-x` then `C-s`).
 | `C-f` / `C-b` | forward / backward one character (or `→` / `←`) |
 | `C-n` / `C-p` | next / previous line (or `↓` / `↑`) |
 | `C-a` / `C-e` | beginning / end of line |
+| `C-/` / `C-x u` | undo (redo: `M-/`) |
 | `C-x C-s` | save the buffer to its file |
 | `C-x C-c` | quit |
 | `C-h k` *key* | describe what *key* does (help) |
@@ -113,8 +114,11 @@ intentionally small, and some familiar Emacs features are not built yet:
   to reintroduce the s-expression *zipper* as a command *lens* over the text
   (parse the current form → operate → reprint), i.e. a "lisp-mode", rather than as
   the buffer itself.
-- **Undo**, a **minibuffer / `M-x` command-by-name**, **completion**, the
-  **kill/mark rings**, and **multiple buffers** are all deferred.
+- **Undo/redo** is built — command-based (it stores the inverse of each edit, not
+  whole-buffer snapshots), so it stays cheap on large files. `C-/` (or `C-x u`)
+  undoes; `M-/` redoes; consecutive typing coalesces into one step.
+- A **minibuffer / `M-x` command-by-name**, **completion**, the **kill/mark
+  rings**, and **multiple buffers** are all deferred.
 
 The separate `kec repl` surface (a structural Lisp prompt) is unrelated to the
 text editor and continues to use the s-expression zipper directly.
