@@ -19,7 +19,7 @@
 ;; `resolve-key` classifies a key into one of: "buffer:<cmd>", "host:<cmd>",
 ;; "self-insert" (an unbound single graphic key), or "undefined".
 ;;
-;; Load order: after 30-buffer (the command symbols name its verbs).
+;; Load order: after 32-text (the command symbols name its text-buffer verbs).
 
 ;; ----- the binding table: key-string -> command symbol ------------------
 (define *default-keymap* (make-hash-table))
@@ -62,31 +62,27 @@
       (string-append key " is undefined")
       (string-append key " runs " (symbol->string cmd))))
 
-;; ----- the default bindings ---------------------------------------------
-;; Basic motion (C-n / C-p by rendered line; sexp on the C-M-* family).
-(bind-key "C-n"     'buffer-line-next!)   ; next-line  (down)
-(bind-key "C-p"     'buffer-line-prev!)   ; previous-line (up)
-(bind-key "<down>"  'buffer-line-next!)
-(bind-key "<up>"    'buffer-line-prev!)
-(bind-key "C-M-f"   'buffer-next!)        ; forward-sexp  (next sibling)
-(bind-key "C-M-b"   'buffer-prev!)        ; backward-sexp (prev sibling)
-(bind-key "C-M-n"   'buffer-next!)        ; forward-list
-(bind-key "C-M-p"   'buffer-prev!)        ; backward-list
-(bind-key "<right>" 'buffer-next!)
-(bind-key "<left>"  'buffer-prev!)
-(bind-key "C-M-d"   'buffer-descend!)     ; down-list
-(bind-key "C-M-u"   'buffer-ascend!)      ; backward-up-list
-;; Structural edits (paredit-flavored).
-(bind-key "C-M-k"   'buffer-delete!)      ; kill-sexp
-(bind-key "C-M-t"   'buffer-transpose!)   ; transpose-sexps
-(bind-key "M-("     'buffer-wrap!)        ; wrap-round
-(bind-key "M-s"     'buffer-splice!)      ; splice-sexp
-(bind-key "C-/"     'buffer-undo!)        ; undo
-(bind-key "C-_"     'buffer-undo!)        ; undo (alt)
+;; ----- the default bindings (knEmacs text-editing defaults) --------------
+;; Character + line motion over the text buffer (32-text). C-f/C-b/C-n/C-p and
+;; the arrow keys are the standard Emacs cursor motions; C-a/C-e are line ends.
+(bind-key "C-f"     'text-forward!)       ; forward-char
+(bind-key "C-b"     'text-backward!)      ; backward-char
+(bind-key "<right>" 'text-forward!)
+(bind-key "<left>"  'text-backward!)
+(bind-key "C-n"     'text-next-line!)     ; next-line  (down)
+(bind-key "C-p"     'text-prev-line!)     ; previous-line (up)
+(bind-key "<down>"  'text-next-line!)
+(bind-key "<up>"    'text-prev-line!)
+(bind-key "C-a"     'text-bol!)           ; move-beginning-of-line
+(bind-key "C-e"     'text-eol!)           ; move-end-of-line
+;; Editing: newline + the two deletes. (Self-insert of graphic keys is handled
+;; by the host directly — an unbound single graphic key resolves to "self-insert".)
+(bind-key "RET"     'text-newline!)       ; newline
+(bind-key "DEL"     'text-backspace!)     ; delete-backward-char (Backspace)
+(bind-key "C-d"     'text-delete!)        ; delete-char (forward)
 ;; Host-I/O commands (the host performs these).
 (bind-key "C-x C-s" 'save-buffer)
 (bind-key "C-x C-c" 'exit-editor)
-(bind-key "C-x C-e" 'eval-current)
 (bind-key "C-g"     'keyboard-quit)
 
 (provide 'editor/bindings)

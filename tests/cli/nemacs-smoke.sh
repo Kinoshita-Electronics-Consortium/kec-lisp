@@ -1,38 +1,46 @@
 #!/bin/sh
-# Smoke-test `kec nemacs` end-to-end: open a file in the knEmacs structural editor,
-# drive the Emacs key bindings over piped keystrokes (sexp motion, kill, save,
-# exit), and confirm the structural edit was serialized back. Usage: <kec>
+# Smoke-test `kec nemacs` end-to-end as a TEXT editor: open a file, drive real
+# Emacs-style keystrokes over a pipe (self-insert, newline, cursor motion,
+# Backspace, save, exit), and confirm the edited text was written back.
+# Usage: nemacs-smoke.sh <kec>
 #
 # Chord bytes used below:
-#   C-M-d down-list  = ESC C-d  = \033\004
-#   C-M-k kill-sexp  = ESC C-k  = \033\013
-#   C-x C-s save     = \030\023
-#   C-x C-c exit     = \030\003
+#   C-f forward-char        = \006
+#   C-e move-end-of-line    = \005
+#   DEL delete-backward     = \177
+#   RET newline             = an actual newline in the printf string
+#   C-x C-s save-buffer     = \030\023
+#   C-x C-c exit-editor     = \030\003
 KEC="$1"
 if [ -z "$KEC" ]; then echo "usage: nemacs-smoke.sh <kec>"; exit 2; fi
 
 tmp="${TMPDIR:-/tmp}/kec_nemacs_smoke_$$.lsp"
 
-# --- structural kill: C-M-d descend onto `a`, C-M-k kill it, C-x C-s, C-x C-c ---
-printf '(a b c)\n' > "$tmp"
-printf '\033\004\033\013\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
+# --- self-insert + newline: type two lines into a scratch file, save, exit ---
+printf '' > "$tmp"
+printf 'hello\n(+ 1 2)\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
 result=$(cat "$tmp")
 case "$result" in
-  *"(b c)"*) ;;
-  *) echo "FAIL: expected (b c), got: [$result]"; rm -f "$tmp"; exit 1 ;;
-esac
-case "$result" in
-  *"(a b c)"*) echo "FAIL: 'a' was not killed: [$result]"; rm -f "$tmp"; exit 1 ;;
+  *"hello"*"(+ 1 2)"*) ;;
+  *) echo "FAIL: self-insert expected 'hello' + '(+ 1 2)', got: [$result]"; rm -f "$tmp"; exit 1 ;;
 esac
 
-# --- self-insert: C-M-d descend onto `a`, type `b` (self-insert), RET commit,
-# C-x C-s save, C-x C-c exit  ->  (a b c) ---
-printf '(a c)\n' > "$tmp"
-printf '\033\004b\n\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
+# --- cursor motion + mid-line insert: abcd, C-f C-f to col 2, insert X -> abXcd ---
+printf 'abcd' > "$tmp"
+printf '\006\006X\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
+result=$(cat "$tmp")
+case "$result" in
+  *"abXcd"*) ;;
+  *) echo "FAIL: mid-line insert expected abXcd, got: [$result]"; rm -f "$tmp"; exit 1 ;;
+esac
+
+# --- Backspace: abc, C-e to end, DEL DEL -> a ---
+printf 'abc' > "$tmp"
+printf '\005\177\177\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
 result=$(cat "$tmp")
 rm -f "$tmp"
 case "$result" in
-  *"(a b c)"*) ;;
-  *) echo "FAIL: self-insert expected (a b c), got: [$result]"; exit 1 ;;
+  a) ;;
+  *) echo "FAIL: backspace expected 'a', got: [$result]"; exit 1 ;;
 esac
 exit 0
