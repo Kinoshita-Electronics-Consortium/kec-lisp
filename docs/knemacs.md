@@ -38,6 +38,10 @@ two-key sequence (`C-x` then `C-s`).
 | `C-f` / `C-b` | forward / backward one character (or `→` / `←`) |
 | `C-n` / `C-p` | next / previous line (or `↓` / `↑`) |
 | `C-a` / `C-e` | beginning / end of line |
+| `C-Space` | set the mark (start of a region) |
+| `C-w` / `M-w` | kill / copy the region (mark…point) |
+| `C-k` | kill to end of line (the newline if at end of line) |
+| `C-y` | yank (paste the most recent kill) |
 | `C-/` / `C-x u` | undo (redo: `M-/`) |
 | `C-x C-s` | save the buffer to its file |
 | `C-x C-c` | quit |
@@ -117,8 +121,12 @@ intentionally small, and some familiar Emacs features are not built yet:
 - **Undo/redo** is built — command-based (it stores the inverse of each edit, not
   whole-buffer snapshots), so it stays cheap on large files. `C-/` (or `C-x u`)
   undoes; `M-/` redoes; consecutive typing coalesces into one step.
-- A **minibuffer / `M-x` command-by-name**, **completion**, the **kill/mark
-  rings**, and **multiple buffers** are all deferred.
+- **Mark, region, kill & yank** are built — `C-Space` sets the mark; `C-w`/`M-w`
+  kill/copy the region; `C-k` kills to end of line; `C-y` yanks. There is a
+  bounded kill ring; `M-y` (yank-pop) is not built yet, and the mark is a plain
+  position (not adjusted by edits made before a kill).
+- A **minibuffer / `M-x` command-by-name**, **completion**, **`M-y` yank-pop**,
+  and **multiple buffers** are all deferred.
 
 The separate `kec repl` surface (a structural Lisp prompt) is unrelated to the
 text editor and continues to use the s-expression zipper directly.

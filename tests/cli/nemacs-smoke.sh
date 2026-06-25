@@ -91,6 +91,16 @@ if ! cmp -s "$tmp" "$exp"; then
   rm -f "$tmp" "$exp"; exit 1
 fi
 
+# --- mark + kill-region + yank: C-@ at col0, C-e to EOL, C-w kills the line,
+#     C-y yanks it back -> unchanged "hello world". Exercises C-@ (NUL), C-w, C-y. ---
+printf 'hello world' > "$tmp"
+printf '\000\005\027\031\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
+printf 'hello world' > "$exp"
+if ! cmp -s "$tmp" "$exp"; then
+  echo "FAIL: mark/kill/yank expected 'hello world', got: [$(cat "$tmp")]"
+  rm -f "$tmp" "$exp"; exit 1
+fi
+
 # --- quit guard, save path: edit then C-x C-c answered 'y' SAVES before exit. ---
 printf 'orig\n' > "$tmp"
 printf 'X\030\003y' | "$KEC" nemacs "$tmp" >/dev/null 2>&1

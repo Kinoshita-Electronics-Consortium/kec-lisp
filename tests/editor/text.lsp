@@ -150,6 +150,72 @@
   (check (string-contains? s ";10H"))    ; cursor parked at col 10 (== cols), on-screen
   (check (not (string-contains? s ";21H"))))   ; NOT off the right edge (pcol+1)
 
+;; ---- mark / region / kill / yank -------------------------------------------
+(deftest "text/mark-and-kill-region"
+  (let b (mk "hello world"))
+  (text-set-mark! b)                     ; mark (0,0)
+  (text-eol! b)                          ; point (0,11)
+  (text-kill-region! b)
+  (check (= (text->string b) ""))
+  (check (= (text-point-col b) 0))
+  (text-yank! b)                         ; paste back
+  (check (= (text->string b) "hello world")))
+
+(deftest "text/kill-ring-save-keeps-text"
+  (let b (mk "abc"))
+  (text-set-mark! b)
+  (text-eol! b)
+  (text-kill-ring-save! b)               ; copy, no delete
+  (check (= (text->string b) "abc"))
+  (text-eol! b)
+  (text-yank! b)
+  (check (= (text->string b) "abcabc")))
+
+(deftest "text/kill-region-multiline"
+  (let b (mk "ab\ncd\nef"))
+  (text-set-mark! b)                     ; (0,0)
+  (text-next-line! b)                    ; (1,0); region = "ab\n"
+  (text-kill-region! b)
+  (check (= (text->string b) "cd\nef"))
+  (text-yank! b)
+  (check (= (text->string b) "ab\ncd\nef")))
+
+(deftest "text/kill-region-reversed-order"
+  (let b (mk "hello"))
+  (text-eol! b)                          ; point (0,5)
+  (text-set-mark! b)                     ; mark (0,5)
+  (text-beg! b)                          ; point (0,0); region 0..5
+  (text-kill-region! b)
+  (check (= (text->string b) "")))
+
+(deftest "text/kill-line"
+  (let b (mk "hello world"))
+  (text-eol! b) (text-bol! b)            ; col0
+  (text-forward! b) (text-forward! b) (text-forward! b) (text-forward! b) (text-forward! b) ; col5
+  (text-kill-line! b)                    ; kill " world"
+  (check (= (text->string b) "hello"))
+  (text-yank! b)
+  (check (= (text->string b) "hello world")))
+
+(deftest "text/kill-line-at-eol-joins"
+  (let b (mk "ab\ncd"))
+  (text-eol! b)                          ; (0,2)
+  (text-kill-line! b)                    ; kills the newline
+  (check (= (text->string b) "abcd")))
+
+(deftest "text/kill-region-undo"
+  (let b (mk "hello"))
+  (text-set-mark! b) (text-eol! b)
+  (text-kill-region! b)
+  (check (= (text->string b) ""))
+  (text-undo! b)
+  (check (= (text->string b) "hello")))
+
+(deftest "text/yank-empty-ring-noop"
+  (let b (mk "x"))
+  (text-yank! b)
+  (check (= (text->string b) "x")))
+
 ;; ---- undo / redo (command-based) -------------------------------------------
 (deftest "text/undo-insert"
   (let b (mk "abc"))

@@ -11,7 +11,7 @@
 ;;
 ;; Representation: a LINE ZIPPER (the classic editor structure, no list indexing)
 ;;   record = vector [above cur below col name modified? scroll goal hscroll
-;;                     undo redo]
+;;                     undo redo mark kill]
 ;;     above  : reversed list of the lines ABOVE the cursor line
 ;;     cur    : the current line (a string)
 ;;     below  : the lines BELOW the cursor line, in order
@@ -24,6 +24,8 @@
 ;;     hscroll: leftmost visible column (owned by the renderer; long-line scroll)
 ;;     undo   : stack of inverse edit records (command-based undo; head = newest)
 ;;     redo   : stack of records undone, for redo (cleared by any fresh edit)
+;;     mark   : (row . col) of the mark, or nil — the region is mark..point
+;;     kill   : the kill ring (list of killed strings; head = most recent)
 ;;   point-row is implicit = (length above).
 ;;
 ;; Every keystroke touches only `cur` (a substring/string-append splice) or
@@ -45,8 +47,8 @@
 ;; Cursor seated at the top-left (row 0, col 0); not modified.
 (defn text-open (name content)
   (let lines (%split-lines content))
-  ;; slots: above cur below col name modified? scroll goal hscroll undo redo
-  (vector nil (car lines) (cdr lines) 0 name nil 0 0 0 nil nil))
+  ;; slots: above cur below col name modified? scroll goal hscroll undo redo mark kill
+  (vector nil (car lines) (cdr lines) 0 name nil 0 0 0 nil nil nil nil))
 
 ;; ---- accessors --------------------------------------------------------------
 (defn text-above (b)     (vector-ref b 0))
@@ -337,6 +339,119 @@
 
 (defn text-can-undo? (b) (if (vector-ref b 9) t nil))
 (defn text-can-redo? (b) (if (vector-ref b 10) t nil))
+
+;; ============================================================================
+;; MARK / REGION / KILL / YANK
+;;
+;; The mark (slot 11) is a (row . col) saved point; the region is the span between
+;; mark and point (in either order). Killed text goes on the kill ring (slot 12,
+;; bounded); yank inserts the most recent kill. Kills and yank are each ONE undo
+;; step (a single inverse record), and route through the raw ops so they don't
+;; re-record. Note: the mark is a plain position, not an adjusting marker — it is
+;; not corrected if you edit above it before killing (use it set-then-kill).
+;; ============================================================================
+
+(define %text-kill-cap 60)
+
+(defn text-mark (b) (vector-ref b 11))
+;; (text-set-mark! b) — drop the mark at point (C-SPC).
+(defn text-set-mark! (b)
+  (vector-set! b 11 (cons (text-point-row b) (text-col b))) b)
+
+(defn %text-kill-push! (b s)
+  (vector-set! b 12 (take (cons s (vector-ref b 12)) %text-kill-cap)) b)
+
+;; (row1,col1) <= (row2,col2) in document order?
+(defn %text-pos-le? (r1 c1 r2 c2)
+  (if (< r1 r2) t (if (< r2 r1) nil (<= c1 c2))))
+
+;; the text of the span between ordered positions (sr,sc) <= (er,ec), with
+;; embedded newlines for line breaks. Row indices are clamped defensively.
+(defn %text-span-string (b sr sc er ec)
+  (let lines (append (reverse (text-above b)) (cons (text-cur b) (text-below b))))
+  (let nl (length lines))
+  (if (>= sr nl) (set sr (- nl 1)))
+  (if (>= er nl) (set er (- nl 1)))
+  (if (< sr 0) (set sr 0))
+  (if (< er 0) (set er 0))
+  (if (is sr er)
+      (substring (nth lines sr) sc ec)
+      (do
+        (let out (substring (nth lines sr) sc (string-length (nth lines sr))))
+        (let i (+ sr 1))
+        (while (< i er)
+          (set out (str out (char->string 10) (nth lines i)))
+          (set i (+ i 1)))
+        (str out (char->string 10) (substring (nth lines er) 0 ec)))))
+
+;; (%text-region b) -> (sr sc er ec text), mark/point ordered so (sr,sc) is first.
+(defn %text-region (b)
+  (let m (text-mark b))
+  (let pr (text-point-row b)) (let pc (text-col b))
+  (let mr (car m)) (let mc (cdr m))
+  (let sr mr) (let sc mc) (let er pr) (let ec pc)
+  (if (not (%text-pos-le? mr mc pr pc))
+      (do (set sr pr) (set sc pc) (set er mr) (set ec mc)))
+  (list sr sc er ec (%text-span-string b sr sc er ec)))
+
+;; (text-kill-region! b) — C-w: kill the region (mark..point) to the ring and
+;; delete it; point lands at the region start. No-op without a mark.
+(defn text-kill-region! (b)
+  (if (nil? (text-mark b))
+      b
+      (do
+        (let rg (%text-region b))
+        (let sr (nth rg 0)) (let sc (nth rg 1)) (let txt (nth rg 4))
+        (%text-kill-push! b txt)
+        (%text-record! b (list ':ins sr sc txt))   ; inverse of the delete
+        (text-goto! b sr sc)
+        (%text-raw-delete-forward! b (string-length txt))
+        (vector-set! b 11 nil)                      ; deactivate the mark
+        b)))
+
+;; (text-kill-ring-save! b) — M-w: copy the region to the ring, no delete.
+(defn text-kill-ring-save! (b)
+  (if (nil? (text-mark b))
+      b
+      (do
+        (%text-kill-push! b (nth (%text-region b) 4))
+        (vector-set! b 11 nil)
+        b)))
+
+;; (text-kill-line! b) — C-k: kill from point to end of line (not the newline);
+;; at end-of-line kill the newline (join the next line). No-op at buffer end.
+(defn text-kill-line! (b)
+  (let r (text-point-row b)) (let c (text-col b))
+  (let cur (text-cur b)) (let n (string-length cur))
+  (if (< c n)
+      (do
+        (let txt (substring cur c n))
+        (%text-kill-push! b txt)
+        (%text-record! b (list ':ins r c txt))
+        (%text-raw-delete-forward! b (string-length txt))
+        b)
+      (if (text-below b)
+          (do
+            (%text-kill-push! b (char->string 10))
+            (%text-record! b (list ':ins r c (char->string 10)))
+            (%text-raw-delete! b)
+            b)
+          b)))
+
+;; (text-yank! b) — C-y: insert the most recent kill at point; set the mark at the
+;; start of the inserted text (Emacs leaves point after, mark before). One undo
+;; step. No-op when the ring is empty.
+(defn text-yank! (b)
+  (let ring (vector-ref b 12))
+  (if (nil? ring)
+      b
+      (do
+        (let txt (car ring))
+        (let r (text-point-row b)) (let c (text-col b))
+        (%text-record! b (list ':del r c txt))     ; inverse of the insert
+        (vector-set! b 11 (cons r c))              ; mark at start of yank
+        (%text-raw-insert-string! b txt)
+        b)))
 
 ;; ============================================================================
 ;; RENDER — paint the buffer for a (cols x rows) terminal, ANSI.

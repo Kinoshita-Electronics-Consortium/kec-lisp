@@ -359,7 +359,8 @@ static void norm_key(int c, char *out, size_t n) {
         }
     } else if (c == 31) {                   /* C-/ (a.k.a. C-_) */
         snprintf(out, n, "C-/");
-    } else if (c == 9)  { snprintf(out, n, "TAB"); }
+    } else if (c == 0)  { snprintf(out, n, "C-@"); }  /* C-SPC (set-mark) */
+    else if (c == 9)  { snprintf(out, n, "TAB"); }
     else if (c == 13 || c == 10) { snprintf(out, n, "RET"); }
     else if (c == 127) { snprintf(out, n, "DEL"); }   /* Backspace */
     else if (c >= 1 && c <= 26) {           /* C-<letter> */

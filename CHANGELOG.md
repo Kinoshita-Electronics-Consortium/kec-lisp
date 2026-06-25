@@ -58,6 +58,13 @@
   wrappers so undo replay never re-records. `tests/editor/text.lsp` covers
   insert/newline/backspace/forward-delete/join undo, redo, coalescing, and
   redo-clear; the nemacs smoke covers a type→undo→redo round-trip.
+- **knEmacs mark / region / kill / yank.** `C-Space` sets the mark; `C-w`
+  kills the region (mark…point), `M-w` copies it, `C-k` kills to end of line
+  (or the newline at EOL), `C-y` yanks the most recent kill. Bounded kill ring;
+  each kill/yank is one undo step. New buffer slots `mark` and `kill`; the host
+  maps the NUL byte (terminal `C-Space`) to `C-@`. `tests/editor/text.lsp` covers
+  kill/copy/yank, multiline + reversed regions, kill-line (incl. EOL join), and
+  kill-region undo; the nemacs smoke covers C-@/C-w/C-y. `M-y` yank-pop deferred.
 
 ### Changed
 - **Load-bearing standard globals are protected from rebinding.** Kernel
