@@ -80,6 +80,7 @@
 (bind-key "RET"     'text-newline!)       ; newline
 (bind-key "DEL"     'text-backspace!)     ; delete-backward-char (Backspace)
 (bind-key "C-d"     'text-delete!)        ; delete-char (forward)
+(bind-key "TAB"     'text-insert-tab!)    ; indent: soft spaces to the next stop
 ;; Host-I/O commands (the host performs these).
 (bind-key "C-x C-s" 'save-buffer)
 (bind-key "C-x C-c" 'exit-editor)

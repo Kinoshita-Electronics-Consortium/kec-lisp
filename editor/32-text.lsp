@@ -10,7 +10,7 @@
 ;; command (the lite "structure-as-a-lens" pattern). See the plan / ADR-0046.
 ;;
 ;; Representation: a LINE ZIPPER (the classic editor structure, no list indexing)
-;;   record = vector [above cur below col name modified? scroll]
+;;   record = vector [above cur below col name modified? scroll goal hscroll]
 ;;     above  : reversed list of the lines ABOVE the cursor line
 ;;     cur    : the current line (a string)
 ;;     below  : the lines BELOW the cursor line, in order
@@ -18,6 +18,9 @@
 ;;     name   : buffer name (e.g. a file path or "*scratch*")
 ;;     modified? : nil, or t once an edit has happened
 ;;     scroll : top visible line index (owned by the renderer; see 32 Step 2)
+;;     goal   : desired column for vertical motion — C-n/C-p aim here and clamp
+;;              to shorter lines without forgetting it (Emacs goal-column feel)
+;;     hscroll: leftmost visible column (owned by the renderer; long-line scroll)
 ;;   point-row is implicit = (length above).
 ;;
 ;; Every keystroke touches only `cur` (a substring/string-append splice) or
@@ -39,7 +42,8 @@
 ;; Cursor seated at the top-left (row 0, col 0); not modified.
 (defn text-open (name content)
   (let lines (%split-lines content))
-  (vector nil (car lines) (cdr lines) 0 name nil 0))
+  ;; slots: above cur below col name modified? scroll goal hscroll
+  (vector nil (car lines) (cdr lines) 0 name nil 0 0 0))
 
 ;; ---- accessors --------------------------------------------------------------
 (defn text-above (b)     (vector-ref b 0))
@@ -49,6 +53,8 @@
 (defn text-name (b)      (vector-ref b 4))
 (defn text-modified? (b) (vector-ref b 5))
 (defn text-scroll (b)    (vector-ref b 6))
+(defn text-goal (b)      (vector-ref b 7))
+(defn text-hscroll (b)   (vector-ref b 8))
 
 (defn text-point-col (b) (text-col b))
 (defn text-point-row (b) (length (text-above b)))
@@ -56,16 +62,23 @@
   (+ (length (text-above b)) 1 (length (text-below b))))
 
 ;; ---- internal helpers -------------------------------------------------------
-(defn %text-set-col! (b c) (vector-set! b 3 c) b)
-(defn %text-mark! (b) (vector-set! b 5 t) b)
+;; (%text-set-col! b c) — a HORIZONTAL move: set the column AND adopt it as the
+;; goal column, so a subsequent vertical move aims to return here (Emacs feel).
+(defn %text-set-col! (b c) (vector-set! b 3 c) (vector-set! b 7 c) b)
+;; (%text-mark! b) — record an edit: mark dirty and reset the goal to the current
+;; column (every edit re-anchors vertical motion to where the edit happened).
+(defn %text-mark! (b) (vector-set! b 5 t) (vector-set! b 7 (text-col b)) b)
 ;; (text-mark-saved! b) — clear the dirty flag after a successful save, so the
 ;; modeline drops its "*" and the host's quit guard knows there is nothing to
 ;; lose. The host calls this once `write-file` has succeeded; content is untouched.
 (defn text-mark-saved! (b) (vector-set! b 5 nil) b)
-;; clamp col into [0, len cur] (after a vertical move onto a shorter line)
-(defn %text-clamp-col! (b)
+;; (%text-col-from-goal! b) — a VERTICAL move landed on a (possibly shorter) line:
+;; seat the column at the goal clamped to the line length, WITHOUT changing the
+;; goal — so passing through a short line and reaching a long one restores it.
+(defn %text-col-from-goal! (b)
   (let n (string-length (text-cur b)))
-  (if (< n (text-col b)) (vector-set! b 3 n))
+  (let g (text-goal b))
+  (vector-set! b 3 (if (< n g) n g))
   b)
 
 ;; ---- serialize --------------------------------------------------------------
@@ -85,7 +98,7 @@
         (vector-set! b 0 (cons (text-cur b) (text-above b)))
         (vector-set! b 1 (car (text-below b)))
         (vector-set! b 2 (cdr (text-below b)))
-        (%text-clamp-col! b))
+        (%text-col-from-goal! b))
       b))
 
 ;; line up: mirror of text-next-line!.
@@ -95,7 +108,7 @@
         (vector-set! b 2 (cons (text-cur b) (text-below b)))
         (vector-set! b 1 (car (text-above b)))
         (vector-set! b 0 (cdr (text-above b)))
-        (%text-clamp-col! b))
+        (%text-col-from-goal! b))
       b))
 
 ;; forward char: col+1, wrapping to the start of the next line at end-of-line.
@@ -195,6 +208,14 @@
             (%text-mark! b))
           b)))
 
+;; (text-insert-tab! b) — TAB: insert spaces up to the next tab stop (width 2),
+;; not a literal \t. A real tab renders as several cells on the fixed grid and
+;; would desync the parked cursor (which counts one column per byte); soft spaces
+;; keep point and the visible cursor in lockstep.
+(define %text-tab-width 2)
+(defn text-insert-tab! (b)
+  (text-insert! b (pad-right "" (- %text-tab-width (mod (text-col b) %text-tab-width)))))
+
 ;; ============================================================================
 ;; RENDER — paint the buffer for a (cols x rows) terminal, ANSI.
 ;; Layout: row 1 = modeline (inverse bar), rows 2..rows-1 = text window
@@ -218,23 +239,36 @@
   (if (<= (+ scroll content-rows) prow) (set scroll (+ (- prow content-rows) 1)))
   (if (< scroll 0) (set scroll 0))
   (vector-set! b 6 scroll)
+  ;; recompute horizontal scroll so point's column is on-screen, persist it. A
+  ;; long line is shown from `hscroll`; the cursor parks within [1, cols] instead
+  ;; of running off the right edge.
+  (let hscroll (text-hscroll b))
+  (if (< pcol hscroll) (set hscroll pcol))
+  (if (>= pcol (+ hscroll cols)) (set hscroll (+ (- pcol cols) 1)))
+  (if (< hscroll 0) (set hscroll 0))
+  (vector-set! b 8 hscroll)
   ;; all lines, flat; take just the visible window
   (let lines (append (reverse (text-above b)) (cons (text-cur b) (text-below b))))
   (let win (take (drop lines scroll) content-rows))
   (let win-n (length win))
-  ;; modeline: inverse bar, name + modified marker + L/C indicator
+  ;; modeline: inverse bar, name + modified marker + L/C indicator (the C column
+  ;; shows the true buffer column, 1-based — not the horizontally-scrolled one)
   (let ml (str " " (text-name b) (if (text-modified? b) " * " "   ")
                " L" (number->string (+ prow 1)) " C" (number->string (+ pcol 1))))
   (let out (str (%esc) "[7m" (pad-right (%clip ml cols) cols) (%esc) "[0m"))
-  ;; content rows (blank rows past end-of-buffer get a ~ marker, vi-style)
+  ;; content rows (blank rows past end-of-buffer get a ~ marker, vi-style); each
+  ;; visible line is sliced from hscroll so the window pans across long lines
   (let i 0)
   (while (< i content-rows)
     (set out (str out (char->string 10)
-                  (if (< i win-n) (%clip (nth win i) cols) "~")))
+                  (if (< i win-n)
+                      (%clip (substring (nth win i) hscroll (+ hscroll cols)) cols)
+                      "~")))
     (set i (+ i 1)))
   ;; status / echo line on the bottom row
   (set out (str out (char->string 10) (%clip status cols)))
-  ;; park the hardware cursor at point (1-based; row 1 = modeline, body from 2)
-  (str out (%cursor-to (+ (- prow scroll) 2) (+ pcol 1))))
+  ;; park the hardware cursor at point (1-based; row 1 = modeline, body from 2;
+  ;; column relative to hscroll so it stays inside the visible window)
+  (str out (%cursor-to (+ (- prow scroll) 2) (+ (- pcol hscroll) 1))))
 
 (provide 'editor/text)

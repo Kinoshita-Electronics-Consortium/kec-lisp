@@ -39,6 +39,15 @@
   successful save also clears the modeline `*`.
 - **knEmacs `C-x C-c` guards unsaved edits.** Quitting a modified buffer now
   prompts (y saves / n drops / C-g cancels) instead of discarding silently.
+- **knEmacs vertical motion keeps a goal column.** `C-n`/`C-p` now remember the
+  desired column: passing through a short line clamps the visible column but
+  restores it on the next long line, instead of destructively forgetting it. A
+  horizontal move or edit sets a new goal.
+- **knEmacs scrolls long lines horizontally.** The text window pans so point
+  stays visible and the cursor parks within the window, instead of running off
+  the right edge on lines wider than the terminal.
+- **knEmacs `Tab` indents** to the next width-2 tab stop with soft spaces (kept
+  in sync with the fixed grid), instead of beeping "TAB is undefined".
 
 ### Changed
 - **Load-bearing standard globals are protected from rebinding.** Kernel

@@ -34,6 +34,7 @@ two-key sequence (`C-x` then `C-s`).
 | `Enter` | newline |
 | `Backspace` | delete the character before point |
 | `C-d` | delete the character at point (forward) |
+| `Tab` | indent — insert spaces to the next tab stop (width 2) |
 | `C-f` / `C-b` | forward / backward one character (or `→` / `←`) |
 | `C-n` / `C-p` | next / previous line (or `↓` / `↑`) |
 | `C-a` / `C-e` | beginning / end of line |
@@ -44,8 +45,13 @@ two-key sequence (`C-x` then `C-s`).
 
 Forward/backward motion wraps across line boundaries: `C-f` at end-of-line moves
 to the start of the next line, and `C-b` at column 0 moves to the end of the
-previous line. Vertical motion (`C-n`/`C-p`) keeps the column where it can and
-clamps to the end of shorter lines.
+previous line. Vertical motion (`C-n`/`C-p`) keeps a **goal column**: it lands at
+that column where the line is long enough and clamps to the end of shorter lines,
+*without forgetting it* — so passing through a short line and reaching a longer
+one returns you to the original column. A horizontal move (or an edit) sets a new
+goal. Lines wider than the window **scroll horizontally** so point stays visible;
+`Tab` inserts soft spaces (never a literal tab) so the cursor stays aligned to the
+grid.
 
 ## The modeline
 

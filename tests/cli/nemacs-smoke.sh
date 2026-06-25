@@ -71,6 +71,16 @@ if ! cmp -s "$tmp" "$exp"; then
   rm -f "$tmp" "$exp"; exit 1
 fi
 
+# --- TAB indents with soft spaces (to the next width-2 stop): TAB then 'x' on an
+#     empty buffer yields "  x". Exercises the host "TAB" -> binding dispatch. ---
+printf '' > "$tmp"
+printf '\011x\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
+printf '  x' > "$exp"
+if ! cmp -s "$tmp" "$exp"; then
+  echo "FAIL: TAB soft-indent expected '  x', got: [$(cat "$tmp")]"
+  rm -f "$tmp" "$exp"; exit 1
+fi
+
 # --- quit guard, save path: edit then C-x C-c answered 'y' SAVES before exit. ---
 printf 'orig\n' > "$tmp"
 printf 'X\030\003y' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
