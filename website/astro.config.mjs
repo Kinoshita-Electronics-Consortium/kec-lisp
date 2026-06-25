@@ -95,6 +95,10 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Tools',
+          items: [{ label: 'knEmacs (editor)', slug: 'knemacs' }],
+        },
+        {
           label: 'Embedding',
           items: [{ label: 'FFI Bridge', slug: 'ffi-bridge' }],
         },
