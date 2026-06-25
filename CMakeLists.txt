@@ -112,6 +112,7 @@ set(EDITOR_SRCS
   ${CMAKE_SOURCE_DIR}/editor/10-zipper.lsp
   ${CMAKE_SOURCE_DIR}/editor/20-undo.lsp
   ${CMAKE_SOURCE_DIR}/editor/30-buffer.lsp
+  ${CMAKE_SOURCE_DIR}/editor/32-text.lsp
   ${CMAKE_SOURCE_DIR}/editor/40-view.lsp
   ${CMAKE_SOURCE_DIR}/editor/50-keymap.lsp
   ${CMAKE_SOURCE_DIR}/editor/55-bindings.lsp
@@ -176,7 +177,7 @@ set_tests_properties(tests/examples/black-ice-trace.lsp PROPERTIES
 # Editor tier (ADR-0002) — the knEmacs/REPL host-agnostic modules. Loaded on
 # demand (not baked into Core), so the tests `load` editor/*.lsp relative to the
 # source dir; run from the repo root.
-foreach(t editor/zipper editor/undo editor/buffer editor/view editor/keymap
+foreach(t editor/zipper editor/undo editor/buffer editor/text editor/view editor/keymap
           editor/bindings editor/persist editor/lifecycle editor/ranker editor/repl
           editor/host editor/tty editor/prompt)
   add_test(NAME tests/${t}.lsp
