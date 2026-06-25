@@ -16,6 +16,31 @@
   (check (is (nth parts 0) "a"))
   (check (is (nth parts 2) "ccc")))
 
+;; string-split — the char-level primitive (sibling of string-ref): one O(n)
+;; pass splitting on a byte code, so Core split / %split-lines aren't O(n^2).
+;; N separators yield N+1 segments; always at least one element.
+(deftest "str/string-split"
+  (let p (string-split "a,bb,ccc" 44))            ; ',' = 44
+  (check (is (length p) 3))
+  (check (is (nth p 0) "a"))
+  (check (is (nth p 1) "bb"))
+  (check (is (nth p 2) "ccc"))
+  (let e (string-split "" 44))                    ; "" -> ("")
+  (check (is (length e) 1))
+  (check (is (nth e 0) ""))
+  (let tr (string-split "a," 44))                 ; trailing sep -> ("a" "")
+  (check (is (length tr) 2))
+  (check (is (nth tr 1) ""))
+  (let ld (string-split ",a" 44))                 ; leading sep -> ("" "a")
+  (check (is (length ld) 2))
+  (check (is (nth ld 0) ""))
+  (check (is (nth ld 1) "a"))
+  (let no (string-split "abc" 44))                ; no sep -> whole string
+  (check (is (length no) 1))
+  (check (is (nth no 0) "abc"))
+  (let ss (string-split ",," 44))                 ; only seps -> ("" "" "")
+  (check (is (length ss) 3)))
+
 (deftest "str/format"
   (check (is (format "%d-%d" 1 2) "1-2"))
   (check (is (format "%s!" "hi") "hi!"))

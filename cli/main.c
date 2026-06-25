@@ -251,20 +251,26 @@ static void edit_do(kec_State *S, const char *src, char *status, size_t ssz) {
     }
 }
 
-/* C-x C-s — write the buffer back to FILE (save-buffer). */
+/* C-x C-s — write the buffer back to FILE (save-buffer).
+** Routed through the length-aware (write-file ...) FFI primitive: the whole
+** buffer is written byte-exact at any size (no fixed C buffer to truncate) and
+** VERBATIM. text->string already carries the buffer's trailing newline, so we
+** must NOT append one — the old `fputc('\n')` grew the file by a blank line on
+** every save. On success the dirty flag is cleared so the modeline drops its "*"
+** and the quit guard knows there is nothing left to lose. */
 static void save_buffer(kec_State *S, const char *file, char *status, size_t ssz) {
-    fe_Object *v = NULL;
+    Strbuf q = {0};
     if (!file) { snprintf(status, ssz, "No file (open with: kec nemacs FILE)"); return; }
-    if (kec_eval_string(S, "(text->string *nemacs*)", &v) == 0
-        && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
-        static char buf[1 << 16];
-        FILE *fp;
-        fe_tostring(kec_fe(S), v, buf, sizeof buf);
-        fp = fopen(file, "wb");
-        if (fp) { fputs(buf, fp); fputc('\n', fp); fclose(fp);
-                  snprintf(status, ssz, "Wrote %s", file); }
-        else    { snprintf(status, ssz, "! cannot write %s", file); }
+    sb_puts(&q, "(write-file \"");
+    sb_put_escaped(&q, file);
+    sb_puts(&q, "\" (text->string *nemacs*))");
+    if (kec_eval_string(S, q.p, NULL) == 0) {
+        kec_eval_string(S, "(text-mark-saved! *nemacs*)", NULL);
+        snprintf(status, ssz, "Wrote %s", file);
+    } else {
+        snprintf(status, ssz, "! cannot write %s", file);
     }
+    free(q.p);
 }
 
 /* Eval `expr`, expecting a string; copy it into `out`. Returns 1 on success. */
@@ -275,6 +281,139 @@ static int lisp_str(kec_State *S, const char *expr, char *out, size_t n) {
         return 1;
     }
     return 0;
+}
+
+/* Eval `expr`, expecting a number; return it (0 on failure). */
+static double lisp_num(kec_State *S, const char *expr) {
+    fe_Object *v = NULL;
+    if (kec_eval_string(S, expr, &v) == 0 && v && fe_type(kec_fe(S), v) == FE_TNUMBER) {
+        return (double)fe_tonumber(kec_fe(S), v);
+    }
+    return 0;
+}
+
+/* Does the buffer have unsaved edits? Drives the quit guard. */
+static int buffer_modified(kec_State *S) {
+    char m[4];
+    return lisp_str(S, "(if (text-modified? *nemacs*) \"1\" \"0\")", m, sizeof m)
+           && m[0] == '1';
+}
+
+/* Paint one editor frame: clear the screen, ask the Lisp renderer for the
+** modeline + text window + echo line (with `status` on the echo line) and print
+** it. text-screen emits only the visible window, so the screen buffer is bounded
+** by the terminal size, never the buffer size. */
+static void render_frame(kec_State *S, int cols, int rows, const char *status) {
+    Strbuf call = {0};
+    char dims[40];
+    fe_Object *v = NULL;
+    printf("\x1b[2J\x1b[H");
+    sb_puts(&call, "(text-screen *nemacs*");
+    snprintf(dims, sizeof dims, " %d %d \"", cols, rows);
+    sb_puts(&call, dims);
+    sb_put_escaped(&call, status);
+    sb_puts(&call, "\")");
+    if (kec_eval_string(S, call.p, &v) == 0 && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
+        static char scr[1 << 16];
+        fe_tostring(kec_fe(S), v, scr, sizeof scr);
+        fputs(scr, stdout);
+    }
+    free(call.p);
+    fflush(stdout);
+}
+
+/* C-x C-c with unsaved edits: ask before discarding (Emacs never drops work
+** silently). Returns 1 to proceed with the exit — saving first when the user
+** answers y and a file is open — or 0 to cancel and stay. A clean buffer has
+** nothing to ask, so it exits straight away. */
+static int confirm_quit(kec_State *S, const char *file, int cols, int rows,
+                        char *status, size_t ssz) {
+    const char *prompt;
+    if (!buffer_modified(S)) { return 1; }
+    prompt = file ? "Save modified buffer before quit? (y/n, C-g cancel)"
+                  : "Modified buffer has no file; quit and lose changes? (y/n, C-g cancel)";
+    for (;;) {
+        int c;
+        render_frame(S, cols, rows, prompt);
+        c = getchar();
+        if (c == EOF) { return 1; }                          /* input closed: exit */
+        if (c == 'y' || c == 'Y') {
+            if (file) { save_buffer(S, file, status, ssz); }
+            return 1;
+        }
+        if (c == 'n' || c == 'N') { return 1; }
+        if (c == 7) { snprintf(status, ssz, "\aQuit cancelled"); return 0; }  /* C-g */
+        /* any other key: re-ask */
+    }
+}
+
+/* Ask the Lisp search verb to find `pat` at/after (fr,fc) and move point/mark.
+** Returns 1 if a match was found (point moved), 0 otherwise. */
+static int search_at(kec_State *S, const char *pat, int fr, int fc) {
+    Strbuf q = {0};
+    char tail[64], r[4];
+    int found;
+    sb_puts(&q, "(if (text-search-move! *nemacs* \"");
+    sb_put_escaped(&q, pat);
+    snprintf(tail, sizeof tail, "\" %d %d) \"1\" \"0\")", fr, fc);
+    sb_puts(&q, tail);
+    found = (lisp_str(S, q.p, r, sizeof r) && r[0] == '1');
+    free(q.p);
+    return found;
+}
+
+/* C-s incremental search. A small input loop owned by the host: printable keys
+** extend the pattern (re-search from the search origin), C-s repeats forward from
+** point, DEL shrinks, C-g cancels (restoring point to the origin), RET or any
+** other key accepts (point stays at the match). The match move + mark live in the
+** Lisp verb text-search-move!; here we track the pattern + origin and repaint. */
+static void isearch(kec_State *S, int cols, int rows, char *status, size_t ssz) {
+    char pat[256];
+    size_t plen = 0;
+    int orow, ocol, found = 1;
+    pat[0] = '\0';
+    orow = (int)lisp_num(S, "(text-point-row *nemacs*)");
+    ocol = (int)lisp_num(S, "(text-point-col *nemacs*)");
+    for (;;) {
+        int c;
+        char line[320];
+        snprintf(line, sizeof line, "%s%s",
+                 (plen == 0 || found) ? "I-search: " : "Failing I-search: ", pat);
+        render_frame(S, cols, rows, line);
+        c = getchar();
+        if (c == EOF) { return; }
+        if (c == 7) {                                   /* C-g: cancel, restore point */
+            char g[64];
+            snprintf(g, sizeof g, "(text-goto! *nemacs* %d %d)", orow, ocol);
+            kec_eval_string(S, g, NULL);
+            snprintf(status, ssz, "\aQuit");
+            return;
+        }
+        if (c == 13 || c == 10) {                       /* RET: accept (point stays) */
+            status[0] = '\0';
+            return;
+        }
+        if (c == 19) {                                  /* C-s: repeat forward from point */
+            if (plen) {
+                int pr = (int)lisp_num(S, "(text-point-row *nemacs*)");
+                int pc = (int)lisp_num(S, "(text-point-col *nemacs*)");
+                found = search_at(S, pat, pr, pc);
+            }
+            continue;
+        }
+        if (c == 127 || c == 8) {                       /* DEL: shrink pattern */
+            if (plen) { pat[--plen] = '\0'; }
+            found = (plen == 0) ? 1 : search_at(S, pat, orow, ocol);
+            continue;
+        }
+        if (c >= 32 && c < 127) {                       /* printable: extend pattern */
+            if (plen + 1 < sizeof pat) { pat[plen++] = (char)c; pat[plen] = '\0'; }
+            found = search_at(S, pat, orow, ocol);
+            continue;
+        }
+        status[0] = '\0';                               /* any other key: accept, exit */
+        return;
+    }
 }
 
 /* Normalize one terminal keystroke into canonical Emacs key notation
@@ -298,7 +437,8 @@ static void norm_key(int c, char *out, size_t n) {
         }
     } else if (c == 31) {                   /* C-/ (a.k.a. C-_) */
         snprintf(out, n, "C-/");
-    } else if (c == 9)  { snprintf(out, n, "TAB"); }
+    } else if (c == 0)  { snprintf(out, n, "C-@"); }  /* C-SPC (set-mark) */
+    else if (c == 9)  { snprintf(out, n, "TAB"); }
     else if (c == 13 || c == 10) { snprintf(out, n, "RET"); }
     else if (c == 127) { snprintf(out, n, "DEL"); }   /* Backspace */
     else if (c >= 1 && c <= 26) {           /* C-<letter> */
@@ -359,28 +499,16 @@ static int do_nemacs(const char *file) {
         /* Render the frame: clear, then paint the text buffer. The renderer lays
         ** out modeline + text window + the status/echo line and parks the cursor
         ** at point, so the host just prints what it returns. */
-        printf("\x1b[2J\x1b[H");
-        {
-            Strbuf call = {0};
-            char dims[40];
-            fe_Object *v = NULL;
-            sb_puts(&call, "(text-screen *nemacs*");
-            snprintf(dims, sizeof dims, " %d %d \"", cols, rows);
-            sb_puts(&call, dims);
-            sb_put_escaped(&call, status);
-            sb_puts(&call, "\")");
-            if (kec_eval_string(S, call.p, &v) == 0 && v && fe_type(kec_fe(S), v) == FE_TSTRING) {
-                static char scr[1 << 16];
-                fe_tostring(kec_fe(S), v, scr, sizeof scr);
-                fputs(scr, stdout);
-            }
-            free(call.p);
-        }
-        fflush(stdout);
+        render_frame(S, cols, rows, status);
 
         c = getchar();
         if (c == EOF) { break; }
         status[0] = '\0';
+
+        /* C-s enters incremental search, which runs its own input loop. (The
+        ** save chord C-x C-s is unaffected: C-x is read first and consumes the
+        ** following C-s as part of its two-key sequence below.) */
+        if (c == 19) { isearch(S, cols, rows, status, sizeof status); continue; }
 
         /* ----- Emacs command dispatch (keymap-as-data; field-notes A.1) --------
         ** The host normalizes the keystroke to canonical notation, then asks the
@@ -434,7 +562,7 @@ static int do_nemacs(const char *file) {
             } else if (strcmp(tag, "host:save-buffer") == 0) {
                 save_buffer(S, file, status, sizeof status);
             } else if (strcmp(tag, "host:exit-editor") == 0) {
-                break;
+                if (confirm_quit(S, file, cols, rows, status, sizeof status)) { break; }
             } else if (strcmp(tag, "host:keyboard-quit") == 0) {
                 snprintf(status, sizeof status, "\aQuit");
             } else if (key[0]) {                          /* "undefined" */

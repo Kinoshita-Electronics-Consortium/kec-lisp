@@ -21,6 +21,58 @@
   keys** navigate (↑↓ siblings, →/← descend/ascend), and `e` evaluates the current
   top-level form. `tests/editor/{buffer,prompt}.lsp` (+10 checks);
   `tests/cli/edit-smoke.sh` covers literal insert.
+- **`string-split`** (host, both profiles) — `(string-split s sepcode)` splits a
+  string on every occurrence of a byte (a char code, as `string-ref` returns) in
+  one O(n) pass; N separators yield N+1 segments. The char-level sibling of
+  `string-ref`/`substring`. Core `split` and the knEmacs line splitter
+  (`%split-lines`) are rewritten on top of it.
+
+### Fixed
+- **knEmacs file-open is no longer O(n²).** `%split-lines` (and Core `split`) used
+  `(string-ref s i)` per index, and `string-ref` restringifies the whole object
+  each call, so opening a ~70 KB file hung for ~23s. Now linear via `string-split`
+  (instant). `tests/cli/nemacs-smoke.sh` adds a >64 KB byte-exact round-trip.
+- **knEmacs save is byte-exact and never accretes a trailing line.** `C-x C-s`
+  routes through the length-aware `write-file` instead of a fixed 64 KB C buffer
+  (no silent truncation past 64 KB) and writes the buffer verbatim — the old
+  unconditional trailing `\n` grew the file by a blank line on every save. A
+  successful save also clears the modeline `*`.
+- **knEmacs `C-x C-c` guards unsaved edits.** Quitting a modified buffer now
+  prompts (y saves / n drops / C-g cancels) instead of discarding silently.
+- **knEmacs vertical motion keeps a goal column.** `C-n`/`C-p` now remember the
+  desired column: passing through a short line clamps the visible column but
+  restores it on the next long line, instead of destructively forgetting it. A
+  horizontal move or edit sets a new goal.
+- **knEmacs scrolls long lines horizontally.** The text window pans so point
+  stays visible and the cursor parks within the window, instead of running off
+  the right edge on lines wider than the terminal.
+- **knEmacs `Tab` indents** to the next width-2 tab stop with soft spaces (kept
+  in sync with the fixed grid), instead of beeping "TAB is undefined".
+
+### Added (knEmacs undo)
+- **knEmacs undo/redo, command-based.** Each edit records its inverse operation
+  (an insert/delete span) rather than a whole-buffer snapshot, so history is cheap
+  on large files. `C-/` / `C-x u` undo, `M-/` redo; consecutive typing coalesces
+  into one undo step; a fresh edit clears the redo stack. Bounded history (512
+  records). The edit ops are split into raw mutators (`%text-raw-*`) and recording
+  wrappers so undo replay never re-records. `tests/editor/text.lsp` covers
+  insert/newline/backspace/forward-delete/join undo, redo, coalescing, and
+  redo-clear; the nemacs smoke covers a type→undo→redo round-trip.
+- **knEmacs mark / region / kill / yank.** `C-Space` sets the mark; `C-w`
+  kills the region (mark…point), `M-w` copies it, `C-k` kills to end of line
+  (or the newline at EOL), `C-y` yanks the most recent kill. Bounded kill ring;
+  each kill/yank is one undo step. New buffer slots `mark` and `kill`; the host
+  maps the NUL byte (terminal `C-Space`) to `C-@`. `tests/editor/text.lsp` covers
+  kill/copy/yank, multiline + reversed regions, kill-line (incl. EOL join), and
+  kill-region undo; the nemacs smoke covers C-@/C-w/C-y. `M-y` yank-pop deferred.
+- **knEmacs incremental search (`C-s`).** A host minibuffer loop drives a Lisp
+  search engine (`text-search-forward` / `text-search-move!`): typing extends the
+  pattern (re-search from the origin), `C-s` repeats forward from point, `DEL`
+  shrinks, `RET` accepts (the match becomes the region — mark at start, point at
+  end), `C-g` cancels and restores point. Single-line patterns; `C-r` reverse and
+  wraparound deferred. `tests/editor/text.lsp` covers search-forward (hit/miss,
+  from-offset), search-move point/mark, and empty-needle; the nemacs smoke drives
+  a C-s/type/accept/edit round-trip.
 
 ### Changed
 - **Load-bearing standard globals are protected from rebinding.** Kernel

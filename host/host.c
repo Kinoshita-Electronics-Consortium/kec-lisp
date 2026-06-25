@@ -405,6 +405,52 @@ static fe_Object *h_string_search(fe_Context *ctx, fe_Object *args) {
     return res;
 }
 
+/* (string-split s sepcode) -> the substrings of s split on every occurrence of
+** the byte `sepcode` (a char code, as string-ref returns). Always returns at
+** least one element; N separators yield N+1 segments ("" -> ("") ; "a,b" ->
+** ("a" "b") ; "a," -> ("a" "")). One O(n) pass over a single materialization of
+** the string — the char-level sibling of string-ref. (Splitting in Lisp with
+** (string-ref s i) per index is O(n^2): each call restringifies the whole
+** object, so opening a large file used to hang for tens of seconds.)
+**
+** Built right-to-left so the segments cons up in source order with no reverse
+** pass; the list-of-strings GC discipline mirrors h_list_dir (object() auto-roots
+** each allocation, then restoregc/pushgc keeps just the growing list rooted). */
+static fe_Object *h_string_split(fe_Context *ctx, fe_Object *args) {
+    fe_Object *s = fe_nextarg(ctx, &args);
+    int sep = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    size_t len, end;
+    long i;
+    char *buf, save;
+    fe_Object *res, *head;
+    int gc;
+    buf = host_strdup_obj(ctx, s, &len);
+    if (!buf) { fe_error(ctx, "string-split: out of memory"); }
+    res = fe_bool(ctx, 0);                 /* nil */
+    gc = fe_savegc(ctx);
+    fe_pushgc(ctx, res);
+    end = len;                             /* exclusive end of the pending segment */
+    for (i = (long)len - 1; i >= 0; i--) {
+        if ((unsigned char)buf[i] == (unsigned char)sep) {
+            save = buf[end]; buf[end] = '\0';            /* segment is buf[i+1 .. end) */
+            head = fe_string(ctx, buf + i + 1);
+            buf[end] = save;
+            res = fe_cons(ctx, head, res);
+            fe_restoregc(ctx, gc);
+            fe_pushgc(ctx, res);
+            end = (size_t)i;
+        }
+    }
+    save = buf[end]; buf[end] = '\0';                    /* the leading segment buf[0 .. end) */
+    head = fe_string(ctx, buf);
+    buf[end] = save;
+    res = fe_cons(ctx, head, res);
+    fe_restoregc(ctx, gc);
+    fe_pushgc(ctx, res);
+    free(buf);
+    return res;
+}
+
 static fe_Object *h_char_to_string(fe_Context *ctx, fe_Object *args) {
     char out[2];
     out[0] = (char)(int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
@@ -700,6 +746,7 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     kec_bind_fe(ctx, "substring", h_substring);
     kec_bind_fe(ctx, "string-append", h_string_append);
     kec_bind_fe(ctx, "string-search", h_string_search);
+    kec_bind_fe(ctx, "string-split", h_string_split);
     kec_bind_fe(ctx, "char->string", h_char_to_string);
     kec_bind_fe(ctx, "number->string", h_number_to_string);
     kec_bind_fe(ctx, "string->number", h_string_to_number);

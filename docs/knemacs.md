@@ -34,9 +34,16 @@ two-key sequence (`C-x` then `C-s`).
 | `Enter` | newline |
 | `Backspace` | delete the character before point |
 | `C-d` | delete the character at point (forward) |
+| `Tab` | indent — insert spaces to the next tab stop (width 2) |
 | `C-f` / `C-b` | forward / backward one character (or `→` / `←`) |
 | `C-n` / `C-p` | next / previous line (or `↓` / `↑`) |
 | `C-a` / `C-e` | beginning / end of line |
+| `C-Space` | set the mark (start of a region) |
+| `C-w` / `M-w` | kill / copy the region (mark…point) |
+| `C-k` | kill to end of line (the newline if at end of line) |
+| `C-y` | yank (paste the most recent kill) |
+| `C-s` | incremental search forward (`C-s` again: next match) |
+| `C-/` / `C-x u` | undo (redo: `M-/`) |
 | `C-x C-s` | save the buffer to its file |
 | `C-x C-c` | quit |
 | `C-h k` *key* | describe what *key* does (help) |
@@ -44,8 +51,13 @@ two-key sequence (`C-x` then `C-s`).
 
 Forward/backward motion wraps across line boundaries: `C-f` at end-of-line moves
 to the start of the next line, and `C-b` at column 0 moves to the end of the
-previous line. Vertical motion (`C-n`/`C-p`) keeps the column where it can and
-clamps to the end of shorter lines.
+previous line. Vertical motion (`C-n`/`C-p`) keeps a **goal column**: it lands at
+that column where the line is long enough and clamps to the end of shorter lines,
+*without forgetting it* — so passing through a short line and reaching a longer
+one returns you to the original column. A horizontal move (or an edit) sets a new
+goal. Lines wider than the window **scroll horizontally** so point stays visible;
+`Tab` inserts soft spaces (never a literal tab) so the cursor stays aligned to the
+grid.
 
 ## The modeline
 
@@ -64,11 +76,15 @@ after a save, a help line after `C-h k`, or `… is undefined` for an unbound ke
 
 ## Saving and quitting
 
-- `C-x C-s` writes the buffer back to its file and reports `Wrote …`.
+- `C-x C-s` writes the buffer back to its file (byte-exact, at any size) and
+  reports `Wrote …`. A successful save clears the modeline `*`.
 - A bare `kec nemacs` (no file) has nothing to save to — `C-x C-s` will say
   *"No file"*. Pass a path if you want to keep what you type.
-- There is **no prompt-to-save on quit yet** — `C-x C-c` exits immediately and
-  unsaved edits are dropped. Save first.
+- `C-x C-c` **prompts before discarding unsaved edits**. With a clean buffer it
+  exits immediately; with unsaved changes it asks `Save modified buffer before
+  quit? (y/n, C-g cancel)` — `y` saves and exits, `n` exits and drops the edits,
+  `C-g` cancels and returns you to the buffer. (A modified `*scratch*` with no
+  file warns that the changes will be lost.)
 
 ## How it works
 
@@ -103,8 +119,19 @@ intentionally small, and some familiar Emacs features are not built yet:
   to reintroduce the s-expression *zipper* as a command *lens* over the text
   (parse the current form → operate → reprint), i.e. a "lisp-mode", rather than as
   the buffer itself.
-- **Undo**, a **minibuffer / `M-x` command-by-name**, **completion**, the
-  **kill/mark rings**, and **multiple buffers** are all deferred.
+- **Undo/redo** is built — command-based (it stores the inverse of each edit, not
+  whole-buffer snapshots), so it stays cheap on large files. `C-/` (or `C-x u`)
+  undoes; `M-/` redoes; consecutive typing coalesces into one step.
+- **Mark, region, kill & yank** are built — `C-Space` sets the mark; `C-w`/`M-w`
+  kill/copy the region; `C-k` kills to end of line; `C-y` yanks. There is a
+  bounded kill ring; `M-y` (yank-pop) is not built yet, and the mark is a plain
+  position (not adjusted by edits made before a kill).
+- **Incremental search** (`C-s`) is built — type to extend the pattern, `C-s`
+  again jumps to the next match, `DEL` shrinks it, `RET` accepts (the match
+  becomes the region), `C-g` cancels and returns to where you started. Single-line
+  patterns; reverse search (`C-r`) and search-wraparound are not built yet.
+- A **minibuffer / `M-x` command-by-name**, **completion**, **`M-y` yank-pop**,
+  **`C-r` reverse search**, and **multiple buffers** are all deferred.
 
 The separate `kec repl` surface (a structural Lisp prompt) is unrelated to the
 text editor and continues to use the s-expression zipper directly.

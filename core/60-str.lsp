@@ -21,19 +21,13 @@
         out)))
 
 ;; (split s sep) -> list of substrings of s, split on the first char of sep.
+;; A thin wrapper over the host `string-split` primitive (one O(n) pass); the
+;; old per-index `(string-ref s i)` loop was O(n^2) because string-ref
+;; restringifies the whole object each call. An empty sep carries no separator
+;; char, so the whole string comes back as a single element.
 (defn split (s sep)
-  (let sepc (string-ref sep 0))
-  (let n (string-length s))
-  (let out nil)
-  (let start 0)
-  (let i 0)
-  (while (< i n)
-    (if (is (string-ref s i) sepc)
-        (do (set out (cons (substring s start i) out))
-            (set start (+ i 1))))
-    (set i (+ i 1)))
-  (set out (cons (substring s start n) out))
-  (reverse out))
+  (let c (string-ref sep 0))
+  (if c (string-split s c) (list s)))
 
 ;; (format fmt arg...) -> printf-style splice returning a string.
 ;; Directives: %d %u (decimal), %x (hex), %c (char code), %s (any), %% (literal).

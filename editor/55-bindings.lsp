@@ -80,6 +80,17 @@
 (bind-key "RET"     'text-newline!)       ; newline
 (bind-key "DEL"     'text-backspace!)     ; delete-backward-char (Backspace)
 (bind-key "C-d"     'text-delete!)        ; delete-char (forward)
+(bind-key "TAB"     'text-insert-tab!)    ; indent: soft spaces to the next stop
+;; Undo / redo (command-based; see editor/32-text).
+(bind-key "C-/"     'text-undo!)          ; undo (terminal C-_ / C-/ arrive as this)
+(bind-key "C-x u"   'text-undo!)          ; undo (Emacs alias)
+(bind-key "M-/"     'text-redo!)          ; redo
+;; Mark / region / kill / yank (see editor/32-text).
+(bind-key "C-@"     'text-set-mark!)      ; set-mark (terminal C-SPC arrives as C-@)
+(bind-key "C-w"     'text-kill-region!)   ; kill-region
+(bind-key "M-w"     'text-kill-ring-save!); kill-ring-save (copy)
+(bind-key "C-y"     'text-yank!)          ; yank
+(bind-key "C-k"     'text-kill-line!)     ; kill-line
 ;; Host-I/O commands (the host performs these).
 (bind-key "C-x C-s" 'save-buffer)
 (bind-key "C-x C-c" 'exit-editor)
