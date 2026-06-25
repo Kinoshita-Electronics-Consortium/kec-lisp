@@ -773,5 +773,7 @@ verdicts verified against `kernel/`, `core/`, `host/`, and `runtime/kec.c` on
 2026-06-21. Page citations are to the printed book. Companion to the
 [GNU Emacs Manual field notes](field-notes-emacs.md) (the user-facing editor model)
 and the [AMOP field notes](field-notes-amop.md) (open-implementation / protocol
-design). Editor name: **knEmacs** (formerly nEmacs); the Manual notes and the ADRs
-still use the older spelling pending a project-wide rename.*
+design), and the runnable [rxi/lite reference implementation](field-notes-rxi-lite.md)
+(the thin-core-scripted-editor skeleton). Editor name: **knEmacs** (formerly nEmacs);
+the Manual notes and the ADRs still use the older spelling pending a project-wide
+rename.*
