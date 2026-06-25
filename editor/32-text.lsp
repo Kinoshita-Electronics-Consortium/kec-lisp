@@ -454,6 +454,42 @@
         b)))
 
 ;; ============================================================================
+;; SEARCH — forward text search (drives the host's incremental C-s loop).
+;; Single-line needles only (the isearch minibuffer can't contain a newline).
+;; ============================================================================
+
+;; (text-search-forward b needle sr sc) -> (row . col) of the first match at or
+;; after (sr,sc), or nil. Iterates the line list (linear), not nth-per-line.
+(defn text-search-forward (b needle sr sc)
+  (let lines (append (reverse (text-above b)) (cons (text-cur b) (text-below b))))
+  (let row 0)
+  (while (< row sr) (set lines (cdr lines)) (set row (+ row 1)))
+  (let result nil)
+  (while (and (nil? result) lines)
+    (let line (car lines))
+    (let from (if (is row sr) sc 0))
+    (let idx (string-search (substring line from (string-length line)) needle))
+    (if idx (set result (cons row (+ from idx))))
+    (set lines (cdr lines))
+    (set row (+ row 1)))
+  result)
+
+;; (text-search-move! b needle fr fc) -> t if a match at/after (fr,fc) is found:
+;; point moves to the match END and the mark is set at the match START (so the
+;; hit is the region). nil and no movement on miss or an empty needle.
+(defn text-search-move! (b needle fr fc)
+  (if (is (string-length needle) 0)
+      nil
+      (do
+        (let m (text-search-forward b needle fr fc))
+        (if (nil? m)
+            nil
+            (do
+              (vector-set! b 11 (cons (car m) (cdr m)))            ; mark at start
+              (text-goto! b (car m) (+ (cdr m) (string-length needle)))  ; point at end
+              t)))))
+
+;; ============================================================================
 ;; RENDER — paint the buffer for a (cols x rows) terminal, ANSI.
 ;; Layout: row 1 = modeline (inverse bar), rows 2..rows-1 = text window
 ;; (vertical-scrolled so point stays visible), row `rows` = status/echo line.

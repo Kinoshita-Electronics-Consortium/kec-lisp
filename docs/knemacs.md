@@ -42,6 +42,7 @@ two-key sequence (`C-x` then `C-s`).
 | `C-w` / `M-w` | kill / copy the region (mark…point) |
 | `C-k` | kill to end of line (the newline if at end of line) |
 | `C-y` | yank (paste the most recent kill) |
+| `C-s` | incremental search forward (`C-s` again: next match) |
 | `C-/` / `C-x u` | undo (redo: `M-/`) |
 | `C-x C-s` | save the buffer to its file |
 | `C-x C-c` | quit |
@@ -125,8 +126,12 @@ intentionally small, and some familiar Emacs features are not built yet:
   kill/copy the region; `C-k` kills to end of line; `C-y` yanks. There is a
   bounded kill ring; `M-y` (yank-pop) is not built yet, and the mark is a plain
   position (not adjusted by edits made before a kill).
+- **Incremental search** (`C-s`) is built — type to extend the pattern, `C-s`
+  again jumps to the next match, `DEL` shrinks it, `RET` accepts (the match
+  becomes the region), `C-g` cancels and returns to where you started. Single-line
+  patterns; reverse search (`C-r`) and search-wraparound are not built yet.
 - A **minibuffer / `M-x` command-by-name**, **completion**, **`M-y` yank-pop**,
-  and **multiple buffers** are all deferred.
+  **`C-r` reverse search**, and **multiple buffers** are all deferred.
 
 The separate `kec repl` surface (a structural Lisp prompt) is unrelated to the
 text editor and continues to use the s-expression zipper directly.

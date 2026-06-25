@@ -101,6 +101,16 @@ if ! cmp -s "$tmp" "$exp"; then
   rm -f "$tmp" "$exp"; exit 1
 fi
 
+# --- incremental search: C-s, type "beta", RET accepts (point at end of match),
+#     then 'X' self-inserts there -> "alpha betaX gamma". Exercises C-s isearch. ---
+printf 'alpha beta gamma' > "$tmp"
+printf '\023beta\015X\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
+printf 'alpha betaX gamma' > "$exp"
+if ! cmp -s "$tmp" "$exp"; then
+  echo "FAIL: isearch expected 'alpha betaX gamma', got: [$(cat "$tmp")]"
+  rm -f "$tmp" "$exp"; exit 1
+fi
+
 # --- quit guard, save path: edit then C-x C-c answered 'y' SAVES before exit. ---
 printf 'orig\n' > "$tmp"
 printf 'X\030\003y' | "$KEC" nemacs "$tmp" >/dev/null 2>&1

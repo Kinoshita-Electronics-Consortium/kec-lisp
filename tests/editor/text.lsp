@@ -150,6 +150,35 @@
   (check (string-contains? s ";10H"))    ; cursor parked at col 10 (== cols), on-screen
   (check (not (string-contains? s ";21H"))))   ; NOT off the right edge (pcol+1)
 
+;; ---- search ----------------------------------------------------------------
+(deftest "text/search-forward-finds"
+  (let b (mk "hello world\nfoo hello"))
+  (let m (text-search-forward b "hello" 0 0))
+  (check (= (car m) 0)) (check (= (cdr m) 0))          ; first match at (0,0)
+  (let m2 (text-search-forward b "hello" 0 1))         ; from (0,1) -> (1,4)
+  (check (= (car m2) 1)) (check (= (cdr m2) 4)))
+
+(deftest "text/search-forward-miss"
+  (let b (mk "abc"))
+  (check (nil? (text-search-forward b "xyz" 0 0))))
+
+(deftest "text/search-move-sets-point-and-mark"
+  (let b (mk "abc hello xyz"))
+  (check (text-search-move! b "hello" 0 0))
+  (check (= (text-point-col b) 9))                     ; point at end of match (4+5)
+  (let mm (text-mark b))
+  (check (= (car mm) 0)) (check (= (cdr mm) 4)))       ; mark at start of match
+
+(deftest "text/search-move-miss-keeps-point"
+  (let b (mk "abc"))
+  (text-eol! b)                                        ; col 3
+  (check (nil? (text-search-move! b "z" 0 0)))
+  (check (= (text-point-col b) 3)))
+
+(deftest "text/search-empty-needle-noop"
+  (let b (mk "abc"))
+  (check (nil? (text-search-move! b "" 0 0))))
+
 ;; ---- mark / region / kill / yank -------------------------------------------
 (deftest "text/mark-and-kill-region"
   (let b (mk "hello world"))

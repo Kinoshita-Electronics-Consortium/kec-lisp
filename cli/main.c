@@ -283,6 +283,15 @@ static int lisp_str(kec_State *S, const char *expr, char *out, size_t n) {
     return 0;
 }
 
+/* Eval `expr`, expecting a number; return it (0 on failure). */
+static double lisp_num(kec_State *S, const char *expr) {
+    fe_Object *v = NULL;
+    if (kec_eval_string(S, expr, &v) == 0 && v && fe_type(kec_fe(S), v) == FE_TNUMBER) {
+        return (double)fe_tonumber(kec_fe(S), v);
+    }
+    return 0;
+}
+
 /* Does the buffer have unsaved edits? Drives the quit guard. */
 static int buffer_modified(kec_State *S) {
     char m[4];
@@ -335,6 +344,75 @@ static int confirm_quit(kec_State *S, const char *file, int cols, int rows,
         if (c == 'n' || c == 'N') { return 1; }
         if (c == 7) { snprintf(status, ssz, "\aQuit cancelled"); return 0; }  /* C-g */
         /* any other key: re-ask */
+    }
+}
+
+/* Ask the Lisp search verb to find `pat` at/after (fr,fc) and move point/mark.
+** Returns 1 if a match was found (point moved), 0 otherwise. */
+static int search_at(kec_State *S, const char *pat, int fr, int fc) {
+    Strbuf q = {0};
+    char tail[64], r[4];
+    int found;
+    sb_puts(&q, "(if (text-search-move! *nemacs* \"");
+    sb_put_escaped(&q, pat);
+    snprintf(tail, sizeof tail, "\" %d %d) \"1\" \"0\")", fr, fc);
+    sb_puts(&q, tail);
+    found = (lisp_str(S, q.p, r, sizeof r) && r[0] == '1');
+    free(q.p);
+    return found;
+}
+
+/* C-s incremental search. A small input loop owned by the host: printable keys
+** extend the pattern (re-search from the search origin), C-s repeats forward from
+** point, DEL shrinks, C-g cancels (restoring point to the origin), RET or any
+** other key accepts (point stays at the match). The match move + mark live in the
+** Lisp verb text-search-move!; here we track the pattern + origin and repaint. */
+static void isearch(kec_State *S, int cols, int rows, char *status, size_t ssz) {
+    char pat[256];
+    size_t plen = 0;
+    int orow, ocol, found = 1;
+    pat[0] = '\0';
+    orow = (int)lisp_num(S, "(text-point-row *nemacs*)");
+    ocol = (int)lisp_num(S, "(text-point-col *nemacs*)");
+    for (;;) {
+        int c;
+        char line[320];
+        snprintf(line, sizeof line, "%s%s",
+                 (plen == 0 || found) ? "I-search: " : "Failing I-search: ", pat);
+        render_frame(S, cols, rows, line);
+        c = getchar();
+        if (c == EOF) { return; }
+        if (c == 7) {                                   /* C-g: cancel, restore point */
+            char g[64];
+            snprintf(g, sizeof g, "(text-goto! *nemacs* %d %d)", orow, ocol);
+            kec_eval_string(S, g, NULL);
+            snprintf(status, ssz, "\aQuit");
+            return;
+        }
+        if (c == 13 || c == 10) {                       /* RET: accept (point stays) */
+            status[0] = '\0';
+            return;
+        }
+        if (c == 19) {                                  /* C-s: repeat forward from point */
+            if (plen) {
+                int pr = (int)lisp_num(S, "(text-point-row *nemacs*)");
+                int pc = (int)lisp_num(S, "(text-point-col *nemacs*)");
+                found = search_at(S, pat, pr, pc);
+            }
+            continue;
+        }
+        if (c == 127 || c == 8) {                       /* DEL: shrink pattern */
+            if (plen) { pat[--plen] = '\0'; }
+            found = (plen == 0) ? 1 : search_at(S, pat, orow, ocol);
+            continue;
+        }
+        if (c >= 32 && c < 127) {                       /* printable: extend pattern */
+            if (plen + 1 < sizeof pat) { pat[plen++] = (char)c; pat[plen] = '\0'; }
+            found = search_at(S, pat, orow, ocol);
+            continue;
+        }
+        status[0] = '\0';                               /* any other key: accept, exit */
+        return;
     }
 }
 
@@ -426,6 +504,11 @@ static int do_nemacs(const char *file) {
         c = getchar();
         if (c == EOF) { break; }
         status[0] = '\0';
+
+        /* C-s enters incremental search, which runs its own input loop. (The
+        ** save chord C-x C-s is unaffected: C-x is read first and consumes the
+        ** following C-s as part of its two-key sequence below.) */
+        if (c == 19) { isearch(S, cols, rows, status, sizeof status); continue; }
 
         /* ----- Emacs command dispatch (keymap-as-data; field-notes A.1) --------
         ** The host normalizes the keystroke to canonical notation, then asks the

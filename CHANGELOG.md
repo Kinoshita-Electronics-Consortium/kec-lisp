@@ -65,6 +65,14 @@
   maps the NUL byte (terminal `C-Space`) to `C-@`. `tests/editor/text.lsp` covers
   kill/copy/yank, multiline + reversed regions, kill-line (incl. EOL join), and
   kill-region undo; the nemacs smoke covers C-@/C-w/C-y. `M-y` yank-pop deferred.
+- **knEmacs incremental search (`C-s`).** A host minibuffer loop drives a Lisp
+  search engine (`text-search-forward` / `text-search-move!`): typing extends the
+  pattern (re-search from the origin), `C-s` repeats forward from point, `DEL`
+  shrinks, `RET` accepts (the match becomes the region — mark at start, point at
+  end), `C-g` cancels and restores point. Single-line patterns; `C-r` reverse and
+  wraparound deferred. `tests/editor/text.lsp` covers search-forward (hit/miss,
+  from-offset), search-move point/mark, and empty-needle; the nemacs smoke drives
+  a C-s/type/accept/edit round-trip.
 
 ### Changed
 - **Load-bearing standard globals are protected from rebinding.** Kernel
