@@ -1052,4 +1052,4 @@ architecture-defining decisions so later features fall out of them.
 
 ---
 
-*Compiled from a targeted read of the GNU Emacs Manual: Introduction + Chapters 1–14, 16–17, 20–21, 23, 24.7–24.11, and 33 (the editing-model, Lisp-editing, and extensibility chapters). GUI, mail, calendar, dired, VC, i18n, and large-app chapters were deliberately skipped (see "What to skip"). Page citations are to the printed book. Companion to [field-notes-amop.md](field-notes-amop.md).*
+*Compiled from a targeted read of the GNU Emacs Manual: Introduction + Chapters 1–14, 16–17, 20–21, 23, 24.7–24.11, and 33 (the editing-model, Lisp-editing, and extensibility chapters). GUI, mail, calendar, dired, VC, i18n, and large-app chapters were deliberately skipped (see "What to skip"). Page citations are to the printed book. Companion to [field-notes-amop.md](field-notes-amop.md) and the runnable [rxi/lite reference implementation](field-notes-rxi-lite.md).*
