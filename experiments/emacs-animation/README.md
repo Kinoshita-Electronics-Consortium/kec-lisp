@@ -38,6 +38,7 @@ cmake -S . -B build && cmake --build build
 | [`04-bounce.lsp`](04-bounce.lsp) | a ball carries velocity and reflects off walls | Part 7 ("runner" momentum) |
 | [`05-marquee.lsp`](05-marquee.lsp) | a scrolling text ticker | — (echo-line / CIPHER-LINE relevant) |
 | [`06-fireplace.lsp`](06-fireplace.lsp) | an amber fireplace in shade glyphs | [johanvts/emacs-fireplace](https://github.com/johanvts/emacs-fireplace) |
+| [`07-walker.lsp`](07-walker.lsp) | a keyboard walker (`read-key`) — WASD/Q | Part 7 (keyboard walker) |
 
 [`anim.lsp`](anim.lsp) is the shared library every demo loads.
 
@@ -75,10 +76,12 @@ sprint*. Status tracked inline below.
    `cos` `tan` `atan2` are host primitives and `pi`/`tau` are Core constants;
    `anim-sin`/`anim-cos` now delegate to them and the Bhaskara approximation is
    gone (single-precision, ~1e-7 error).
-3. **No keyboard input — *in progress* (PR2).** `read-event` drives Torop's
-   Parts 7–8 (the interactive walker, Pong). The plan adds `read-key` (blocking)
-   and `poll-key` (timeout) bound from the CLI; until that lands, `04-bounce` is
-   the autonomous stand-in (physics without the keys).
+3. **~~No keyboard input~~ → `read-key` / `poll-key` landed (PR2).** `read-event`
+   drives Torop's Parts 7–8 (the interactive walker, Pong). `read-key` (blocking)
+   and `poll-key` (timeout → `nil`) are now bound from the CLI (`cli/main.c`),
+   reachable from `kec run` — see [`07-walker.lsp`](07-walker.lsp). They read raw
+   bytes; smooth one-keypress-per-step control still needs raw mode (the knEmacs
+   idle-timer, PR3) — under a plain `kec run` script stdin is line-buffered.
 4. **No explicit flush.** `princ` relies on TTY line-buffering; there's no
    `(flush)`. Works on a terminal, invisible through a pipe. → *minor: a host
    `(flush)` would make output device-independent (not scheduled this sprint).*
