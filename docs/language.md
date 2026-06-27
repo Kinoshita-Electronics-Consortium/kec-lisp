@@ -413,12 +413,12 @@ The `kec` CLI uses `FULL`.
 | Group | Primitives | Profile |
 |---|---|---|
 | Reflection | `type-of`, `gensym`, `bound?`, `globals`, `fn-params` | both |
-| Math | `mod`, `floor`, `ceil`, `round`, `abs`, `sqrt`, `pow` | both |
+| Math | `mod`, `floor`, `ceil`, `round`, `abs`, `sqrt`, `pow`, `sin`, `cos`, `tan`, `atan2` | both |
 | Bitwise | `bit-and`, `bit-or`, `bit-xor`, `bit-not`, `bit-shl`, `bit-shr` | both |
 | Containers | `make-vector`, `vector`, `vector-ref`, `vector-set!`, `vector-length`, `vector?`, `make-matrix`, `matrix-ref`, `matrix-set!`, `matrix-rows`, `matrix-cols`, `matrix?`, `make-blob`, `blob-ref`, `blob-set!`, `blob-length`, `blob?`, `make-hash-table`, `hash-set!`, `hash-ref`, `hash-has?`, `hash-del!`, `hash-count`, `hash-keys`, `hash-table?` | both |
 | String | `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` | both |
 | I/O | `princ`, `newline`, `repr` | both |
-| System | `set-seed!`, `rand`, `rand-int`, `clock` | both |
+| System | `set-seed!`, `rand`, `rand-int`, `clock`, `now` | both |
 | Control | `try`, `raise`, `apply`, `read-string`, `read-all`, `macroexpand-1`, `provide`, `provided?` | both |
 | File/System | `load`, `require`, `eval`, `read-file`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` | `FULL` only |
 
@@ -435,6 +435,8 @@ Common host forms:
 | `(macroexpand-1 form)` | Expand one symbolic macro call, or return `form` unchanged. Quote the form to inspect: `(macroexpand-1 '(when 1 2))`. |
 | `(macroexpand form)` | Full expansion: loop `macroexpand-1` to a fixpoint. Core macro (`core/36-recover`), not a host primitive. |
 | `(bit-and a b)` / `(bit-or a b)` / `(bit-xor a b)` / `(bit-not a)` / `(bit-shl a n)` / `(bit-shr a n)` | 32-bit integer bitwise ops. Operands must be finite, integral, and in signed 32-bit range; invalid inputs raise instead of truncating. Negative operands use two's-complement bits, e.g. `(bit-and -1 255)` → `255`. `bit-shr` is a **logical** (zero-fill) right shift; shift counts are masked to `n & 31`. Results remain subject to KEC's single-precision number limit. |
+| `(sin x)` / `(cos x)` / `(tan x)` / `(atan2 y x)` | Trigonometry in **radians** (`atan2` takes `(y x)` like C, resolving the full `-pi..pi` range). `pi` and `tau` are Core constants. Single-precision: results carry ~1e-7 error, so `(sin pi)` is `~1e-7`, not `0` — compare with an epsilon, never `(is …)`. |
+| `(now)` vs `(clock)` | `(now)` is **monotonic** elapsed wall-clock seconds (for timers, animation, elapsed-time); `(clock)` is **CPU** seconds (for profiling). `now` never goes backward. |
 | `(set-seed! n)` | Reseed this interpreter's self-contained PRNG from a signed 32-bit integer and return `n`. A fixed seed makes `rand` / `rand-int` **reproducible** across runs and platforms without sharing state between contexts. `rand-int` likewise requires an integral bound. |
 | `(bound? sym)` | Truthy if `sym` has a global binding, even when its value is `nil`. Errors if the argument is not a symbol: `(bound? 'car)`. |
 | `(globals [prefix])` | A fresh list of the globally-bound symbols, optionally filtered to names starting with `prefix`. Order is unspecified; treat the list as read-only (it is yours to keep, but the symbols are interned). `(globals "string-")`. |

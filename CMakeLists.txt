@@ -33,6 +33,7 @@ file(MAKE_DIRECTORY ${GEN_DIR})
 set(CORE_SRCS
   ${CMAKE_SOURCE_DIR}/core/00-def.lsp
   ${CMAKE_SOURCE_DIR}/core/10-list.lsp
+  ${CMAKE_SOURCE_DIR}/core/15-math.lsp
   ${CMAKE_SOURCE_DIR}/core/20-cmp.lsp
   ${CMAKE_SOURCE_DIR}/core/25-alist.lsp
   ${CMAKE_SOURCE_DIR}/core/26-plist.lsp
@@ -88,6 +89,8 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/str.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/strtool.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/bitwise.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/math.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/time.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/rng.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/bigstr.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fileio.lsp
