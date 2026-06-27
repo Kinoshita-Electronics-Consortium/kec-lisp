@@ -61,28 +61,27 @@ read so close to the Emacs originals.
 
 ## What's missing (the gaps this experiment surfaced)
 
-Four things blocked a faithful port. Three I worked around in Lisp; one is a hard
-wall. **This is the real output of the experiment** — the shopping list for the
-host (`host/host.c`) if animation graduates from playground to feature.
+Four things blocked a faithful port. **This is the real output of the
+experiment** — the shopping list for the host that became the *host-capabilities
+sprint*. Status tracked inline below.
 
-1. **No `sleep` / wall-clock.** The only time primitive is `clock` (CPU seconds).
-   `anim-delay` spin-waits on it, which pins one core at 100% for the whole
-   animation. Fine for a demo, wrong for anything real. → *want a host
-   `(sleep secs)` (nanosleep) and a monotonic `(now)`.*
-2. **No `sin`/`cos`/`pi`.** Torop's smoothest lesson (`(sin (/ y 7.0))`) has no
-   host equivalent. `anim-sin` approximates it in Lisp (Bhaskara parabola + a
-   Q=0.225 refinement; exact at 0/±π⁄2/±π, ~0.7% error mid-curve — verified
-   `anim-sin(π/4)=0.708` vs true `0.707`). Works, but every curve-based animation
-   pays for it. → *want host `sin`/`cos` (and `pi`).*
-3. **No keyboard input.** `read-event` drives Torop's Parts 7–8 (the interactive
-   walker, Pong). KEC Lisp's FULL profile exposes file I/O but **no `read-char` /
-   non-blocking poll**, so every *interactive* animation is blocked. `04-bounce`
-   is the autonomous stand-in (physics without the keys). → *want a host input
-   seam: blocking `(read-key)` and a timeout form like Emacs's
-   `(read-event nil nil 0.1)`.*
+1. **~~No `sleep` / wall-clock~~ → `now` landed (ADR-0005, PR1).** `clock` was CPU
+   seconds; there is now a monotonic `(now)`, and `anim-delay` spin-waits on it.
+   A spin-wait still pins a core — true CPU relief is the **idle-timer** (PR3),
+   which replaces the wait entirely rather than a blocking `sleep` (a blocking
+   sleep would stall the single-threaded cooperative loop, so it was deliberately
+   *not* added).
+2. **~~No `sin`/`cos`/`pi`~~ → host-native trig landed (ADR-0005, PR1).** `sin`
+   `cos` `tan` `atan2` are host primitives and `pi`/`tau` are Core constants;
+   `anim-sin`/`anim-cos` now delegate to them and the Bhaskara approximation is
+   gone (single-precision, ~1e-7 error).
+3. **No keyboard input — *in progress* (PR2).** `read-event` drives Torop's
+   Parts 7–8 (the interactive walker, Pong). The plan adds `read-key` (blocking)
+   and `poll-key` (timeout) bound from the CLI; until that lands, `04-bounce` is
+   the autonomous stand-in (physics without the keys).
 4. **No explicit flush.** `princ` relies on TTY line-buffering; there's no
    `(flush)`. Works on a terminal, invisible through a pipe. → *minor: a host
-   `(flush)` would make output device-independent.*
+   `(flush)` would make output device-independent (not scheduled this sprint).*
 
 ## The fireplace, on KN-86 terms
 

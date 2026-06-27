@@ -266,6 +266,24 @@ static fe_Object *h_pow(fe_Context *ctx, fe_Object *args) {
     fe_Number a = arg_num(ctx, &args), b = arg_num(ctx, &args);
     return fe_number(ctx, (fe_Number)pow((double)a, (double)b));
 }
+/* Trig — radians (C convention). Computed in double, narrowed to fe_Number
+** (single-precision float), so results carry ~1e-7 relative error: fine for
+** geometry/CRT, unsafe for high-iteration accumulation. (pi/tau are Core
+** constants — core/15-math.lsp — since kec_bind_fe registers cfuncs only.)
+** atan2 takes (y x) like C and resolves the full -pi..pi range. */
+static fe_Object *h_sin(fe_Context *ctx, fe_Object *args) {
+    return fe_number(ctx, (fe_Number)sin((double)arg_num(ctx, &args)));
+}
+static fe_Object *h_cos(fe_Context *ctx, fe_Object *args) {
+    return fe_number(ctx, (fe_Number)cos((double)arg_num(ctx, &args)));
+}
+static fe_Object *h_tan(fe_Context *ctx, fe_Object *args) {
+    return fe_number(ctx, (fe_Number)tan((double)arg_num(ctx, &args)));
+}
+static fe_Object *h_atan2(fe_Context *ctx, fe_Object *args) {
+    fe_Number y = arg_num(ctx, &args), x = arg_num(ctx, &args);
+    return fe_number(ctx, (fe_Number)atan2((double)y, (double)x));
+}
 
 /* ------------------------------------------------------------------ */
 /* Bitwise — packing/masking the kernel arithmetic primitives can't do.*/
@@ -573,6 +591,15 @@ static fe_Object *h_clock(fe_Context *ctx, fe_Object *args) {
     (void)args;
     return fe_number(ctx, (fe_Number)((double)clock() / CLOCKS_PER_SEC));
 }
+/* (now) — monotonic elapsed seconds (a real wall clock), distinct from (clock)
+** which is CPU time. Use (now) for timers/animation/elapsed-time; (clock) for
+** profiling. CLOCK_MONOTONIC never jumps backward and ignores wall-clock resets. */
+static fe_Object *h_now(fe_Context *ctx, fe_Object *args) {
+    struct timespec ts;
+    (void)args;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return fe_number(ctx, (fe_Number)((double)ts.tv_sec + (double)ts.tv_nsec * 1e-9));
+}
 
 /* ------------------ FULL-profile only (file / sys) ----------------- */
 
@@ -733,6 +760,10 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     kec_bind_fe(ctx, "abs", h_abs);
     kec_bind_fe(ctx, "sqrt", h_sqrt);
     kec_bind_fe(ctx, "pow", h_pow);
+    kec_bind_fe(ctx, "sin", h_sin);
+    kec_bind_fe(ctx, "cos", h_cos);
+    kec_bind_fe(ctx, "tan", h_tan);
+    kec_bind_fe(ctx, "atan2", h_atan2);
     /* Bitwise (32-bit, logical shr) */
     kec_bind_fe(ctx, "bit-and", h_bit_and);
     kec_bind_fe(ctx, "bit-or", h_bit_or);
@@ -761,6 +792,7 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     kec_bind_fe(ctx, "rand", h_rand);
     kec_bind_fe(ctx, "rand-int", h_rand_int);
     kec_bind_fe(ctx, "clock", h_clock);
+    kec_bind_fe(ctx, "now", h_now);
     /* Containers (vectors + hash tables) — portable, safe in any profile.
     ** Registers a composable typed-FE_TPTR lifecycle (see containers.c). */
     kec_containers_register(ctx);

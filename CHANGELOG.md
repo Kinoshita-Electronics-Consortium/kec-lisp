@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- **Pure math + monotonic time primitives** (ADR-0005; GWP-641). Always-on host
+  primitives `sin` / `cos` / `tan` (radians) and `atan2` `(y x)`, plus `pi` / `tau`
+  Core constants (`core/15-math.lsp`), and `now` — a monotonic wall clock
+  (`CLOCK_MONOTONIC`) distinct from the CPU-time `clock`. Registered beside
+  `sqrt` / `pow` / `clock`, before the FULL gate (they touch no host resource).
+  Single-precision contract: results carry ~1e-7 error — epsilon-test only, never
+  exact `(is …)`. (`tests/core/math.lsp`, `tests/core/time.lsp`.)
 - **Application-engine substrate — general major modes + the minibuffer
   command-by-name surface** (ADR-0002, ADR-0004; kn-86 ADR-0046 Decision 2). Two
   thin, generic editor-tier modules promote knEmacs from "the editor" toward the

@@ -7,11 +7,11 @@
 ;; KEC Lisp has no buffer/sit-for/read-event, so we animate the TERMINAL
 ;; directly: ANSI cursor control + a spin-wait clock + a mutable char canvas.
 ;;
-;; What this maps onto (the "what's missing" list, see README):
+;; What this maps onto:
 ;;   erase-buffer / insert  ->  a canvas + (draw-char c x y ch) over ANSI
-;;   sit-for 0.2            ->  (anim-delay 0.2)  [spin-wait on (clock)]
-;;   (sin (/ y 7.0))        ->  (anim-sin x)      [host has no sin/cos]
-;;   read-event (keyboard)  ->  NOT POSSIBLE yet  [no host input primitive]
+;;   sit-for 0.2            ->  (anim-delay 0.2)  [spin-wait on (now), ADR-0005]
+;;   (sin (/ y 7.0))        ->  (anim-sin x)      [host-native sin/cos, ADR-0005]
+;;   read-event (keyboard)  ->  read-key / poll-key  [PR2 — see README]
 ;;
 ;; Load it from a demo with:  (load "experiments/emacs-animation/anim.lsp")
 ;; and run the demo from the repo root:  ./build/kec run experiments/emacs-animation/02-sine-wave.lsp
@@ -35,30 +35,24 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Timing — the sit-for replacement.
-;; (clock) is CPU seconds; spinning consumes CPU, so the busy-wait tracks ~wall
-;; time at the cost of pinning one core. Fine for an experiment; a real design
-;; system wants a host `sleep`/idle-timer instead (see README).
+;; (now) is monotonic wall-clock seconds (ADR-0005). The busy-wait still pins
+;; one core; true CPU relief comes from the host idle-timer (PR3), not here —
+;; but (now) measures real elapsed time correctly regardless of CPU load.
 ;; ---------------------------------------------------------------------------
 (defn anim-delay (secs)
-  (let t0 (clock))
-  (while (< (- (clock) t0) secs) nil))
+  (let t0 (now))
+  (while (< (- (now) t0) secs) nil))
 
 ;; ---------------------------------------------------------------------------
-;; Math the host doesn't give us.
-;; No sin/cos primitive, so approximate sine with the Bhaskara/parabola form,
-;; reduced to [-PI, PI]. Max error ~0.06 — invisible at character resolution.
+;; Math — now host-native (ADR-0005 added real sin/cos + pi/tau). anim-sin /
+;; anim-cos delegate straight to the host primitives; the Bhaskara approximation
+;; this file used to carry (when the host had no trig) is gone.
 ;; ---------------------------------------------------------------------------
-(define PI    3.14159265)
-(define TWOPI 6.2831853)
+(define PI    pi)    ; kept as aliases for any caller; pi/tau are the canonical
+(define TWOPI tau)   ; Core constants now
 
-(defn anim-sin (x)
-  (let r (- (mod (+ x PI) TWOPI) PI))             ; wrap into [-PI, PI]
-  ;; base parabola: (4/PI)r - (4/PI^2) r|r|  — exact at 0, +-PI/2, +-PI
-  (let base (- (* (/ 4 PI) r) (* (/ 4 (* PI PI)) r (abs r))))
-  ;; Q=0.225 refinement: pulls the mid-curve toward true sine (peaks stay exact)
-  (+ base (* 0.225 (- (* base (abs base)) base))))
-
-(defn anim-cos (x) (anim-sin (+ x (/ PI 2))))
+(defn anim-sin (x) (sin x))
+(defn anim-cos (x) (cos x))
 
 ;; (clamp v lo hi)
 (defn clamp (v lo hi) (max lo (min hi v)))
