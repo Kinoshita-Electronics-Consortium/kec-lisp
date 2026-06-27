@@ -119,17 +119,24 @@ for the frame delay, sets amber with a raw escape (no palette abstraction yet), 
 can't live *inside* knEmacs without an idle-timer. It's the strongest argument that
 the next step is host primitives, not more Lisp.
 
-## …and the knEmacs gap specifically
+## …and the knEmacs gap — now closed (PR3)
 
-The user ask was "animations **in knEmacs**." Worth being precise: these run as
-standalone `kec run` scripts, **not inside the editor**. knEmacs's main loop is
-C-driven (`cli/main.c`) and **blocks** on a keystroke read — it only redraws in
-response to a key. To animate *inside* the editor you'd need the host to grow an
-**idle-timer / non-blocking poll** (Emacs's `run-with-timer` is exactly this):
-the loop waits up to N ms for a key, and on timeout fires a registered Lisp
-redraw thunk. That single seam — a timed poll — unlocks both #3 (interactive
-animation) and in-editor animation at once. It's the highest-leverage host
-change on this list.
+The original ask was "animations **in knEmacs**." When this experiment started,
+the demos ran only as standalone `kec run` scripts, **not inside the editor**:
+knEmacs's main loop blocked on a keystroke and only redrew in response to a key.
+
+That's fixed. The loop now asks a Lisp **timer registry** (`editor/72-timer.lsp`,
+Emacs's `run-with-timer`) how long until the next armed timer and `poll()`s the
+keyboard for that long; on timeout it fires the due thunk and repaints. So an
+armed timer animates *between* keystrokes — verified by `tests/cli/idle-timer-smoke.sh`
+(a repeating timer types into the buffer across an idle gap). With nothing armed
+the loop blocks exactly as before. Arm one with `(run-with-timer secs repeat fn
+(now))`; `KN86_NEMACS_INIT` is a startup hook to do it. See
+[ADR-0006](../../docs/adr/ADR-0006-host-input-and-idle-timer-seam.md).
+
+This was the highest-leverage host change on the list — the same poll-with-timeout
+seam that lets a timer fire is what would let a future raw-mode editor read keys
+without blocking.
 
 ## The design system, as it crystallized
 
