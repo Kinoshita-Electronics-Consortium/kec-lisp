@@ -3,6 +3,25 @@
 ## Unreleased
 
 ### Added
+- **Application-engine substrate — general major modes + the minibuffer
+  command-by-name surface** (ADR-0002, ADR-0004; kn-86 ADR-0046 Decision 2). Two
+  thin, generic editor-tier modules promote knEmacs from "the editor" toward the
+  shared **application engine** every program-as-mode rides. `editor/52-mode.lsp`
+  adds **major modes** as a small bundle over the keymap registry —
+  `define-major-mode` (a `:keymap`/`:render`/`:setup`/`:parent` plist), the
+  `major-mode*` accessors, **keymap inheritance** (`major-mode-handler` /
+  `major-mode-dispatch` walk the `:parent` chain, child overrides parent, with a
+  bounded cycle guard), and `major-mode-enter` (runs the mode's setup). A mode is
+  a *class* — keymap + render + setup; mode-local buffer state is deliberately
+  deferred ("build the first program, then extract", ADR-0046 Decision 4).
+  `editor/85-minibuffer.lsp` adds the **M-x surface**: a `*commands*` registry
+  (`define-command` / `command` / `command?` / `command-names`), ido-style
+  **`completing-read`** (empty query = all; prefix matches first, then substring,
+  each group alphabetical — reusing the ranker's `string-less?`), a minibuffer
+  state record (`make-minibuffer` / `-update` / `-matches` / `-default`),
+  `execute-command`, and `read-command`. Headless and iterative throughout.
+  `tests/editor/{mode,minibuffer}.lsp` (+59 checks). No concrete program mode is
+  built — substrate only.
 - **Native matrices and binary blobs.** Containers now include flat row-major
   matrices (`make-matrix`, `matrix-ref`, `matrix-set!`, dimensions, predicate,
   and iterative Core helpers) and binary-safe byte blobs (`make-blob`,
