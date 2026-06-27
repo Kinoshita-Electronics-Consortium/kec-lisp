@@ -95,6 +95,21 @@ fe_Object *handle = fe_ptr_typed(ctx, sensor, &SENSOR_HANDLE_TAG);
   mission-context tier, a REPL read-only whitelist, and the privileged
   system-render tier — each just a different binding-set at context creation.
 
+### Host-specific seams: the same Lisp name, a different C body
+
+Some primitives are **terminal/host-specific** and deliberately do *not* live in
+portable `host/host.c`. **`read-key` / `poll-key`** are the canonical example: the
+`kec` CLI binds them (`cli/main.c`) over `read(2)` + `poll()` on stdin, which only
+makes sense for a desktop TTY. The KN-86 firmware has no TTY — input is USB-HID /
+evdev — so it registers the **same Lisp names** (`read-key`, `poll-key`) backed by
+its own input path, through this same `bind` seam.
+
+The portable artifact is therefore the **Lisp-facing contract**, not the C body:
+a cart or editor module that calls `(poll-key 0.05)` runs unchanged on both the
+laptop and the device. Bind such primitives from the *host* (the CLI, or the
+firmware), never from the shared `host/host.c` — keep `host/host.c` for primitives
+whose one implementation is correct everywhere (`sin`, `now`, string ops, …).
+
 ## 5. Error propagation
 
 - **Every** C-side failure routes through `fe_error(ctx, msg)`. The runtime's

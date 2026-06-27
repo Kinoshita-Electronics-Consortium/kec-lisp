@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- **Keyboard input — `read-key` / `poll-key`** (GWP-642; `docs/ffi-bridge.md` §4).
+  Terminal input bound from the `kec` CLI (`cli/main.c`), reachable from `kec run`
+  and the editor: `(read-key)` blocks for one input byte (`nil` at end-of-input);
+  `(poll-key secs)` waits up to `secs` (a `poll()` on stdin) and returns the byte
+  or `nil`. CLI-specific, **not** portable `host.c` — the device firmware
+  registers the same Lisp names over its own input (HID/evdev). The editor's
+  keystroke reads moved `getchar()` → `read(2)` so stdio buffering can't defeat a
+  future `poll()`. (`tests/cli/readkey-smoke.sh`.)
 - **Pure math + monotonic time primitives** (ADR-0005; GWP-641). Always-on host
   primitives `sin` / `cos` / `tan` (radians) and `atan2` `(y x)`, plus `pi` / `tau`
   Core constants (`core/15-math.lsp`), and `now` — a monotonic wall clock

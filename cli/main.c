@@ -20,6 +20,7 @@
 #include <setjmp.h>
 #include <termios.h>
 #include <unistd.h>
+#include <poll.h>
 #include <sys/ioctl.h>
 
 #include "fe.h"
@@ -102,12 +103,59 @@ static void maybe_load_dev_core(kec_State *S) {
     }
 }
 
+/* ------------------------------------------------------------------ */
+/* Terminal input. One raw byte at a time via read(2), NOT getchar: stdio  */
+/* buffering is invisible to poll()/select(), so a buffered byte would make */
+/* the idle-timer's poll-timeout (do_nemacs) fire spuriously. Under raw mode */
+/* (VMIN=1/VTIME=0) read(2) blocks for exactly one byte, like getchar did.   */
+/* ------------------------------------------------------------------ */
+static int rd1(void) {
+    unsigned char b;
+    ssize_t n = read(STDIN_FILENO, &b, 1);
+    return (n == 1) ? (int)b : EOF;
+}
+
+/* (read-key) -> the next input byte as a number, or nil at end-of-input.
+** Blocks until a byte arrives (under raw mode, exactly one keystroke). */
+static fe_Object *l_read_key(fe_Context *ctx, fe_Object *args) {
+    int c;
+    (void)args;
+    c = rd1();
+    return (c == EOF) ? fe_bool(ctx, 0) : fe_number(ctx, (fe_Number)c);
+}
+
+/* (poll-key secs) -> the next input byte as a number if one arrives within
+** `secs` seconds, else nil (timeout or end-of-input). secs may be fractional;
+** 0 is a pure poll. A non-blocking wait via poll() on stdin — the Lisp-facing
+** equivalent of Emacs's (read-event nil nil TIMEOUT). */
+static fe_Object *l_poll_key(fe_Context *ctx, fe_Object *args) {
+    double secs = (double)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    struct pollfd pfd;
+    int ms, r, c;
+    if (secs < 0) { secs = 0; }
+    ms = (int)(secs * 1000.0);
+    pfd.fd = STDIN_FILENO;
+    pfd.events = POLLIN;
+    r = poll(&pfd, 1, ms);
+    if (r <= 0) { return fe_bool(ctx, 0); }   /* timeout or error: no key */
+    c = rd1();                                /* ready (data or EOF/HUP) */
+    return (c == EOF) ? fe_bool(ctx, 0) : fe_number(ctx, (fe_Number)c);
+}
+
 /* Open a FULL-profile context for a runtime subcommand, applying the
-** KEC_CORE_DIR dev override if set. (build uses kec_open directly — it only
-** parse-checks a bundle and has no reason to reload Core.) */
+** KEC_CORE_DIR dev override if set, and binding the terminal-input seam
+** (read-key / poll-key) so both `kec run` scripts and the editor reach it.
+** These are CLI host primitives, NOT portable host.c: raw-mode/poll-on-stdin
+** is terminal-specific; the device firmware registers the same Lisp names over
+** its own input (HID/evdev) — see docs/ffi-bridge.md. (build uses kec_open
+** directly — it only parse-checks a bundle and has no reason to reload Core.) */
 static kec_State *cli_open(void) {
     kec_State *S = kec_open(ARENA_BYTES, KEC_PROFILE_FULL);
-    if (S) { maybe_load_dev_core(S); }
+    if (S) {
+        maybe_load_dev_core(S);
+        kec_bind_fe(kec_fe(S), "read-key", l_read_key);
+        kec_bind_fe(kec_fe(S), "poll-key", l_poll_key);
+    }
     return S;
 }
 
@@ -335,7 +383,7 @@ static int confirm_quit(kec_State *S, const char *file, int cols, int rows,
     for (;;) {
         int c;
         render_frame(S, cols, rows, prompt);
-        c = getchar();
+        c = rd1();
         if (c == EOF) { return 1; }                          /* input closed: exit */
         if (c == 'y' || c == 'Y') {
             if (file) { save_buffer(S, file, status, ssz); }
@@ -380,7 +428,7 @@ static void isearch(kec_State *S, int cols, int rows, char *status, size_t ssz) 
         snprintf(line, sizeof line, "%s%s",
                  (plen == 0 || found) ? "I-search: " : "Failing I-search: ", pat);
         render_frame(S, cols, rows, line);
-        c = getchar();
+        c = rd1();
         if (c == EOF) { return; }
         if (c == 7) {                                   /* C-g: cancel, restore point */
             char g[64];
@@ -422,9 +470,9 @@ static void isearch(kec_State *S, int cols, int rows, char *status, size_t ssz) 
 ** has — what each key *does* lives in the Lisp binding table (editor/55-bindings). */
 static void norm_key(int c, char *out, size_t n) {
     if (c == 27) {                         /* ESC: arrow keys or a Meta prefix */
-        int c2 = getchar();
+        int c2 = rd1();
         if (c2 == '[') {
-            int c3 = getchar();
+            int c3 = rd1();
             const char *a = (c3 == 'A') ? "<up>"  : (c3 == 'B') ? "<down>"
                           : (c3 == 'C') ? "<right>" : (c3 == 'D') ? "<left>" : "";
             snprintf(out, n, "%s", a);
@@ -501,7 +549,7 @@ static int do_nemacs(const char *file) {
         ** at point, so the host just prints what it returns. */
         render_frame(S, cols, rows, status);
 
-        c = getchar();
+        c = rd1();
         if (c == EOF) { break; }
         status[0] = '\0';
 
@@ -521,13 +569,13 @@ static int do_nemacs(const char *file) {
 
             if (c == 24) {                     /* C-x ...  -> "C-x <key>" */
                 char k2[24];
-                norm_key(getchar(), k2, sizeof k2);
+                norm_key(rd1(), k2, sizeof k2);
                 snprintf(key, sizeof key, "C-x %s", k2);
             } else if (c == 8) {               /* C-h help: describe the next key */
-                int h = getchar();
+                int h = rd1();
                 char k2[24];
                 Strbuf d = {0};
-                if (h == 'k') { norm_key(getchar(), k2, sizeof k2); }
+                if (h == 'k') { norm_key(rd1(), k2, sizeof k2); }
                 else          { norm_key(h, k2, sizeof k2); }   /* lenient: C-h <key> */
                 sb_puts(&d, "(describe-key \"");
                 sb_put_escaped(&d, k2);

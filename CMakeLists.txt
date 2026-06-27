@@ -210,6 +210,10 @@ add_test(NAME cli/repl-smoke
 add_test(NAME cli/nemacs-smoke
   COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/nemacs-smoke.sh $<TARGET_FILE:kec>)
 
+# The read-key / poll-key host input primitives (pipe bytes through `kec run`).
+add_test(NAME cli/readkey-smoke
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/readkey-smoke.sh $<TARGET_FILE:kec>)
+
 # ---------------------------------------------------------------------------
 # C-level embedding tests — the no-malloc arena seam the .lsp suite can't reach.
 # ---------------------------------------------------------------------------
