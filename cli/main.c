@@ -21,6 +21,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <poll.h>
+#include <errno.h>
 #include <sys/ioctl.h>
 
 #include "fe.h"
@@ -34,6 +35,10 @@
 #endif
 
 #define ARENA_BYTES (16u * 1024u * 1024u)
+/* Upper bound for any poll() timeout (1 day, in ms). Keeps a far-future timer
+** delay or a huge poll-key timeout from overflowing the float->int cast (which
+** is UB and can wrap to a negative timeout = block forever). */
+#define POLL_MS_MAX (24 * 60 * 60 * 1000)
 
 /* ------------------------------------------------------------------ */
 /* Small growable string buffer (for `build`).                         */
@@ -131,13 +136,16 @@ static fe_Object *l_read_key(fe_Context *ctx, fe_Object *args) {
 static fe_Object *l_poll_key(fe_Context *ctx, fe_Object *args) {
     double secs = (double)fe_tonumber(ctx, fe_nextarg(ctx, &args));
     struct pollfd pfd;
+    double m;
     int ms, r, c;
     if (secs < 0) { secs = 0; }
-    ms = (int)(secs * 1000.0);
+    m = secs * 1000.0;                        /* clamp: avoid the float->int UB */
+    ms = (m > (double)POLL_MS_MAX) ? POLL_MS_MAX : (int)m;
     pfd.fd = STDIN_FILENO;
     pfd.events = POLLIN;
-    r = poll(&pfd, 1, ms);
-    if (r <= 0) { return fe_bool(ctx, 0); }   /* timeout or error: no key */
+    pfd.revents = 0;
+    do { r = poll(&pfd, 1, ms); } while (r < 0 && errno == EINTR);  /* not a timeout */
+    if (r <= 0) { return fe_bool(ctx, 0); }   /* genuine timeout or hard error: no key */
     c = rd1();                                /* ready (data or EOF/HUP) */
     return (c == EOF) ? fe_bool(ctx, 0) : fe_number(ctx, (fe_Number)c);
 }
@@ -538,6 +546,15 @@ static int do_nemacs(const char *file) {
         }
         free(src.p); free(init.p);
     }
+    /* Optional one-shot init hook: KN86_NEMACS_INIT is a Lisp expression
+    ** evaluated once now that *nemacs* exists — e.g. to arm an idle timer
+    ** (run-with-timer …). Errors are reported, not fatal. */
+    {
+        const char *initexpr = getenv("KN86_NEMACS_INIT");
+        if (initexpr && *initexpr && kec_eval_string(S, initexpr, NULL) != 0) {
+            fprintf(stderr, "kec nemacs: init: %s\n", kec_error(S));
+        }
+    }
     edit_raw_on();
     for (;;) {
         int c;
@@ -548,6 +565,37 @@ static int do_nemacs(const char *file) {
         ** out modeline + text window + the status/echo line and parks the cursor
         ** at point, so the host just prints what it returns. */
         render_frame(S, cols, rows, status);
+
+        /* Idle-timer wait (ADR-0006). Ask the Lisp timer registry how long until
+        ** the next armed timer; poll() stdin for that long. -1 = nothing armed =
+        ** block forever, exactly as the editor did before timers existed (so the
+        ** no-timer path is byte-identical). On timeout, fire the due idle thunks
+        ** and repaint; otherwise fall through and read the waiting key. Modal
+        ** sub-loops (confirm_quit, isearch) stay blocking — timers pause during a
+        ** prompt, like Emacs. */
+        {
+            struct pollfd pfd;
+            fe_Object *v = NULL;
+            int ms = -1;   /* default: block forever (no-timer path, byte-identical) */
+            /* Eval explicitly (not via lisp_num, which folds an error into 0): a
+            ** broken registry must degrade to a blocking wait, never a 0ms spin.
+            ** Clamp the armed case to [10ms, 1 day]: the floor caps idle wakeups
+            ** at ~100 Hz so a floor-to-0 (sub-ms / repeat-0) timer can't busy-spin;
+            ** the ceiling keeps the cast in range. -1 stays -1. */
+            if (kec_eval_string(S, "(timers-poll-ms (now))", &v) == 0 &&
+                v && fe_type(kec_fe(S), v) == FE_TNUMBER) {
+                double d = (double)fe_tonumber(kec_fe(S), v);
+                if (d < 0)                  ms = -1;
+                else if (d < 10)            ms = 10;
+                else if (d > (double)POLL_MS_MAX) ms = POLL_MS_MAX;
+                else                        ms = (int)d;
+            }
+            pfd.fd = STDIN_FILENO; pfd.events = POLLIN; pfd.revents = 0;
+            if (poll(&pfd, 1, ms) == 0) {            /* timed out: idle tick */
+                kec_eval_string(S, "(timers-advance! (now))", NULL);
+                continue;
+            }
+        }
 
         c = rd1();
         if (c == EOF) { break; }

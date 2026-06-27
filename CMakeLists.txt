@@ -122,6 +122,7 @@ set(EDITOR_SRCS
   ${CMAKE_SOURCE_DIR}/editor/55-bindings.lsp
   ${CMAKE_SOURCE_DIR}/editor/60-persist.lsp
   ${CMAKE_SOURCE_DIR}/editor/70-lifecycle.lsp
+  ${CMAKE_SOURCE_DIR}/editor/72-timer.lsp
   ${CMAKE_SOURCE_DIR}/editor/80-ranker.lsp
   ${CMAKE_SOURCE_DIR}/editor/85-minibuffer.lsp
   ${CMAKE_SOURCE_DIR}/editor/90-repl.lsp
@@ -183,7 +184,7 @@ set_tests_properties(tests/examples/black-ice-trace.lsp PROPERTIES
 # demand (not baked into Core), so the tests `load` editor/*.lsp relative to the
 # source dir; run from the repo root.
 foreach(t editor/zipper editor/undo editor/buffer editor/text editor/view editor/keymap
-          editor/mode editor/bindings editor/persist editor/lifecycle editor/ranker
+          editor/mode editor/bindings editor/persist editor/lifecycle editor/timer editor/ranker
           editor/minibuffer editor/repl editor/host editor/tty editor/prompt)
   add_test(NAME tests/${t}.lsp
     COMMAND kec test ${CMAKE_SOURCE_DIR}/tests/${t}.lsp)
@@ -213,6 +214,10 @@ add_test(NAME cli/nemacs-smoke
 # The read-key / poll-key host input primitives (pipe bytes through `kec run`).
 add_test(NAME cli/readkey-smoke
   COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/readkey-smoke.sh $<TARGET_FILE:kec>)
+
+# The knEmacs idle-timer: an armed timer fires between keystrokes (ADR-0006).
+add_test(NAME cli/idle-timer-smoke
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/idle-timer-smoke.sh $<TARGET_FILE:kec>)
 
 # ---------------------------------------------------------------------------
 # C-level embedding tests — the no-malloc arena seam the .lsp suite can't reach.

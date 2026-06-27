@@ -110,6 +110,19 @@ The split between the C host and the Lisp tier is deliberately thin:
   to a command. The host normalizes a keystroke, asks the table what it resolves
   to, and dispatches. Rebinding is a data edit, not a code change.
 
+### Idle timers
+
+The main loop isn't purely blocking: each iteration it asks the Lisp **timer
+registry** (`editor/72-timer.lsp`) how long until the next armed timer and
+`poll()`s the keyboard for that long. If a timer comes due before a key arrives,
+its thunk fires and the screen repaints — so periodic work (animation, a clock, a
+background repaint) runs *between* keystrokes, like Emacs's `run-with-timer`. With
+no timer armed the editor blocks for input exactly as before. Arm one with
+`(run-with-timer secs repeat fn (now))`; the `KN86_NEMACS_INIT` environment
+variable is a Lisp expression evaluated once at startup, a convenient place to do
+so. (Timers pause inside a modal prompt — `C-x C-c`'s save question, `C-s`
+search.) See [ADR-0006](adr/ADR-0006-host-input-and-idle-timer-seam.md).
+
 ## Scope and roadmap
 
 knEmacs today is the **minimal functional editor**: open, type, move, save. It is

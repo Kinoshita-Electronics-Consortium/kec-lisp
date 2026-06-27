@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- **knEmacs idle-timer — animation inside the editor** (ADR-0006; GWP-643).
+  `editor/72-timer.lsp` adds a clock-free timer registry (`run-with-timer` /
+  `cancel-timer` / `timers-advance!` / `timers-poll-ms`; the host owns the clock
+  and passes `now` in, so it is mock-clock testable). The `do_nemacs` loop now
+  `poll()`s stdin with a timeout computed from the next armed timer and fires the
+  due idle thunks on timeout — repainting between keystrokes. With nothing armed
+  the timeout is `-1` (block forever), so the no-timer path is byte-identical to
+  before. A one-shot `KN86_NEMACS_INIT` startup hook (a Lisp expression) can arm
+  timers / preload config. Hardened against busy-spin: a non-positive `repeat`
+  normalizes to a one-shot (in KEC `0` is truthy), the host floors its poll
+  interval to 10 ms (so a sub-ms repeat ticks at ~100 Hz, never spins) and caps
+  it at 1 day, and a timer-registry error degrades to a blocking wait rather than
+  a 0 ms spin. (`tests/editor/timer.lsp`, `tests/cli/idle-timer-smoke.sh`.)
 - **Keyboard input — `read-key` / `poll-key`** (GWP-642; `docs/ffi-bridge.md` §4).
   Terminal input bound from the `kec` CLI (`cli/main.c`), reachable from `kec run`
   and the editor: `(read-key)` blocks for one input byte (`nil` at end-of-input);
