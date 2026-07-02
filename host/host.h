@@ -25,6 +25,8 @@ typedef enum {
 
 typedef struct {
     uint64_t rng_state;
+    unsigned long gensym_counter; /* per-context: fresh contexts number alike */
+    double now_base;              /* (now) epoch: monotonic time at state init */
     void *(*container_alloc)(size_t);
     void (*container_free)(void *);
 } kec_HostState;

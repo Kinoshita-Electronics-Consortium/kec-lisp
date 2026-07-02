@@ -182,6 +182,63 @@ static void test_constructors_do_not_leak_backing_on_arena_exhaustion(void) {
     }
 }
 
+static void get_first_gensym(kec_State *S, char *buf, int n) {
+    fe_Object *out = NULL;
+    int rc = kec_eval_string(S, "(symbol->string (gensym))", &out);
+    buf[0] = '\0';
+    CHECK(rc == 0 && out != NULL, "gensym evaluation failed");
+    if (rc == 0 && out) { fe_tostring(kec_fe(S), out, buf, n); }
+}
+
+/* gensym numbering is context-owned host state: a fresh context always starts
+** from the same origin, regardless of how many gensyms other contexts burned.
+** Regression: the counter was a process-global static, so context creation
+** order leaked into symbol names (and thus into anything reproducible built
+** from them). */
+static void test_gensym_is_context_owned(void) {
+    kec_State *a = kec_open(2u * 1024u * 1024u, KEC_PROFILE_FULL);
+    kec_State *b;
+    char ga[64], gb[64];
+
+    CHECK(a != NULL, "context did not open for gensym test");
+    if (!a) { return; }
+    get_first_gensym(a, ga, sizeof ga);
+    /* Burn a few more so a process-global counter would visibly advance. */
+    kec_eval_string(a, "(do (gensym) (gensym) (gensym))", NULL);
+
+    b = kec_open(2u * 1024u * 1024u, KEC_PROFILE_FULL);
+    CHECK(b != NULL, "second context did not open for gensym test");
+    if (b) {
+        get_first_gensym(b, gb, sizeof gb);
+        CHECK(strcmp(ga, gb) == 0, "gensym numbering leaked between contexts");
+        kec_close(b);
+    }
+    kec_close(a);
+}
+
+/* (now) measures elapsed seconds since the CONTEXT opened, so single-precision
+** fe_Number keeps sub-millisecond resolution for the life of a session. The
+** raw CLOCK_MONOTONIC epoch (machine boot) would decay to ~62 ms steps after
+** ten days of uptime. A fresh context must read near zero — the 60 s bound is
+** generous slack for a stalled runner, while boot-epoch readings on any
+** warmed-up machine sit orders of magnitude above it. */
+static void test_now_is_measured_from_context_open(void) {
+    kec_State *S = kec_open(2u * 1024u * 1024u, KEC_PROFILE_FULL);
+    fe_Object *out = NULL;
+
+    CHECK(S != NULL, "context did not open for now test");
+    if (!S) { return; }
+    CHECK(kec_eval_string(S, "(now)", &out) == 0 && out != NULL,
+          "(now) evaluation failed");
+    if (out && fe_type(kec_fe(S), out) == FE_TNUMBER) {
+        double t = (double)fe_tonumber(kec_fe(S), out);
+        CHECK(t >= 0.0 && t < 60.0, "(now) is not measured from context open");
+    } else {
+        CHECK(0, "(now) did not return a number");
+    }
+    kec_close(S);
+}
+
 static void test_read_string_has_no_fixed_input_ceiling(void) {
     static const char prefix[] = "(string-length (read-string \"\\\"";
     static const char suffix[] = "\\\"\"))";
@@ -205,6 +262,8 @@ int main(void) {
     test_containers_remember_their_allocator();
     test_foreign_pointer_handlers_compose_with_containers();
     test_constructors_do_not_leak_backing_on_arena_exhaustion();
+    test_gensym_is_context_owned();
+    test_now_is_measured_from_context_open();
     test_read_string_has_no_fixed_input_ceiling();
     if (g_failures == 0) { printf("test_host_state: all checks passed\n"); }
     return g_failures;

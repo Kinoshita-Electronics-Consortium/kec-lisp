@@ -29,8 +29,16 @@
 
 static const char g_host_state_tag;
 
+static double monotonic_seconds(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+
 void kec_host_state_init(kec_HostState *state) {
     state->rng_state = KEC_RNG_DEFAULT;
+    state->gensym_counter = 0;
+    state->now_base = monotonic_seconds();
     kec_host_state_set_container_allocator(state, NULL, NULL);
 }
 
@@ -166,12 +174,14 @@ static fe_Object *h_type_of(fe_Context *ctx, fe_Object *args) {
     return fe_symbol(ctx, t);
 }
 
-/* Fresh symbol for macro hygiene: %g0, %g1, ... (the %g prefix is reserved). */
+/* Fresh symbol for macro hygiene: %g0, %g1, ... (the %g prefix is reserved).
+** The counter is context-owned host state, not a process global, so a fresh
+** context always numbers from the same origin — symbol names stay reproducible
+** no matter how many contexts came before it in the process. */
 static fe_Object *h_gensym(fe_Context *ctx, fe_Object *args) {
-    static unsigned long counter = 0;
     char buf[32];
     (void)args;
-    snprintf(buf, sizeof buf, "%%g%lu", counter++);
+    snprintf(buf, sizeof buf, "%%g%lu", kec_host_state(ctx)->gensym_counter++);
     return fe_symbol(ctx, buf);
 }
 
@@ -617,14 +627,17 @@ static fe_Object *h_clock(fe_Context *ctx, fe_Object *args) {
     (void)args;
     return fe_number(ctx, (fe_Number)((double)clock() / CLOCKS_PER_SEC));
 }
-/* (now) — monotonic elapsed seconds (a real wall clock), distinct from (clock)
-** which is CPU time. Use (now) for timers/animation/elapsed-time; (clock) for
-** profiling. CLOCK_MONOTONIC never jumps backward and ignores wall-clock resets. */
+/* (now) — monotonic elapsed seconds since THIS CONTEXT opened, distinct from
+** (clock) which is CPU time. Use (now) for timers/animation/elapsed-time;
+** (clock) for profiling. CLOCK_MONOTONIC never jumps backward and ignores
+** wall-clock resets. The per-context baseline matters because fe_Number is a
+** single-precision float: raw seconds-since-boot decay to ~62 ms resolution
+** after ten days of uptime, while seconds-since-open keep sub-millisecond
+** precision for the life of any session. */
 static fe_Object *h_now(fe_Context *ctx, fe_Object *args) {
-    struct timespec ts;
     (void)args;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return fe_number(ctx, (fe_Number)((double)ts.tv_sec + (double)ts.tv_nsec * 1e-9));
+    return fe_number(ctx, (fe_Number)(monotonic_seconds() -
+                                      kec_host_state(ctx)->now_base));
 }
 
 /* ------------------ FULL-profile only (file / sys) ----------------- */
