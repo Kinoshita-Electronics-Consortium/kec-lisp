@@ -62,7 +62,8 @@ void kec_host_state_set_container_allocator(kec_HostState *state,
 
 #define KEC_VECTOR_MAX (1 << 24) /* exact-float ceiling; far past practical use */
 #define KEC_BLOB_MAX   (1 << 24) /* same exact-integer boundary */
-#define KEC_HASH_KEYMAX 1024 /* string key compare/hash window (symbols/numbers exact) */
+#define KEC_HASH_KEYMAX 1024 /* stack fast path for string-key compares; longer
+                              ** keys heap-compare — content-exact either way */
 
 enum { KEC_KIND_VECTOR = 1, KEC_KIND_HASH = 2, KEC_KIND_MATRIX = 3, KEC_KIND_BLOB = 4 };
 
@@ -432,6 +433,14 @@ static Hash *as_hash(fe_Context *ctx, fe_Object *obj, const char *who) {
     return NULL; /* unreachable */
 }
 
+/* FNV-1a step as an fe_write sink: hashes every byte of the printed form, so
+** string keys of ANY length hash by full content (no fixed buffer window). */
+static void fnv_writefn(fe_Context *ctx, void *udata, char chr) {
+    unsigned *h = udata;
+    (void)ctx;
+    *h = (*h ^ (unsigned char)chr) * 16777619u;
+}
+
 static unsigned key_hash(fe_Context *ctx, fe_Object *k, int *ok) {
     int t = fe_type(ctx, k);
     *ok = 1;
@@ -447,11 +456,8 @@ static unsigned key_hash(fe_Context *ctx, fe_Object *k, int *ok) {
         return (unsigned)((p >> 4) * 2654435761u);
     }
     if (t == FE_TSTRING) {
-        char buf[KEC_HASH_KEYMAX];
-        unsigned h = 2166136261u; /* FNV-1a over the printed bytes */
-        int i;
-        fe_tostring(ctx, k, buf, sizeof buf);
-        for (i = 0; buf[i]; i++) { h = (h ^ (unsigned char)buf[i]) * 16777619u; }
+        unsigned h = 2166136261u; /* FNV-1a, streamed over the raw bytes */
+        fe_write(ctx, k, fnv_writefn, &h, 0);
         return h;
     }
     *ok = 0;
@@ -464,10 +470,33 @@ static int key_equal(fe_Context *ctx, fe_Object *a, fe_Object *b) {
     if (ta == FE_TNUMBER) { return fe_tonumber(ctx, a) == fe_tonumber(ctx, b); }
     if (ta == FE_TSYMBOL) { return a == b; }
     if (ta == FE_TSTRING) {
-        char ba[KEC_HASH_KEYMAX], bb[KEC_HASH_KEYMAX];
-        fe_tostring(ctx, a, ba, sizeof ba);
-        fe_tostring(ctx, b, bb, sizeof bb);
-        return strcmp(ba, bb) == 0;
+        /* Content-exact at any length: cheap length probe first, then a byte
+        ** compare — on the stack for typical keys, heap-materialized past the
+        ** fast-path window. Strings cannot contain NUL (see docs/language.md),
+        ** so byte length == printed length. */
+        size_t la = kec_strlen_obj(ctx, a, 0);
+        size_t lb = kec_strlen_obj(ctx, b, 0);
+        if (la != lb) { return 0; }
+        if (la < KEC_HASH_KEYMAX) {
+            char ba[KEC_HASH_KEYMAX], bb[KEC_HASH_KEYMAX];
+            fe_tostring(ctx, a, ba, sizeof ba);
+            fe_tostring(ctx, b, bb, sizeof bb);
+            return memcmp(ba, bb, la) == 0;
+        }
+        {
+            char *pa = kec_strdup_obj(ctx, a, 0, NULL);
+            char *pb = kec_strdup_obj(ctx, b, 0, NULL);
+            int eq;
+            if (!pa || !pb) {
+                free(pa);
+                free(pb);
+                fe_error(ctx, "hash: out of memory");
+            }
+            eq = memcmp(pa, pb, la) == 0;
+            free(pa);
+            free(pb);
+            return eq;
+        }
     }
     return 0;
 }

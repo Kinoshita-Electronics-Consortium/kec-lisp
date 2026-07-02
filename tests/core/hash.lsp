@@ -95,3 +95,24 @@
   (check-err (hash-ref (vector 1) 'k))   ; not a hash table
   (check-err (hash-set! h '(1 2) 'v))    ; unhashable key (a pair)
   (check-err (hash-ref h (list 1))))     ; unhashable key
+
+(deftest "hash/long-string-keys-are-exact"
+  ;; String keys hash and compare by their FULL content — two ~2000-char keys
+  ;; sharing a long common prefix are different keys, and a same-content copy
+  ;; (a distinct string object) finds the entry. Regression: keys used to be
+  ;; compared/hashed over only their first 1024 bytes, silently colliding.
+  (let prefix (string-repeat "x" 1990))
+  (let k1 (string-append prefix "-key-one"))
+  (let k2 (string-append prefix "-key-two"))
+  (let k1-copy (string-append prefix "-key-one"))
+  (let h (make-hash-table))
+  (hash-set! h k1 1)
+  (hash-set! h k2 2)
+  (check (is (hash-count h) 2))
+  (check (is (hash-ref h k1) 1))
+  (check (is (hash-ref h k2) 2))
+  (check (is (hash-ref h k1-copy) 1))    ; content equality, not identity
+  (check (hash-has? h k2))
+  (hash-del! h k1)
+  (check (nil? (hash-ref h k1)))
+  (check (is (hash-ref h k2) 2)))
