@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+### Fixed (language hardening, GWP-584)
+- **Container constructors no longer leak backing memory on arena exhaustion.**
+  Every constructor allocated its C backing before `fe_ptr_typed`; an
+  out-of-memory `longjmp` there leaked the backing — permanently, on a
+  fixed-arena device that catches errors and keeps running. The kernel gains
+  the additive `fe_set_ptr` (replace an `FE_TPTR`'s pointer) and construction
+  is now two-phase: pointer object first (the only step that can raise), then
+  the backing, owned by the gc handler from the moment it exists. A C
+  regression churns constructors at arena saturation with a counting allocator
+  and asserts alloc/free balance (`tests/c/test_host_state.c`).
+- **Hash string keys hash and compare by their full content.** Keys were
+  rendered through fixed 1024-byte buffers, so two long keys sharing a
+  1023-byte prefix were silently the *same* key — contradicting the language's
+  content equality for strings. The hash now streams FNV-1a through `fe_write`
+  (no ceiling) and equality is a length probe plus exact byte compare (stack
+  fast path below 1 KiB). The "first 1024 bytes" caveat is gone from
+  `docs/language.md` and amended in ADR-0003.
+- **Integer-taking string/system primitives validate their inputs.**
+  `string-ref` / `substring` indices, `string-split` separators and
+  `char->string` codes (bytes 0..255), `number->string` radixes (integer 2..16;
+  non-decimal renderings also require an exact integer value), and `exit`
+  codes now raise a catchable error on fractional, non-finite, or out-of-range
+  numbers instead of silently truncating — or hitting the undefined float→int
+  cast. `poll-key` rejects a NaN timeout (it slipped past both range guards
+  into the very `(int)` cast the guards exist to prevent). `rand-int` requires
+  a **positive** bound instead of inventing `0` for an empty `[0, n)` domain.
+  Valid calls keep their exact previous results (`tests/core/validate.lsp`).
+- **`gensym` numbering is context-owned.** The counter was a process-global
+  static, so a fresh context's symbol names depended on how many contexts came
+  before it in the process. It now lives in `kec_HostState`; fresh contexts
+  always number from the same origin.
+- **`(now)` measures from a per-context baseline** captured at open, instead of
+  returning raw `CLOCK_MONOTONIC` (seconds since machine boot) whose
+  single-precision rendering decays to ~62 ms resolution after ten days of
+  uptime. Seconds-since-open stay sub-millisecond for the life of any session;
+  the monotonic never-backward contract is unchanged (ADR-0005 amended).
+
+### Changed (language hardening, GWP-584)
+- **Shared conversion helpers in `host.h`.** The checked integer/byte
+  narrowing (`kec_checked_int` / `kec_checked_byte`) and length-aware
+  stringify (`kec_strlen_obj` / `kec_strdup_obj`) previously existed as two
+  and three private copies across `host.c`, `containers.c`, and `kec.c`; they
+  are now one public seam that downstream device primitives can (and should)
+  reuse — see `docs/ffi-bridge.md`.
+
 ### Added
 - **knEmacs idle-timer — animation inside the editor** (ADR-0006; GWP-643).
   `editor/72-timer.lsp` adds a clock-free timer registry (`run-with-timer` /

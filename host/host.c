@@ -29,8 +29,16 @@
 
 static const char g_host_state_tag;
 
+static double monotonic_seconds(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+
 void kec_host_state_init(kec_HostState *state) {
     state->rng_state = KEC_RNG_DEFAULT;
+    state->gensym_counter = 0;
+    state->now_base = monotonic_seconds();
     kec_host_state_set_container_allocator(state, NULL, NULL);
 }
 
@@ -64,14 +72,24 @@ static fe_Number arg_num(fe_Context *ctx, fe_Object **args) {
     return fe_tonumber(ctx, fe_nextarg(ctx, args));
 }
 
-static int32_t arg_i32(fe_Context *ctx, fe_Object **args, const char *who) {
+int32_t kec_checked_int(fe_Context *ctx, fe_Object **args, const char *who) {
     double n = (double)arg_num(ctx, args);
     char msg[96];
     if (!isfinite(n) || floor(n) != n || n < (double)INT32_MIN || n > (double)INT32_MAX) {
-        snprintf(msg, sizeof msg, "%s: expected a 32-bit integer", who);
+        snprintf(msg, sizeof msg, "%s: expected an integer", who);
         fe_error(ctx, msg);
     }
     return (int32_t)n;
+}
+
+int kec_checked_byte(fe_Context *ctx, fe_Object **args, const char *who) {
+    int n = (int)kec_checked_int(ctx, args, who);
+    char msg[96];
+    if (n < 0 || n > 255) {
+        snprintf(msg, sizeof msg, "%s: expected byte 0..255", who);
+        fe_error(ctx, msg);
+    }
+    return n;
 }
 
 /* Pull the next arg as a C string into a caller buffer; returns length.
@@ -101,12 +119,12 @@ static void count_writefn(fe_Context *ctx, void *udata, char chr) {
 
 /* Exact printed length of obj in bytes — no allocation. `qt` selects quoted
 ** (write-style) vs raw (princ-style) rendering, matching fe_write. */
-static size_t host_strlen_qt(fe_Context *ctx, fe_Object *obj, int qt) {
+size_t kec_strlen_obj(fe_Context *ctx, fe_Object *obj, int qt) {
     size_t n = 0;
     fe_write(ctx, obj, count_writefn, &n, qt);
     return n;
 }
-#define host_strlen(ctx, obj) host_strlen_qt((ctx), (obj), 0)
+#define host_strlen(ctx, obj) kec_strlen_obj((ctx), (obj), 0)
 
 /* Filling writer: append into a FillBuf with a hard capacity guard. */
 typedef struct { char *p; size_t n, cap; } FillBuf;
@@ -120,8 +138,8 @@ static void fill_writefn(fe_Context *ctx, void *udata, char chr) {
 ** real length. `qt` selects quoted vs raw. *len_out (if non-NULL) receives the
 ** byte length. Returns NULL only on OOM; callers route that through fe_error.
 ** The buffer is the caller's to free(). */
-static char *host_strdup_qt(fe_Context *ctx, fe_Object *obj, int qt, size_t *len_out) {
-    size_t len = host_strlen_qt(ctx, obj, qt);
+char *kec_strdup_obj(fe_Context *ctx, fe_Object *obj, int qt, size_t *len_out) {
+    size_t len = kec_strlen_obj(ctx, obj, qt);
     char *buf = malloc(len + 1);
     FillBuf b;
     if (!buf) { return NULL; }
@@ -131,7 +149,7 @@ static char *host_strdup_qt(fe_Context *ctx, fe_Object *obj, int qt, size_t *len
     if (len_out) { *len_out = b.n; }
     return buf;
 }
-#define host_strdup_obj(ctx, obj, len_out) host_strdup_qt((ctx), (obj), 0, (len_out))
+#define host_strdup_obj(ctx, obj, len_out) kec_strdup_obj((ctx), (obj), 0, (len_out))
 
 /* ------------------------------------------------------------------ */
 /* Reflection — type-of, which Core's number?/string?/etc. need.       */
@@ -156,12 +174,14 @@ static fe_Object *h_type_of(fe_Context *ctx, fe_Object *args) {
     return fe_symbol(ctx, t);
 }
 
-/* Fresh symbol for macro hygiene: %g0, %g1, ... (the %g prefix is reserved). */
+/* Fresh symbol for macro hygiene: %g0, %g1, ... (the %g prefix is reserved).
+** The counter is context-owned host state, not a process global, so a fresh
+** context always numbers from the same origin — symbol names stay reproducible
+** no matter how many contexts came before it in the process. */
 static fe_Object *h_gensym(fe_Context *ctx, fe_Object *args) {
-    static unsigned long counter = 0;
     char buf[32];
     (void)args;
-    snprintf(buf, sizeof buf, "%%g%lu", counter++);
+    snprintf(buf, sizeof buf, "%%g%lu", kec_host_state(ctx)->gensym_counter++);
     return fe_symbol(ctx, buf);
 }
 
@@ -300,7 +320,7 @@ static fe_Object *h_atan2(fe_Context *ctx, fe_Object *args) {
 /* ------------------------------------------------------------------ */
 
 static uint32_t arg_u32(fe_Context *ctx, fe_Object **args, const char *who) {
-    return (uint32_t)arg_i32(ctx, args, who);
+    return (uint32_t)kec_checked_int(ctx, args, who);
 }
 
 static fe_Object *h_bit_and(fe_Context *ctx, fe_Object *args) {
@@ -342,7 +362,7 @@ static fe_Object *h_string_length(fe_Context *ctx, fe_Object *args) {
 
 static fe_Object *h_string_ref(fe_Context *ctx, fe_Object *args) {
     fe_Object *s = fe_nextarg(ctx, &args);
-    int i = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int i = (int)kec_checked_int(ctx, &args, "string-ref");
     size_t len;
     char *buf;
     fe_Object *res;
@@ -357,8 +377,8 @@ static fe_Object *h_string_ref(fe_Context *ctx, fe_Object *args) {
 
 static fe_Object *h_substring(fe_Context *ctx, fe_Object *args) {
     fe_Object *s = fe_nextarg(ctx, &args);
-    int a = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
-    int b = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int a = (int)kec_checked_int(ctx, &args, "substring");
+    int b = (int)kec_checked_int(ctx, &args, "substring");
     size_t len;
     char *buf, save;
     fe_Object *res;
@@ -436,7 +456,7 @@ static fe_Object *h_string_search(fe_Context *ctx, fe_Object *args) {
 ** each allocation, then restoregc/pushgc keeps just the growing list rooted). */
 static fe_Object *h_string_split(fe_Context *ctx, fe_Object *args) {
     fe_Object *s = fe_nextarg(ctx, &args);
-    int sep = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int sep = kec_checked_byte(ctx, &args, "string-split");
     size_t len, end;
     long i;
     char *buf, save;
@@ -471,7 +491,7 @@ static fe_Object *h_string_split(fe_Context *ctx, fe_Object *args) {
 
 static fe_Object *h_char_to_string(fe_Context *ctx, fe_Object *args) {
     char out[2];
-    out[0] = (char)(int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    out[0] = (char)kec_checked_byte(ctx, &args, "char->string");
     out[1] = '\0';
     return fe_string(ctx, out);
 }
@@ -480,16 +500,31 @@ static fe_Object *h_number_to_string(fe_Context *ctx, fe_Object *args) {
     fe_Number n = arg_num(ctx, &args);
     int radix = 10;
     char buf[72];
-    if (!fe_isnil(ctx, args)) { radix = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args)); }
+    if (!fe_isnil(ctx, args)) {
+        radix = (int)kec_checked_int(ctx, &args, "number->string");
+        if (radix < 2 || radix > 16) {
+            fe_error(ctx, "number->string: radix must be 2..16");
+        }
+    }
     if (radix == 10) {
         snprintf(buf, sizeof buf, "%.7g", (double)n);
     } else {
+        /* A non-decimal rendering is digit-exact, so the value must be an
+        ** exact integer — the same finite/integral/int32 window every other
+        ** integer-taking primitive enforces (no UB float->long cast). */
         const char *digits = "0123456789abcdef";
         char tmp[72];
-        long v = (long)n;
-        int neg = v < 0, ti = 0, bi = 0;
-        unsigned long uv = neg ? (unsigned long)(-(v)) : (unsigned long)v;
-        if (radix < 2 || radix > 16) { radix = 10; }
+        double d = (double)n;
+        long v;
+        int neg, ti = 0, bi = 0;
+        unsigned long uv;
+        if (!isfinite(d) || floor(d) != d ||
+            d < (double)INT32_MIN || d > (double)INT32_MAX) {
+            fe_error(ctx, "number->string: expected an integer value for radix 2..16");
+        }
+        v = (long)d;
+        neg = v < 0;
+        uv = neg ? (unsigned long)(-(v)) : (unsigned long)v;
         if (uv == 0) { tmp[ti++] = '0'; }
         while (uv) { tmp[ti++] = digits[uv % (unsigned)radix]; uv /= (unsigned)radix; }
         if (neg) { buf[bi++] = '-'; }
@@ -540,7 +575,7 @@ static fe_Object *h_newline(fe_Context *ctx, fe_Object *args) {
 ** test harness to label a failing check with its source form. Length-aware
 ** (GWP-528) so a long form isn't clipped in the failure message. */
 static fe_Object *h_repr(fe_Context *ctx, fe_Object *args) {
-    char *buf = host_strdup_qt(ctx, fe_nextarg(ctx, &args), 1, NULL);
+    char *buf = kec_strdup_obj(ctx, fe_nextarg(ctx, &args), 1, NULL);
     fe_Object *res;
     if (!buf) { fe_error(ctx, "repr: out of memory"); }
     res = fe_string(ctx, buf);
@@ -571,7 +606,7 @@ static uint64_t rng_next(fe_Context *ctx) {
 /* (set-seed! n) — reseed the PRNG from n, returning n. Used so deck-state seeds
 ** make `rand`/`rand-int` reproducible. */
 static fe_Object *h_set_seed(fe_Context *ctx, fe_Object *args) {
-    int32_t n = arg_i32(ctx, &args, "set-seed!");
+    int32_t n = kec_checked_int(ctx, &args, "set-seed!");
     kec_host_state(ctx)->rng_state = (uint64_t)(int64_t)n;
     return fe_number(ctx, (fe_Number)n);
 }
@@ -583,22 +618,26 @@ static fe_Object *h_rand(fe_Context *ctx, fe_Object *args) {
                                       (1.0 / 9007199254740992.0)));
 }
 static fe_Object *h_rand_int(fe_Context *ctx, fe_Object *args) {
-    int32_t n = arg_i32(ctx, &args, "rand-int");
-    if (n <= 0) { return fe_number(ctx, 0); }
+    int32_t n = kec_checked_int(ctx, &args, "rand-int");
+    /* [0, n) is empty for n <= 0 — raise instead of inventing a 0. */
+    if (n <= 0) { fe_error(ctx, "rand-int: bound must be a positive integer"); }
     return fe_number(ctx, (fe_Number)(uint32_t)((rng_next(ctx) >> 16) % (uint64_t)n));
 }
 static fe_Object *h_clock(fe_Context *ctx, fe_Object *args) {
     (void)args;
     return fe_number(ctx, (fe_Number)((double)clock() / CLOCKS_PER_SEC));
 }
-/* (now) — monotonic elapsed seconds (a real wall clock), distinct from (clock)
-** which is CPU time. Use (now) for timers/animation/elapsed-time; (clock) for
-** profiling. CLOCK_MONOTONIC never jumps backward and ignores wall-clock resets. */
+/* (now) — monotonic elapsed seconds since THIS CONTEXT opened, distinct from
+** (clock) which is CPU time. Use (now) for timers/animation/elapsed-time;
+** (clock) for profiling. CLOCK_MONOTONIC never jumps backward and ignores
+** wall-clock resets. The per-context baseline matters because fe_Number is a
+** single-precision float: raw seconds-since-boot decay to ~62 ms resolution
+** after ten days of uptime, while seconds-since-open keep sub-millisecond
+** precision for the life of any session. */
 static fe_Object *h_now(fe_Context *ctx, fe_Object *args) {
-    struct timespec ts;
     (void)args;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return fe_number(ctx, (fe_Number)((double)ts.tv_sec + (double)ts.tv_nsec * 1e-9));
+    return fe_number(ctx, (fe_Number)(monotonic_seconds() -
+                                      kec_host_state(ctx)->now_base));
 }
 
 /* ------------------ FULL-profile only (file / sys) ----------------- */
@@ -736,7 +775,7 @@ static fe_Object *h_getenv(fe_Context *ctx, fe_Object *args) {
 
 static fe_Object *h_exit(fe_Context *ctx, fe_Object *args) {
     int code = 0;
-    if (!fe_isnil(ctx, args)) { code = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args)); }
+    if (!fe_isnil(ctx, args)) { code = (int)kec_checked_int(ctx, &args, "exit"); }
     exit(code);
     return fe_bool(ctx, 0); /* unreached */
 }

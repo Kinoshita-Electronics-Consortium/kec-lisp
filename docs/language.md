@@ -427,7 +427,7 @@ Common host forms:
 | Form | Meaning |
 |---|---|
 | `(type-of x)` | Return `:pair`, `:nil`, `:number`, `:symbol`, `:string`, `:fn`, `:macro`, `:prim`, `:cfunc`, or `:ptr`. |
-| `(number->string n [radix])` | Convert a number to a string. Radix defaults to 10; 2, 8, and 16 are supported. |
+| `(number->string n [radix])` | Convert a number to a string. Radix defaults to 10 and must be an integer 2..16 (a bad radix raises). Radix 10 renders any number, fractions included; any other radix is digit-exact and requires an exact integer value. |
 | `(try thunk)` | Run `(thunk)`. Return its value, or an error value `(:error . "message")` on failure. |
 | `(raise message)` | Raise a catchable script error. `message` is stringified before it reaches the runtime error handler. |
 | `(apply f arglist)` | Call `f` with the elements of `arglist`; `f` may be a closure, host primitive, or kernel primitive. |
@@ -436,8 +436,8 @@ Common host forms:
 | `(macroexpand form)` | Full expansion: loop `macroexpand-1` to a fixpoint. Core macro (`core/36-recover`), not a host primitive. |
 | `(bit-and a b)` / `(bit-or a b)` / `(bit-xor a b)` / `(bit-not a)` / `(bit-shl a n)` / `(bit-shr a n)` | 32-bit integer bitwise ops. Operands must be finite, integral, and in signed 32-bit range; invalid inputs raise instead of truncating. Negative operands use two's-complement bits, e.g. `(bit-and -1 255)` → `255`. `bit-shr` is a **logical** (zero-fill) right shift; shift counts are masked to `n & 31`. Results remain subject to KEC's single-precision number limit. |
 | `(sin x)` / `(cos x)` / `(tan x)` / `(atan2 y x)` | Trigonometry in **radians** (`atan2` takes `(y x)` like C, resolving the full `-pi..pi` range). `pi` and `tau` are Core constants. Single-precision: results carry ~1e-7 error, so `(sin pi)` is `~1e-7`, not `0` — compare with an epsilon, never `(is …)`. |
-| `(now)` vs `(clock)` | `(now)` is **monotonic** elapsed wall-clock seconds (for timers, animation, elapsed-time); `(clock)` is **CPU** seconds (for profiling). `now` never goes backward. |
-| `(set-seed! n)` | Reseed this interpreter's self-contained PRNG from a signed 32-bit integer and return `n`. A fixed seed makes `rand` / `rand-int` **reproducible** across runs and platforms without sharing state between contexts. `rand-int` likewise requires an integral bound. |
+| `(now)` vs `(clock)` | `(now)` is **monotonic** elapsed wall-clock seconds **since this interpreter context opened** (for timers, animation, elapsed-time); `(clock)` is **CPU** seconds (for profiling). `now` never goes backward, and the per-context baseline keeps single-precision numbers sub-millisecond for the life of any session. |
+| `(set-seed! n)` | Reseed this interpreter's self-contained PRNG from a signed 32-bit integer and return `n`. A fixed seed makes `rand` / `rand-int` **reproducible** across runs and platforms without sharing state between contexts. `rand-int` likewise requires an integral bound, and the bound must be positive. |
 | `(bound? sym)` | Truthy if `sym` has a global binding, even when its value is `nil`. Errors if the argument is not a symbol: `(bound? 'car)`. |
 | `(globals [prefix])` | A fresh list of the globally-bound symbols, optionally filtered to names starting with `prefix`. Order is unspecified; treat the list as read-only (it is yours to keep, but the symbols are interned). `(globals "string-")`. |
 | `(fn-params f)` | The parameter list of a closure or macro (a fresh copy), `nil` for a built-in (no Lisp parameters), or an error if `f` is not a function. For `describe-function`-style help. |
@@ -516,11 +516,11 @@ remain writable by their owning Core/runtime functions.
 | Single-precision numbers | Treat numbers as floats; exact integer work is limited to +/-2^24. |
 | Bounded GC root stack | Prefer `while`, `dotimes`, `dolist`, or `fold-left` for deep traversals. |
 | No tail-call optimization | Deep recursive code can overflow. Core list functions are iterative for this reason. |
-| Containers compare by identity | Vectors, matrices, blobs, and hashes are `:ptr` objects; `=`/`is` test identity. Use conversion helpers where a structural comparison is needed. String hash keys compare over their first 1024 bytes. |
+| Containers compare by identity | Vectors, matrices, blobs, and hashes are `:ptr` objects; `=`/`is` test identity. Use conversion helpers where a structural comparison is needed. String hash keys hash and compare by their **full content**, at any length — the same content equality `is` applies to strings. |
 | `eval` is `FULL`-tier | `SANDBOX` contexts have no `eval`; use macros for code generation and `read-string`/`read-all` to parse data. |
 | Strings are null-terminated | Strings are not binary-safe; use blobs for embedded NULs and binary asset bytes. |
 | Standard globals are protected | Rebinding load-bearing kernel/host/Core names raises a catchable error. Define new names for overrides or use local lexical bindings. |
-| Integer-only host APIs validate | Vector/matrix/blob sizes and indices, blob bytes, bitwise operands, RNG seeds, and `rand-int` bounds reject fractional, non-finite, or unsafe values instead of silently narrowing them. |
+| Integer-only host APIs validate | Vector/matrix/blob sizes and indices, blob bytes, bitwise operands, RNG seeds, `rand-int` bounds, string indices (`string-ref`, `substring`), char codes (`char->string`, `string-split` separators — bytes `0..255`), `number->string` radixes, and `exit` codes reject fractional, non-finite, or unsafe values with a catchable error instead of silently narrowing them. `rand-int` additionally requires a **positive** bound (`[0, n)` is empty otherwise). |
 
 For implementation details, see [Fe Kernel - Internals](/kec-lisp/fe-kernel/)
 and [Memory Model](/kec-lisp/memory-model/).

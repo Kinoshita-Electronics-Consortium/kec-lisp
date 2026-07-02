@@ -78,6 +78,18 @@ fe_Object *handle = fe_ptr_typed(ctx, sensor, &SENSOR_HANDLE_TAG);
   vector/hash lifecycle. A callback receives only pointers created with its tag,
   so it never probes or dereferences another extension's raw pointer.
 - `mark` roots nested Fe objects; `gc` releases C-side backing. Both are optional.
+- **Construct two-phase when the backing must not leak.** `fe_ptr_typed` can
+  raise out-of-memory (a `longjmp`), so a backing allocated before it is lost.
+  Allocate the handle first with a `NULL` pointer, then attach the backing with
+  `fe_set_ptr(ctx, handle, ptr)` — from that point the gc callback owns it.
+  Callbacks must tolerate `NULL`. The KEC container constructors follow this
+  pattern.
+- **Narrow numbers through the shared checked helpers.** `kec_checked_int` /
+  `kec_checked_byte` (host.h) pull the next argument as an exact integer (or
+  byte), raising a catchable error on fractional, non-finite, or out-of-range
+  values — a raw `(int)fe_tonumber(...)` cast is undefined behavior on NaN and
+  out-of-range doubles. `kec_strlen_obj` / `kec_strdup_obj` stringify values at
+  their exact printed length with no fixed buffer ceiling.
 - Plain `fe_ptr` and the legacy `fe_handlers(ctx)->mark/gc` pair remain available
   for older single-owner embedders, but new code should use typed pointers.
 - A handle is **invalid across an arena reset** (`fe_close`+`fe_open`). A

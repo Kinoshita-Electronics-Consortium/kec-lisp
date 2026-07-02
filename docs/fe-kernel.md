@@ -109,6 +109,14 @@ object's `car` word. Mark/sweep dispatches only to that type's callbacks, so one
 extension cannot replace another's lifecycle or inspect an unowned raw pointer.
 Untyped `fe_ptr` values continue to use the legacy `fe_Handlers.mark/gc` pair.
 
+`fe_set_ptr` replaces an existing `FE_TPTR`'s pointer, enabling **leak-free
+two-phase construction**: allocate the collectable pointer object first with a
+`NULL` pointer — the only step that can raise out-of-memory — then attach the
+foreign backing, which is from that point owned by the type's gc callback.
+Lifecycle callbacks must tolerate a `NULL` pointer. The KEC container
+constructors are built on this pattern; before it existed, an out-of-memory
+`longjmp` out of `fe_ptr_typed` leaked the not-yet-owned backing.
+
 ---
 
 ## Macro expansion
@@ -155,6 +163,7 @@ Changes applied on top of rxi/fe 1.0, in `kernel/fe.c` and `kernel/fe.h`:
 | **Binding-presence accessor** | GWP-235 | `fe_bound` plus a symbol binding-presence bit distinguish unbound from deliberately bound-to-`nil`; used by `bound?`, `globals`, and `defvar`. |
 | **Tagged context userdata** | GWP-235 | `fe_set_userdata` / `fe_userdata` provide four fixed, non-owning tagged entries for runtime and portable-host state without numeric slot collisions. |
 | **Composable typed pointers** | GWP-235 | `fe_register_ptr_type` / `fe_ptr_typed` / `fe_ptr_is_type` dispatch foreign-pointer lifecycle callbacks by registered tag while retaining legacy raw-pointer handlers. |
+| **Typed-pointer setter** | GWP-584 | `fe_set_ptr` replaces an `FE_TPTR`'s pointer, enabling leak-free two-phase foreign construction (pointer object first, backing attached after). |
 
 ---
 

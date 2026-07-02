@@ -34,6 +34,11 @@ use the context's container allocator. The default is `malloc`/`free`; a device
 can install a fixed-pool or bump allocator with
 `kec_set_container_allocator_for`. Every backing remembers its matching free
 callback, and typed foreign-pointer GC releases it at sweep or `fe_close`.
+Construction is two-phase (the `FE_TPTR` cell is allocated *before* the backing,
+then attached with `fe_set_ptr`), so an out-of-memory error from an exhausted
+Fe arena can never strand a backing allocation — the C host-state tests churn
+constructors at arena saturation and assert the allocator's alloc/free counts
+balance.
 
 ## The no-malloc entry point
 

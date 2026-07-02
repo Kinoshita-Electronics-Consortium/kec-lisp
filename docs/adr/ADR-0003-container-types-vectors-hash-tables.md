@@ -104,9 +104,14 @@ Core conveniences (`core/52-container.lsp`, iterative like the rest of Core):
 - **Structural `equal?` over vectors** — vectors compare by identity for now; a
   structural vector case in `core/20-cmp` can follow if needed (use `vector->list`
   + `equal?` meanwhile).
-- **Long string keys** — string keys compare/hash over their first **1024 bytes**
-  (symbols/numbers are exact); editor/REPL keys are short tokens, so this is a
-  documented limit, not a practical one.
+- **Long string keys** — *(as accepted)* string keys compared/hashed over their
+  first **1024 bytes** (symbols/numbers exact); editor/REPL keys are short
+  tokens, so this read as a documented limit, not a practical one.
+  **Amended 2026-07-01 (GWP-584):** the window contradicted the language's
+  content equality for strings — two long keys sharing a 1023-byte prefix were
+  silently the *same* key. String keys now hash (streamed FNV-1a) and compare
+  (exact byte compare) by their full content at any length; 1024 bytes remains
+  only as the stack fast path for the compare.
 
 ## Consequences
 

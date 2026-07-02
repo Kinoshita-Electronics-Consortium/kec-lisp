@@ -25,6 +25,8 @@ typedef enum {
 
 typedef struct {
     uint64_t rng_state;
+    unsigned long gensym_counter; /* per-context: fresh contexts number alike */
+    double now_base;              /* (now) epoch: monotonic time at state init */
     void *(*container_alloc)(size_t);
     void (*container_free)(void *);
 } kec_HostState;
@@ -38,6 +40,33 @@ kec_HostState *kec_host_state(fe_Context *ctx);
 /* GC-safe symbol→cfunc bind. Saves/restores the GC stack around the two pushes
 ** (symbol intern + cfunc wrap). Public so embedders can reuse it. */
 void kec_bind_fe(fe_Context *ctx, const char *name, fe_CFunc fn);
+
+/* ------------------------------------------------------------------ */
+/* Shared argument-conversion helpers. One implementation for the      */
+/* whole tree (host, containers, runtime) and for device primitives    */
+/* registered through the same seam.                                   */
+/* ------------------------------------------------------------------ */
+
+/* Exact printed length of obj in bytes — no allocation. `qt` selects quoted
+** (write-style) vs raw (princ-style) rendering, matching fe_write. */
+size_t kec_strlen_obj(fe_Context *ctx, fe_Object *obj, int qt);
+
+/* Stringify obj into a freshly malloc'd, NUL-terminated buffer sized to the
+** real printed length — no fixed ceiling (the GWP-528 stance). Returns NULL
+** only on OOM; callers route that through fe_error. The buffer is the
+** caller's to free(). *len_out (if non-NULL) receives the byte length. */
+char *kec_strdup_obj(fe_Context *ctx, fe_Object *obj, int qt, size_t *len_out);
+
+/* Pull the next argument as an exact integer. Fractional, non-finite, or
+** out-of-signed-32-bit-range numbers raise a catchable
+** "<who>: expected an integer". Every integer-taking host API funnels its
+** float->int narrowing through this (or the byte variant below) so no cast
+** can hit undefined behavior. */
+int32_t kec_checked_int(fe_Context *ctx, fe_Object **args, const char *who);
+
+/* As kec_checked_int, but additionally requires 0..255
+** ("<who>: expected byte 0..255"). */
+int kec_checked_byte(fe_Context *ctx, fe_Object **args, const char *who);
 
 /* Bind the portable host stdlib into ctx for the given profile. */
 void kec_host_register(fe_Context *ctx, kec_Profile profile);

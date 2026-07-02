@@ -36,6 +36,13 @@ Add, in `host/host.c`:
 - **`now`:** monotonic elapsed seconds via `clock_gettime(CLOCK_MONOTONIC)`.
   `clock` is **left unchanged** (CPU time, for profiling); `now` is the wall clock
   for timers/animation/elapsed-time.
+  **Amended 2026-07-01 (GWP-584):** `now` measures from a **per-context baseline**
+  captured when the interpreter opens, not from the raw `CLOCK_MONOTONIC` epoch
+  (machine boot). `fe_Number` is a single-precision float, so boot-epoch seconds
+  decay to ~62 ms resolution after ten days of uptime — unacceptable for the
+  ADR-0006 editor timers on an always-on deck. Seconds-since-open keep
+  sub-millisecond precision for the life of any session; the monotonic
+  never-backward contract is unchanged.
 
 Add, in Core (`core/15-math.lsp`, slotted into `CORE_SRCS` after `10-list`):
 

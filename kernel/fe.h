@@ -55,6 +55,12 @@ int fe_register_ptr_type(fe_Context *ctx, const void *tag,
                          fe_PtrMarkFn mark, fe_PtrGcFn gc);
 fe_Object* fe_ptr_typed(fe_Context *ctx, void *ptr, const void *tag);
 int fe_ptr_is_type(fe_Context *ctx, fe_Object *obj, const void *tag);
+/* Replace an FE_TPTR object's pointer. Enables leak-free two-phase foreign
+ * construction: allocate the (collectable) pointer object FIRST with a NULL
+ * pointer — the only step that can raise out-of-memory — then attach the
+ * foreign backing, which is from then on owned by the object's gc handler.
+ * Handlers must tolerate NULL. Errors if obj is not an FE_TPTR. */
+void fe_set_ptr(fe_Context *ctx, fe_Object *obj, void *ptr);
 fe_Object* fe_list(fe_Context *ctx, fe_Object **objs, int n);
 fe_Object* fe_car(fe_Context *ctx, fe_Object *obj);
 fe_Object* fe_cdr(fe_Context *ctx, fe_Object *obj);

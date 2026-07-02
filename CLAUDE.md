@@ -144,7 +144,8 @@ The kernel is frozen except for these deliberate deltas (also in CHANGELOG):
   `CMakeLists.txt`) so recursive user code has headroom.
 - **Symbols track binding presence separately from value**, so bound-to-`nil`
   differs from unbound (`fe_bound`). Fe also has four tagged userdata entries and
-  composable typed-`FE_TPTR` lifecycle registration; legacy raw pointer handlers
+  composable typed-`FE_TPTR` lifecycle registration (plus `fe_set_ptr` for
+  leak-free two-phase foreign construction); legacy raw pointer handlers
   remain available.
 
 ## Language gotchas

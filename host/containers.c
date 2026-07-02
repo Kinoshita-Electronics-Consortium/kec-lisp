@@ -62,7 +62,8 @@ void kec_host_state_set_container_allocator(kec_HostState *state,
 
 #define KEC_VECTOR_MAX (1 << 24) /* exact-float ceiling; far past practical use */
 #define KEC_BLOB_MAX   (1 << 24) /* same exact-integer boundary */
-#define KEC_HASH_KEYMAX 1024 /* string key compare/hash window (symbols/numbers exact) */
+#define KEC_HASH_KEYMAX 1024 /* stack fast path for string-key compares; longer
+                              ** keys heap-compare — content-exact either way */
 
 enum { KEC_KIND_VECTOR = 1, KEC_KIND_HASH = 2, KEC_KIND_MATRIX = 3, KEC_KIND_BLOB = 4 };
 
@@ -117,25 +118,8 @@ static CHeader *backing(fe_Context *ctx, fe_Object *obj) {
     return c;
 }
 
-static int checked_int_arg(fe_Context *ctx, fe_Object **args, const char *who) {
-    double n = (double)fe_tonumber(ctx, fe_nextarg(ctx, args));
-    char msg[96];
-    if (!isfinite(n) || floor(n) != n || n < (double)INT32_MIN || n > (double)INT32_MAX) {
-        snprintf(msg, sizeof msg, "%s: expected an integer", who);
-        fe_error(ctx, msg);
-    }
-    return (int)n;
-}
-
-static int checked_byte_arg(fe_Context *ctx, fe_Object **args, const char *who) {
-    int n = checked_int_arg(ctx, args, who);
-    char msg[96];
-    if (n < 0 || n > 255) {
-        snprintf(msg, sizeof msg, "%s: expected byte 0..255", who);
-        fe_error(ctx, msg);
-    }
-    return n;
-}
+/* Integer/byte argument narrowing is the shared kec_checked_int /
+** kec_checked_byte pair (host.h) — one validation seam for the whole tree. */
 
 /* ------------------------------------------------------------------ */
 /* GC handlers (installed once on the context).                       */
@@ -211,14 +195,22 @@ static Vector *alloc_vector(fe_Context *ctx, int len, fe_Object *init) {
     return v;
 }
 
-/* (make-vector n [init]) — a vector of n elements, each init (default nil). */
+/* (make-vector n [init]) — a vector of n elements, each init (default nil).
+**
+** Two-phase construction (here and in every constructor below): the FE_TPTR
+** object is allocated FIRST with a NULL backing — the only step that can
+** raise out-of-memory — and the backing is attached with fe_set_ptr after.
+** If the object allocation longjmps there is no backing yet; once attached,
+** the backing is owned by container_gc. A NULL backing is inert everywhere
+** (backing() / container_mark / container_gc all tolerate it). */
 static fe_Object *h_make_vector(fe_Context *ctx, fe_Object *args) {
-    int len = checked_int_arg(ctx, &args, "make-vector");
+    int len = kec_checked_int(ctx, &args, "make-vector");
     fe_Object *init = fe_isnil(ctx, args) ? fe_bool(ctx, 0) : fe_nextarg(ctx, &args);
     int gc = fe_savegc(ctx);
     fe_Object *vec;
     fe_pushgc(ctx, init); /* keep init alive across the FE_TPTR alloc (may GC) */
-    vec = fe_ptr_typed(ctx, alloc_vector(ctx, len, init), &g_container_tag);
+    vec = fe_ptr_typed(ctx, NULL, &g_container_tag);
+    fe_set_ptr(ctx, vec, alloc_vector(ctx, len, init));
     fe_restoregc(ctx, gc); /* pop init + vec ... */
     fe_pushgc(ctx, vec); /* ... re-root vec (its items are now reachable) */
     return vec;
@@ -232,10 +224,11 @@ static fe_Object *h_vector(fe_Context *ctx, fe_Object *args) {
     while (!fe_isnil(ctx, p)) { n++; p = fe_cdr(ctx, p); }
     gc = fe_savegc(ctx);
     fe_pushgc(ctx, args); /* root every element cell across the alloc */
+    vec = fe_ptr_typed(ctx, NULL, &g_container_tag); /* object first: no leak */
     v = alloc_vector(ctx, n, fe_bool(ctx, 0));
     p = args;
     for (i = 0; i < n; i++) { v->items[i] = fe_nextarg(ctx, &p); }
-    vec = fe_ptr_typed(ctx, v, &g_container_tag);
+    fe_set_ptr(ctx, vec, v);
     fe_restoregc(ctx, gc);
     fe_pushgc(ctx, vec);
     return vec;
@@ -244,7 +237,7 @@ static fe_Object *h_vector(fe_Context *ctx, fe_Object *args) {
 /* (vector-ref v i) — element i (0-based). Errors out of range. */
 static fe_Object *h_vector_ref(fe_Context *ctx, fe_Object *args) {
     Vector *v = as_vector(ctx, fe_nextarg(ctx, &args), "vector-ref: not a vector");
-    int i = checked_int_arg(ctx, &args, "vector-ref");
+    int i = kec_checked_int(ctx, &args, "vector-ref");
     if (i < 0 || i >= v->len) { fe_error(ctx, "vector-ref: index out of range"); }
     return v->items[i];
 }
@@ -252,7 +245,7 @@ static fe_Object *h_vector_ref(fe_Context *ctx, fe_Object *args) {
 /* (vector-set! v i x) — set element i to x; returns x. Errors out of range. */
 static fe_Object *h_vector_set(fe_Context *ctx, fe_Object *args) {
     Vector *v = as_vector(ctx, fe_nextarg(ctx, &args), "vector-set!: not a vector");
-    int i = checked_int_arg(ctx, &args, "vector-set!");
+    int i = kec_checked_int(ctx, &args, "vector-set!");
     fe_Object *x = fe_nextarg(ctx, &args);
     if (i < 0 || i >= v->len) { fe_error(ctx, "vector-set!: index out of range"); }
     v->items[i] = x; /* x becomes reachable via the (rooted) vector; no alloc here */
@@ -317,13 +310,14 @@ static Matrix *alloc_matrix(fe_Context *ctx, int rows, int cols, fe_Object *init
 
 /* (make-matrix rows cols [init]) — flat row-major matrix. */
 static fe_Object *h_make_matrix(fe_Context *ctx, fe_Object *args) {
-    int rows = checked_int_arg(ctx, &args, "make-matrix");
-    int cols = checked_int_arg(ctx, &args, "make-matrix");
+    int rows = kec_checked_int(ctx, &args, "make-matrix");
+    int cols = kec_checked_int(ctx, &args, "make-matrix");
     fe_Object *init = fe_isnil(ctx, args) ? fe_bool(ctx, 0) : fe_nextarg(ctx, &args);
     int gc = fe_savegc(ctx);
     fe_Object *mat;
     fe_pushgc(ctx, init);
-    mat = fe_ptr_typed(ctx, alloc_matrix(ctx, rows, cols, init), &g_container_tag);
+    mat = fe_ptr_typed(ctx, NULL, &g_container_tag); /* object first: no leak */
+    fe_set_ptr(ctx, mat, alloc_matrix(ctx, rows, cols, init));
     fe_restoregc(ctx, gc);
     fe_pushgc(ctx, mat);
     return mat;
@@ -332,16 +326,16 @@ static fe_Object *h_make_matrix(fe_Context *ctx, fe_Object *args) {
 /* (matrix-ref m row col) — O(1) row-major lookup. */
 static fe_Object *h_matrix_ref(fe_Context *ctx, fe_Object *args) {
     Matrix *m = as_matrix(ctx, fe_nextarg(ctx, &args), "matrix-ref: not a matrix");
-    int row = checked_int_arg(ctx, &args, "matrix-ref");
-    int col = checked_int_arg(ctx, &args, "matrix-ref");
+    int row = kec_checked_int(ctx, &args, "matrix-ref");
+    int col = kec_checked_int(ctx, &args, "matrix-ref");
     return m->items[matrix_index(ctx, m, row, col, "matrix-ref")];
 }
 
 /* (matrix-set! m row col x) — O(1) row-major mutation, returns x. */
 static fe_Object *h_matrix_set(fe_Context *ctx, fe_Object *args) {
     Matrix *m = as_matrix(ctx, fe_nextarg(ctx, &args), "matrix-set!: not a matrix");
-    int row = checked_int_arg(ctx, &args, "matrix-set!");
-    int col = checked_int_arg(ctx, &args, "matrix-set!");
+    int row = kec_checked_int(ctx, &args, "matrix-set!");
+    int col = kec_checked_int(ctx, &args, "matrix-set!");
     fe_Object *x = fe_nextarg(ctx, &args);
     m->items[matrix_index(ctx, m, row, col, "matrix-set!")] = x;
     return x;
@@ -407,22 +401,24 @@ static Blob *alloc_blob(fe_Context *ctx, int len, int init) {
 
 /* (make-blob length [init-byte]) — binary-safe byte storage. */
 static fe_Object *h_make_blob(fe_Context *ctx, fe_Object *args) {
-    int len = checked_int_arg(ctx, &args, "make-blob");
-    int init = fe_isnil(ctx, args) ? 0 : checked_byte_arg(ctx, &args, "make-blob");
-    return fe_ptr_typed(ctx, alloc_blob(ctx, len, init), &g_container_tag);
+    int len = kec_checked_int(ctx, &args, "make-blob");
+    int init = fe_isnil(ctx, args) ? 0 : kec_checked_byte(ctx, &args, "make-blob");
+    fe_Object *blob = fe_ptr_typed(ctx, NULL, &g_container_tag); /* object first */
+    fe_set_ptr(ctx, blob, alloc_blob(ctx, len, init));
+    return blob;
 }
 
 static fe_Object *h_blob_ref(fe_Context *ctx, fe_Object *args) {
     Blob *b = as_blob(ctx, fe_nextarg(ctx, &args), "blob-ref: not a blob");
-    int idx = checked_int_arg(ctx, &args, "blob-ref");
+    int idx = kec_checked_int(ctx, &args, "blob-ref");
     idx = blob_index(ctx, b, idx, "blob-ref");
     return fe_number(ctx, (fe_Number)b->bytes[idx]);
 }
 
 static fe_Object *h_blob_set(fe_Context *ctx, fe_Object *args) {
     Blob *b = as_blob(ctx, fe_nextarg(ctx, &args), "blob-set!: not a blob");
-    int idx = checked_int_arg(ctx, &args, "blob-set!");
-    int byte = checked_byte_arg(ctx, &args, "blob-set!");
+    int idx = kec_checked_int(ctx, &args, "blob-set!");
+    int byte = kec_checked_byte(ctx, &args, "blob-set!");
     idx = blob_index(ctx, b, idx, "blob-set!");
     b->bytes[idx] = (unsigned char)byte;
     return fe_number(ctx, (fe_Number)byte);
@@ -449,6 +445,14 @@ static Hash *as_hash(fe_Context *ctx, fe_Object *obj, const char *who) {
     return NULL; /* unreachable */
 }
 
+/* FNV-1a step as an fe_write sink: hashes every byte of the printed form, so
+** string keys of ANY length hash by full content (no fixed buffer window). */
+static void fnv_writefn(fe_Context *ctx, void *udata, char chr) {
+    unsigned *h = udata;
+    (void)ctx;
+    *h = (*h ^ (unsigned char)chr) * 16777619u;
+}
+
 static unsigned key_hash(fe_Context *ctx, fe_Object *k, int *ok) {
     int t = fe_type(ctx, k);
     *ok = 1;
@@ -464,11 +468,8 @@ static unsigned key_hash(fe_Context *ctx, fe_Object *k, int *ok) {
         return (unsigned)((p >> 4) * 2654435761u);
     }
     if (t == FE_TSTRING) {
-        char buf[KEC_HASH_KEYMAX];
-        unsigned h = 2166136261u; /* FNV-1a over the printed bytes */
-        int i;
-        fe_tostring(ctx, k, buf, sizeof buf);
-        for (i = 0; buf[i]; i++) { h = (h ^ (unsigned char)buf[i]) * 16777619u; }
+        unsigned h = 2166136261u; /* FNV-1a, streamed over the raw bytes */
+        fe_write(ctx, k, fnv_writefn, &h, 0);
         return h;
     }
     *ok = 0;
@@ -481,10 +482,33 @@ static int key_equal(fe_Context *ctx, fe_Object *a, fe_Object *b) {
     if (ta == FE_TNUMBER) { return fe_tonumber(ctx, a) == fe_tonumber(ctx, b); }
     if (ta == FE_TSYMBOL) { return a == b; }
     if (ta == FE_TSTRING) {
-        char ba[KEC_HASH_KEYMAX], bb[KEC_HASH_KEYMAX];
-        fe_tostring(ctx, a, ba, sizeof ba);
-        fe_tostring(ctx, b, bb, sizeof bb);
-        return strcmp(ba, bb) == 0;
+        /* Content-exact at any length: cheap length probe first, then a byte
+        ** compare — on the stack for typical keys, heap-materialized past the
+        ** fast-path window. Strings cannot contain NUL (see docs/language.md),
+        ** so byte length == printed length. */
+        size_t la = kec_strlen_obj(ctx, a, 0);
+        size_t lb = kec_strlen_obj(ctx, b, 0);
+        if (la != lb) { return 0; }
+        if (la < KEC_HASH_KEYMAX) {
+            char ba[KEC_HASH_KEYMAX], bb[KEC_HASH_KEYMAX];
+            fe_tostring(ctx, a, ba, sizeof ba);
+            fe_tostring(ctx, b, bb, sizeof bb);
+            return memcmp(ba, bb, la) == 0;
+        }
+        {
+            char *pa = kec_strdup_obj(ctx, a, 0, NULL);
+            char *pb = kec_strdup_obj(ctx, b, 0, NULL);
+            int eq;
+            if (!pa || !pb) {
+                free(pa);
+                free(pb);
+                fe_error(ctx, "hash: out of memory");
+            }
+            eq = memcmp(pa, pb, la) == 0;
+            free(pa);
+            free(pb);
+            return eq;
+        }
     }
     return 0;
 }
@@ -570,8 +594,11 @@ static void hash_grow(fe_Context *ctx, Hash *h) {
 
 /* (make-hash-table) — a new empty hash table. */
 static fe_Object *h_make_hash(fe_Context *ctx, fe_Object *args) {
+    fe_Object *hobj;
     (void)args;
-    return fe_ptr_typed(ctx, alloc_hash(ctx), &g_container_tag);
+    hobj = fe_ptr_typed(ctx, NULL, &g_container_tag); /* object first: no leak */
+    fe_set_ptr(ctx, hobj, alloc_hash(ctx));
+    return hobj;
 }
 
 /* (hash-set! h k v) — associate k -> v; returns v. */
