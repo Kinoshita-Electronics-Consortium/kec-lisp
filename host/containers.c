@@ -195,14 +195,22 @@ static Vector *alloc_vector(fe_Context *ctx, int len, fe_Object *init) {
     return v;
 }
 
-/* (make-vector n [init]) — a vector of n elements, each init (default nil). */
+/* (make-vector n [init]) — a vector of n elements, each init (default nil).
+**
+** Two-phase construction (here and in every constructor below): the FE_TPTR
+** object is allocated FIRST with a NULL backing — the only step that can
+** raise out-of-memory — and the backing is attached with fe_set_ptr after.
+** If the object allocation longjmps there is no backing yet; once attached,
+** the backing is owned by container_gc. A NULL backing is inert everywhere
+** (backing() / container_mark / container_gc all tolerate it). */
 static fe_Object *h_make_vector(fe_Context *ctx, fe_Object *args) {
     int len = kec_checked_int(ctx, &args, "make-vector");
     fe_Object *init = fe_isnil(ctx, args) ? fe_bool(ctx, 0) : fe_nextarg(ctx, &args);
     int gc = fe_savegc(ctx);
     fe_Object *vec;
     fe_pushgc(ctx, init); /* keep init alive across the FE_TPTR alloc (may GC) */
-    vec = fe_ptr_typed(ctx, alloc_vector(ctx, len, init), &g_container_tag);
+    vec = fe_ptr_typed(ctx, NULL, &g_container_tag);
+    fe_set_ptr(ctx, vec, alloc_vector(ctx, len, init));
     fe_restoregc(ctx, gc); /* pop init + vec ... */
     fe_pushgc(ctx, vec); /* ... re-root vec (its items are now reachable) */
     return vec;
@@ -216,10 +224,11 @@ static fe_Object *h_vector(fe_Context *ctx, fe_Object *args) {
     while (!fe_isnil(ctx, p)) { n++; p = fe_cdr(ctx, p); }
     gc = fe_savegc(ctx);
     fe_pushgc(ctx, args); /* root every element cell across the alloc */
+    vec = fe_ptr_typed(ctx, NULL, &g_container_tag); /* object first: no leak */
     v = alloc_vector(ctx, n, fe_bool(ctx, 0));
     p = args;
     for (i = 0; i < n; i++) { v->items[i] = fe_nextarg(ctx, &p); }
-    vec = fe_ptr_typed(ctx, v, &g_container_tag);
+    fe_set_ptr(ctx, vec, v);
     fe_restoregc(ctx, gc);
     fe_pushgc(ctx, vec);
     return vec;
@@ -307,7 +316,8 @@ static fe_Object *h_make_matrix(fe_Context *ctx, fe_Object *args) {
     int gc = fe_savegc(ctx);
     fe_Object *mat;
     fe_pushgc(ctx, init);
-    mat = fe_ptr_typed(ctx, alloc_matrix(ctx, rows, cols, init), &g_container_tag);
+    mat = fe_ptr_typed(ctx, NULL, &g_container_tag); /* object first: no leak */
+    fe_set_ptr(ctx, mat, alloc_matrix(ctx, rows, cols, init));
     fe_restoregc(ctx, gc);
     fe_pushgc(ctx, mat);
     return mat;
@@ -393,7 +403,9 @@ static Blob *alloc_blob(fe_Context *ctx, int len, int init) {
 static fe_Object *h_make_blob(fe_Context *ctx, fe_Object *args) {
     int len = kec_checked_int(ctx, &args, "make-blob");
     int init = fe_isnil(ctx, args) ? 0 : kec_checked_byte(ctx, &args, "make-blob");
-    return fe_ptr_typed(ctx, alloc_blob(ctx, len, init), &g_container_tag);
+    fe_Object *blob = fe_ptr_typed(ctx, NULL, &g_container_tag); /* object first */
+    fe_set_ptr(ctx, blob, alloc_blob(ctx, len, init));
+    return blob;
 }
 
 static fe_Object *h_blob_ref(fe_Context *ctx, fe_Object *args) {
@@ -582,8 +594,11 @@ static void hash_grow(fe_Context *ctx, Hash *h) {
 
 /* (make-hash-table) — a new empty hash table. */
 static fe_Object *h_make_hash(fe_Context *ctx, fe_Object *args) {
+    fe_Object *hobj;
     (void)args;
-    return fe_ptr_typed(ctx, alloc_hash(ctx), &g_container_tag);
+    hobj = fe_ptr_typed(ctx, NULL, &g_container_tag); /* object first: no leak */
+    fe_set_ptr(ctx, hobj, alloc_hash(ctx));
+    return hobj;
 }
 
 /* (hash-set! h k v) — associate k -> v; returns v. */

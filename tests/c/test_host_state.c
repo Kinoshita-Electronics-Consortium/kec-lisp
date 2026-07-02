@@ -122,6 +122,66 @@ static void test_foreign_pointer_handlers_compose_with_containers(void) {
     CHECK(g_foreign_freed == 1, "foreign pointer gc handler did not run exactly once");
 }
 
+static int g_leak_alloc, g_leak_free;
+static void *leak_alloc(size_t n) { g_leak_alloc++; return malloc(n); }
+static void leak_free(void *p) { g_leak_free++; free(p); }
+
+/* Container construction under Fe-arena exhaustion must not leak backing
+** memory: when the FE_TPTR allocation raises out-of-memory, the C backing
+** either was never taken or is owned by the (collectable) pointer object.
+** Regression: constructors allocated the backing FIRST, so the longjmp out
+** of fe_ptr_typed leaked it — permanently, on a fixed-arena device that
+** catches errors and keeps running. */
+static void test_constructors_do_not_leak_backing_on_arena_exhaustion(void) {
+    /* Probes of stepped read footprints so repeated attempts sweep every
+    ** failure point — including "form read + call succeeded, the FE_TPTR
+    ** allocation itself failed", the historical leak window. */
+    static const char *probes[] = {
+        "(make-vector 4)",
+        "(do (make-vector 4))",
+        "(do 1 (make-vector 4))",
+        "(do 1 2 (make-vector 4))",
+        "(do 1 2 3 (make-vector 4))",
+        "(make-blob 4)",
+        "(do (make-blob 4))",
+        "(make-hash-table)",
+        "(do (make-matrix 2 2))",
+    };
+    kec_State *S = kec_open(2u * 1024u * 1024u, KEC_PROFILE_FULL);
+    int round, j;
+
+    CHECK(S != NULL, "context did not open for leak test");
+    if (!S) { return; }
+    g_leak_alloc = 0;
+    g_leak_free = 0;
+    kec_set_container_allocator_for(S, leak_alloc, leak_free);
+
+    /* Seed a few live containers, then saturate the arena: `keep` roots an
+    ** ever-growing list until the allocator raises, so from here on every
+    ** object allocation is fighting over the failed forms' recycled slots. */
+    CHECK(kec_eval_string(S, "(set keep (list (vector 1 2) (make-blob 3)))",
+                          NULL) == 0,
+          "seed containers failed");
+    CHECK(kec_eval_string(S, "(while 1 (set keep (cons 0 keep)))", NULL) != 0,
+          "arena never exhausted");
+
+    /* Hammer constructors at saturation. Failures are expected (and normal);
+    ** what must not happen is a backing allocation with no matching free. */
+    for (round = 0; round < 50; round++) {
+        for (j = 0; j < (int)(sizeof probes / sizeof probes[0]); j++) {
+            kec_eval_string(S, probes[j], NULL);
+        }
+    }
+
+    CHECK(g_leak_alloc > 0, "leak probe never allocated a backing");
+    kec_close(S); /* sweeps every live container */
+    CHECK(g_leak_alloc == g_leak_free,
+          "container backing leaked under arena exhaustion");
+    if (g_leak_alloc != g_leak_free) {
+        fprintf(stderr, "  (alloc=%d free=%d)\n", g_leak_alloc, g_leak_free);
+    }
+}
+
 static void test_read_string_has_no_fixed_input_ceiling(void) {
     static const char prefix[] = "(string-length (read-string \"\\\"";
     static const char suffix[] = "\\\"\"))";
@@ -144,6 +204,7 @@ int main(void) {
     test_contexts_keep_independent_runtime_and_rng_state();
     test_containers_remember_their_allocator();
     test_foreign_pointer_handlers_compose_with_containers();
+    test_constructors_do_not_leak_backing_on_arena_exhaustion();
     test_read_string_has_no_fixed_input_ceiling();
     if (g_failures == 0) { printf("test_host_state: all checks passed\n"); }
     return g_failures;

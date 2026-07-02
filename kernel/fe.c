@@ -412,6 +412,12 @@ int fe_ptr_is_type(fe_Context *ctx, fe_Object *obj, const void *tag_) {
 }
 
 
+void fe_set_ptr(fe_Context *ctx, fe_Object *obj, void *ptr) {
+  checktype(ctx, obj, FE_TPTR);
+  cdr(obj) = ptr;
+}
+
+
 fe_Object* fe_list(fe_Context *ctx, fe_Object **objs, int n) {
   fe_Object *res = &nil;
   while (n--) {
