@@ -138,6 +138,9 @@ static fe_Object *l_poll_key(fe_Context *ctx, fe_Object *args) {
     struct pollfd pfd;
     double m;
     int ms, r, c;
+    /* NaN slips past both range guards below straight into the (int) cast —
+    ** the exact UB they exist to prevent. Reject it as a caller bug. */
+    if (secs != secs) { fe_error(ctx, "poll-key: seconds must not be NaN"); }
     if (secs < 0) { secs = 0; }
     m = secs * 1000.0;                        /* clamp: avoid the float->int UB */
     ms = (m > (double)POLL_MS_MAX) ? POLL_MS_MAX : (int)m;

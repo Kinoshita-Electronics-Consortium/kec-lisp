@@ -352,7 +352,7 @@ static fe_Object *h_string_length(fe_Context *ctx, fe_Object *args) {
 
 static fe_Object *h_string_ref(fe_Context *ctx, fe_Object *args) {
     fe_Object *s = fe_nextarg(ctx, &args);
-    int i = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int i = (int)kec_checked_int(ctx, &args, "string-ref");
     size_t len;
     char *buf;
     fe_Object *res;
@@ -367,8 +367,8 @@ static fe_Object *h_string_ref(fe_Context *ctx, fe_Object *args) {
 
 static fe_Object *h_substring(fe_Context *ctx, fe_Object *args) {
     fe_Object *s = fe_nextarg(ctx, &args);
-    int a = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
-    int b = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int a = (int)kec_checked_int(ctx, &args, "substring");
+    int b = (int)kec_checked_int(ctx, &args, "substring");
     size_t len;
     char *buf, save;
     fe_Object *res;
@@ -446,7 +446,7 @@ static fe_Object *h_string_search(fe_Context *ctx, fe_Object *args) {
 ** each allocation, then restoregc/pushgc keeps just the growing list rooted). */
 static fe_Object *h_string_split(fe_Context *ctx, fe_Object *args) {
     fe_Object *s = fe_nextarg(ctx, &args);
-    int sep = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    int sep = kec_checked_byte(ctx, &args, "string-split");
     size_t len, end;
     long i;
     char *buf, save;
@@ -481,7 +481,7 @@ static fe_Object *h_string_split(fe_Context *ctx, fe_Object *args) {
 
 static fe_Object *h_char_to_string(fe_Context *ctx, fe_Object *args) {
     char out[2];
-    out[0] = (char)(int)fe_tonumber(ctx, fe_nextarg(ctx, &args));
+    out[0] = (char)kec_checked_byte(ctx, &args, "char->string");
     out[1] = '\0';
     return fe_string(ctx, out);
 }
@@ -490,16 +490,31 @@ static fe_Object *h_number_to_string(fe_Context *ctx, fe_Object *args) {
     fe_Number n = arg_num(ctx, &args);
     int radix = 10;
     char buf[72];
-    if (!fe_isnil(ctx, args)) { radix = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args)); }
+    if (!fe_isnil(ctx, args)) {
+        radix = (int)kec_checked_int(ctx, &args, "number->string");
+        if (radix < 2 || radix > 16) {
+            fe_error(ctx, "number->string: radix must be 2..16");
+        }
+    }
     if (radix == 10) {
         snprintf(buf, sizeof buf, "%.7g", (double)n);
     } else {
+        /* A non-decimal rendering is digit-exact, so the value must be an
+        ** exact integer — the same finite/integral/int32 window every other
+        ** integer-taking primitive enforces (no UB float->long cast). */
         const char *digits = "0123456789abcdef";
         char tmp[72];
-        long v = (long)n;
-        int neg = v < 0, ti = 0, bi = 0;
-        unsigned long uv = neg ? (unsigned long)(-(v)) : (unsigned long)v;
-        if (radix < 2 || radix > 16) { radix = 10; }
+        double d = (double)n;
+        long v;
+        int neg, ti = 0, bi = 0;
+        unsigned long uv;
+        if (!isfinite(d) || floor(d) != d ||
+            d < (double)INT32_MIN || d > (double)INT32_MAX) {
+            fe_error(ctx, "number->string: expected an integer value for radix 2..16");
+        }
+        v = (long)d;
+        neg = v < 0;
+        uv = neg ? (unsigned long)(-(v)) : (unsigned long)v;
         if (uv == 0) { tmp[ti++] = '0'; }
         while (uv) { tmp[ti++] = digits[uv % (unsigned)radix]; uv /= (unsigned)radix; }
         if (neg) { buf[bi++] = '-'; }
@@ -594,7 +609,8 @@ static fe_Object *h_rand(fe_Context *ctx, fe_Object *args) {
 }
 static fe_Object *h_rand_int(fe_Context *ctx, fe_Object *args) {
     int32_t n = kec_checked_int(ctx, &args, "rand-int");
-    if (n <= 0) { return fe_number(ctx, 0); }
+    /* [0, n) is empty for n <= 0 — raise instead of inventing a 0. */
+    if (n <= 0) { fe_error(ctx, "rand-int: bound must be a positive integer"); }
     return fe_number(ctx, (fe_Number)(uint32_t)((rng_next(ctx) >> 16) % (uint64_t)n));
 }
 static fe_Object *h_clock(fe_Context *ctx, fe_Object *args) {
@@ -746,7 +762,7 @@ static fe_Object *h_getenv(fe_Context *ctx, fe_Object *args) {
 
 static fe_Object *h_exit(fe_Context *ctx, fe_Object *args) {
     int code = 0;
-    if (!fe_isnil(ctx, args)) { code = (int)fe_tonumber(ctx, fe_nextarg(ctx, &args)); }
+    if (!fe_isnil(ctx, args)) { code = (int)kec_checked_int(ctx, &args, "exit"); }
     exit(code);
     return fe_bool(ctx, 0); /* unreached */
 }

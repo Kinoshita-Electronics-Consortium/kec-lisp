@@ -92,6 +92,7 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/math.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/time.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/rng.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/validate.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/bigstr.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fileio.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fsenv.lsp

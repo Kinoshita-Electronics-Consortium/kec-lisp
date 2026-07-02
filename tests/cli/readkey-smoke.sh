@@ -27,4 +27,11 @@ if [ "$out" != "poll:nil" ]; then
   echo "FAIL: empty-stdin expected 'poll:nil', got: [$out]"; exit 1
 fi
 
+# A NaN timeout must raise a catchable error, not reach the (int) cast (UB) —
+# (/ 0 0) is NaN in Fe's unguarded float arithmetic.
+out=$(printf '' | "$KEC" eval "(car (try (fn () (poll-key (/ 0 0)))))")
+if [ "$out" != ":error" ]; then
+  echo "FAIL: (poll-key NaN) expected a catchable :error, got: [$out]"; exit 1
+fi
+
 exit 0
