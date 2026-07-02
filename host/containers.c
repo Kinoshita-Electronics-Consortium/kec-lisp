@@ -117,25 +117,8 @@ static CHeader *backing(fe_Context *ctx, fe_Object *obj) {
     return c;
 }
 
-static int checked_int_arg(fe_Context *ctx, fe_Object **args, const char *who) {
-    double n = (double)fe_tonumber(ctx, fe_nextarg(ctx, args));
-    char msg[96];
-    if (!isfinite(n) || floor(n) != n || n < (double)INT32_MIN || n > (double)INT32_MAX) {
-        snprintf(msg, sizeof msg, "%s: expected an integer", who);
-        fe_error(ctx, msg);
-    }
-    return (int)n;
-}
-
-static int checked_byte_arg(fe_Context *ctx, fe_Object **args, const char *who) {
-    int n = checked_int_arg(ctx, args, who);
-    char msg[96];
-    if (n < 0 || n > 255) {
-        snprintf(msg, sizeof msg, "%s: expected byte 0..255", who);
-        fe_error(ctx, msg);
-    }
-    return n;
-}
+/* Integer/byte argument narrowing is the shared kec_checked_int /
+** kec_checked_byte pair (host.h) — one validation seam for the whole tree. */
 
 /* ------------------------------------------------------------------ */
 /* GC handlers (installed once on the context).                       */
@@ -213,7 +196,7 @@ static Vector *alloc_vector(fe_Context *ctx, int len, fe_Object *init) {
 
 /* (make-vector n [init]) — a vector of n elements, each init (default nil). */
 static fe_Object *h_make_vector(fe_Context *ctx, fe_Object *args) {
-    int len = checked_int_arg(ctx, &args, "make-vector");
+    int len = kec_checked_int(ctx, &args, "make-vector");
     fe_Object *init = fe_isnil(ctx, args) ? fe_bool(ctx, 0) : fe_nextarg(ctx, &args);
     int gc = fe_savegc(ctx);
     fe_Object *vec;
@@ -244,7 +227,7 @@ static fe_Object *h_vector(fe_Context *ctx, fe_Object *args) {
 /* (vector-ref v i) — element i (0-based). Errors out of range. */
 static fe_Object *h_vector_ref(fe_Context *ctx, fe_Object *args) {
     Vector *v = as_vector(ctx, fe_nextarg(ctx, &args), "vector-ref: not a vector");
-    int i = checked_int_arg(ctx, &args, "vector-ref");
+    int i = kec_checked_int(ctx, &args, "vector-ref");
     if (i < 0 || i >= v->len) { fe_error(ctx, "vector-ref: index out of range"); }
     return v->items[i];
 }
@@ -252,7 +235,7 @@ static fe_Object *h_vector_ref(fe_Context *ctx, fe_Object *args) {
 /* (vector-set! v i x) — set element i to x; returns x. Errors out of range. */
 static fe_Object *h_vector_set(fe_Context *ctx, fe_Object *args) {
     Vector *v = as_vector(ctx, fe_nextarg(ctx, &args), "vector-set!: not a vector");
-    int i = checked_int_arg(ctx, &args, "vector-set!");
+    int i = kec_checked_int(ctx, &args, "vector-set!");
     fe_Object *x = fe_nextarg(ctx, &args);
     if (i < 0 || i >= v->len) { fe_error(ctx, "vector-set!: index out of range"); }
     v->items[i] = x; /* x becomes reachable via the (rooted) vector; no alloc here */
@@ -317,8 +300,8 @@ static Matrix *alloc_matrix(fe_Context *ctx, int rows, int cols, fe_Object *init
 
 /* (make-matrix rows cols [init]) — flat row-major matrix. */
 static fe_Object *h_make_matrix(fe_Context *ctx, fe_Object *args) {
-    int rows = checked_int_arg(ctx, &args, "make-matrix");
-    int cols = checked_int_arg(ctx, &args, "make-matrix");
+    int rows = kec_checked_int(ctx, &args, "make-matrix");
+    int cols = kec_checked_int(ctx, &args, "make-matrix");
     fe_Object *init = fe_isnil(ctx, args) ? fe_bool(ctx, 0) : fe_nextarg(ctx, &args);
     int gc = fe_savegc(ctx);
     fe_Object *mat;
@@ -332,16 +315,16 @@ static fe_Object *h_make_matrix(fe_Context *ctx, fe_Object *args) {
 /* (matrix-ref m row col) — O(1) row-major lookup. */
 static fe_Object *h_matrix_ref(fe_Context *ctx, fe_Object *args) {
     Matrix *m = as_matrix(ctx, fe_nextarg(ctx, &args), "matrix-ref: not a matrix");
-    int row = checked_int_arg(ctx, &args, "matrix-ref");
-    int col = checked_int_arg(ctx, &args, "matrix-ref");
+    int row = kec_checked_int(ctx, &args, "matrix-ref");
+    int col = kec_checked_int(ctx, &args, "matrix-ref");
     return m->items[matrix_index(ctx, m, row, col, "matrix-ref")];
 }
 
 /* (matrix-set! m row col x) — O(1) row-major mutation, returns x. */
 static fe_Object *h_matrix_set(fe_Context *ctx, fe_Object *args) {
     Matrix *m = as_matrix(ctx, fe_nextarg(ctx, &args), "matrix-set!: not a matrix");
-    int row = checked_int_arg(ctx, &args, "matrix-set!");
-    int col = checked_int_arg(ctx, &args, "matrix-set!");
+    int row = kec_checked_int(ctx, &args, "matrix-set!");
+    int col = kec_checked_int(ctx, &args, "matrix-set!");
     fe_Object *x = fe_nextarg(ctx, &args);
     m->items[matrix_index(ctx, m, row, col, "matrix-set!")] = x;
     return x;
@@ -407,22 +390,22 @@ static Blob *alloc_blob(fe_Context *ctx, int len, int init) {
 
 /* (make-blob length [init-byte]) — binary-safe byte storage. */
 static fe_Object *h_make_blob(fe_Context *ctx, fe_Object *args) {
-    int len = checked_int_arg(ctx, &args, "make-blob");
-    int init = fe_isnil(ctx, args) ? 0 : checked_byte_arg(ctx, &args, "make-blob");
+    int len = kec_checked_int(ctx, &args, "make-blob");
+    int init = fe_isnil(ctx, args) ? 0 : kec_checked_byte(ctx, &args, "make-blob");
     return fe_ptr_typed(ctx, alloc_blob(ctx, len, init), &g_container_tag);
 }
 
 static fe_Object *h_blob_ref(fe_Context *ctx, fe_Object *args) {
     Blob *b = as_blob(ctx, fe_nextarg(ctx, &args), "blob-ref: not a blob");
-    int idx = checked_int_arg(ctx, &args, "blob-ref");
+    int idx = kec_checked_int(ctx, &args, "blob-ref");
     idx = blob_index(ctx, b, idx, "blob-ref");
     return fe_number(ctx, (fe_Number)b->bytes[idx]);
 }
 
 static fe_Object *h_blob_set(fe_Context *ctx, fe_Object *args) {
     Blob *b = as_blob(ctx, fe_nextarg(ctx, &args), "blob-set!: not a blob");
-    int idx = checked_int_arg(ctx, &args, "blob-set!");
-    int byte = checked_byte_arg(ctx, &args, "blob-set!");
+    int idx = kec_checked_int(ctx, &args, "blob-set!");
+    int byte = kec_checked_byte(ctx, &args, "blob-set!");
     idx = blob_index(ctx, b, idx, "blob-set!");
     b->bytes[idx] = (unsigned char)byte;
     return fe_number(ctx, (fe_Number)byte);

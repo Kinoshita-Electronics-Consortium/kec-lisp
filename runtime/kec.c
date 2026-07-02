@@ -275,35 +275,18 @@ static fe_Object *h_eval(fe_Context *ctx, fe_Object *args) {
     return fe_eval(ctx, fe_nextarg(ctx, &args));
 }
 
-/* Counting / filling writers for the length-aware string dup below. */
-static void count_writefn(fe_Context *ctx, void *udata, char chr) {
-    (void)ctx; (void)chr;
-    (*(size_t *)udata)++;
-}
-typedef struct { char *p; size_t n, cap; } FillBuf;
-static void fill_writefn(fe_Context *ctx, void *udata, char chr) {
-    FillBuf *b = udata;
-    (void)ctx;
-    if (b->n < b->cap) { b->p[b->n++] = chr; }
-}
-
 /* (read-string s) — parse the FIRST s-expression of s and return it, WITHOUT
-** evaluating it. Input is measured and copied exactly; there is no fixed
-** reader buffer ceiling. Empty / blank input -> nil. */
+** evaluating it. Input is measured and copied exactly via the shared
+** length-aware kec_strdup_obj (host.h); there is no fixed reader buffer
+** ceiling. Empty / blank input -> nil. */
 static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
     fe_Object *src = fe_nextarg(ctx, &args);
-    size_t len = 0;
     char *buf;
-    FillBuf b;
     StrReader r;
     fe_Object *form;
 
-    fe_write(ctx, src, count_writefn, &len, 0);
-    buf = malloc(len + 1);
+    buf = kec_strdup_obj(ctx, src, 0, NULL);
     if (!buf) { fe_error(ctx, "read-string: out of memory"); }
-    b.p = buf; b.n = 0; b.cap = len;
-    fe_write(ctx, src, fill_writefn, &b, 0);
-    buf[b.n] = '\0';
     r.s = buf;
     r.i = 0;
     form = fe_read(ctx, str_readfn, &r);
@@ -319,19 +302,13 @@ static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
 ** Length-aware (no 4 KB clip; GWP-528 stance). */
 static fe_Object *h_read_all(fe_Context *ctx, fe_Object *args) {
     fe_Object *src = fe_nextarg(ctx, &args);
-    size_t len = 0;
     char *buf;
     StrReader r;
     fe_Object *form, *rev, *res;
     int gc;
-    FillBuf b;
 
-    fe_write(ctx, src, count_writefn, &len, 0);   /* measure */
-    buf = malloc(len + 1);
+    buf = kec_strdup_obj(ctx, src, 0, NULL);      /* measure + fill, exact */
     if (!buf) { fe_error(ctx, "read-all: out of memory"); }
-    b.p = buf; b.n = 0; b.cap = len;
-    fe_write(ctx, src, fill_writefn, &b, 0);      /* fill */
-    buf[b.n] = '\0';
 
     /* Pass 1: read forms, accumulating reversed (cons grows at the head). */
     r.s = buf; r.i = 0;
