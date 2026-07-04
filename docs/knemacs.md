@@ -110,6 +110,11 @@ The split between the C host and the Lisp tier is deliberately thin:
   to a command. The host normalizes a keystroke, asks the table what it resolves
   to, and dispatches. Rebinding is a data edit, not a code change.
 
+This page covers *using* knEmacs. For the underlying Lisp API — the text-buffer
+functions, the keymap/dispatch primitives, the REPL engine, and the SEAM contract
+a new host implements to get its own knEmacs — see the
+[Extended Library Reference](/kec-lisp/extended-library/).
+
 ### Idle timers
 
 The main loop isn't purely blocking: each iteration it asks the Lisp **timer

@@ -159,6 +159,11 @@ The kernel is frozen except for these deliberate deltas (also in CHANGELOG):
 - Quasiquote is available: `` `x `` / `,x` / `,@x` read as `quasiquote`,
   `unquote`, and `unquote-splicing`. Macros (`mac`) can still build expansions
   manually with `list`/`cons`/`append` when useful.
+- **Referencing a never-bound symbol evaluates to `nil`, not an error** — there
+  is no "unbound variable" signal on read, so a typo'd name silently reads as
+  `nil` instead of failing loudly. Use `(bound? 'name)` to check. Calling a
+  never-bound symbol (as a list operator) still errors, since `nil` isn't
+  callable.
 
 Full reference: `docs/language.md`. Test harness API (`deftest` / `check` /
 `check-err`) is defined in `tests/harness.lsp`.

@@ -90,8 +90,15 @@ export default defineConfig({
           label: 'Language',
           items: [
             { label: 'Language Reference', slug: 'language' },
-            { label: 'Built-ins', slug: 'builtins' },
+            { label: 'Built-ins (Kernel)', slug: 'builtins' },
             { label: 'Language Standard', slug: 'language-standard' },
+          ],
+        },
+        {
+          label: 'Libraries',
+          items: [
+            { label: 'Core Library Reference', slug: 'core-library' },
+            { label: 'Extended Library Reference', slug: 'extended-library' },
           ],
         },
         {
