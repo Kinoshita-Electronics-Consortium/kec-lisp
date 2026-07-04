@@ -67,6 +67,15 @@ global binding has been established. This distinguishes an unbound symbol from
 a symbol deliberately bound to `nil`; `fe_bound`, `bound?`, `globals`, and
 `defvar` use that distinction.
 
+That distinction is not enforced at *evaluation* time, though: `eval()`
+(`kernel/fe.c:830`) reads a symbol's binding with `getbound`/`cdr` regardless of
+the presence bit, so referencing a symbol that was never bound evaluates to
+`nil` rather than raising an "unbound variable" error — the same result as a
+symbol deliberately bound to `nil`. `bound?` is the only way to tell the two
+apart at the Lisp level; see
+[Evaluation](/kec-lisp/language/#evaluation) and
+[Limits And Portability](/kec-lisp/language/#limits-and-portability).
+
 The reader reads tokens into a 64-byte buffer (`char buf[64]`). **Symbol names longer than 63 bytes** raise `"symbol too long"`.
 
 ### Environments

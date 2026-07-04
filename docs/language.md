@@ -115,7 +115,12 @@ Equality has two useful levels:
 Evaluation follows the usual Lisp shape:
 
 1. A literal number, string, or `nil` evaluates to itself.
-2. A symbol evaluates to its current binding.
+2. A symbol evaluates to its current binding. **A never-bound symbol evaluates
+   to `nil`, not an error** — the kernel does not signal "unbound variable" on
+   read. A real `nil` value and no binding at all therefore look identical from
+   evaluation; use `(bound? 'name)` to tell them apart (see
+   [Fe Kernel - Internals](/kec-lisp/fe-kernel/#symbols)). Calling a never-bound
+   symbol *does* error, since `nil` is not callable.
 3. A list evaluates its operator, then applies it according to what the operator
    is.
 4. Function and C primitive arguments are evaluated left to right before the
@@ -224,7 +229,9 @@ Association lists are the built-in record shape:
 ## Standard Library (Core)
 
 Core is written in KEC Lisp and loaded before user code. Its files load in
-numeric filename order.
+numeric filename order. This section is a quick day-to-day cheat sheet; for
+full signatures, parameters, and worked examples per function, see the
+[Core Library Reference](/kec-lisp/core-library/).
 
 ### Definitions
 
@@ -518,6 +525,7 @@ remain writable by their owning Core/runtime functions.
 | No tail-call optimization | Deep recursive code can overflow. Core list functions are iterative for this reason. |
 | Containers compare by identity | Vectors, matrices, blobs, and hashes are `:ptr` objects; `=`/`is` test identity. Use conversion helpers where a structural comparison is needed. String hash keys hash and compare by their **full content**, at any length — the same content equality `is` applies to strings. |
 | `eval` is `FULL`-tier | `SANDBOX` contexts have no `eval`; use macros for code generation and `read-string`/`read-all` to parse data. |
+| Referencing an unbound symbol silently yields `nil` | There is no "unbound variable" error on read — a typo'd name reads as `nil` instead of failing loudly. Use `(bound? 'name)` to check whether a symbol has ever been bound; calling one (as the operator of a list) still errors, since `nil` is not callable. |
 | Strings are null-terminated | Strings are not binary-safe; use blobs for embedded NULs and binary asset bytes. |
 | Standard globals are protected | Rebinding load-bearing kernel/host/Core names raises a catchable error. Define new names for overrides or use local lexical bindings. |
 | Integer-only host APIs validate | Vector/matrix/blob sizes and indices, blob bytes, bitwise operands, RNG seeds, `rand-int` bounds, string indices (`string-ref`, `substring`), char codes (`char->string`, `string-split` separators — bytes `0..255`), `number->string` radixes, and `exit` codes reject fractional, non-finite, or unsafe values with a catchable error instead of silently narrowing them. `rand-int` additionally requires a **positive** bound (`[0, n)` is empty otherwise). |

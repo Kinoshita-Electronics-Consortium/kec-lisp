@@ -11,8 +11,9 @@ pages that enumerate each layer's forms.
 | Layer | What it is | In this repo | Reference |
 |---|---|---|---|
 | **Fe Kernel** | 26 compiled-in primitives + reader + evaluator + arena/GC. | Vendored `rxi/fe` 1.0 with the changes in [The Fe kernel](#the-fe-kernel) below. | [Built-ins](/kec-lisp/builtins/) |
-| **KEC Core** | The standard library — `map`, `filter`, `fold-left`, `cond`, `when`, `defn`, … — written in KEC Lisp, loaded into every context before user code runs. | `core/*.lsp`, baked into the `kec` binary at build time. | [Language Reference](/kec-lisp/language/#standard-library-core) |
+| **KEC Core** | The standard library — `map`, `filter`, `fold-left`, `cond`, `when`, `defn`, … — written in KEC Lisp, loaded into every context before user code runs. | `core/*.lsp`, baked into the `kec` binary at build time. | [Core Library Reference](/kec-lisp/core-library/) |
 | **Runtime / host primitives** | Portable C exposed to KEC Lisp — error control, `type-of`, math, string ops, I/O, a few system calls. | `runtime/kec.c` and `host/host.c`, registered through `kec_bind_fe`. | [Language Reference](/kec-lisp/language/#runtime--host-primitives) |
+| **Extended Library (editor/REPL tier)** | A host-agnostic, `provide`-gated library above Core: the text buffer, undo, keymap-as-data + dispatch, the token ranker, the REPL engine, and the SEAM host contract that knEmacs and `kec repl` are built from. | `editor/*.lsp`, loaded on demand (not baked into every context). | [Extended Library Reference](/kec-lisp/extended-library/) |
 | **Device primitives + cart grammar** | The KN-86 runtime FFI (graphics, audio, save, missions, CIPHER) and the `defcell`/`defmission` macros. | Not in this repo — in the firmware. | [The KN-86 firmware](#the-kn-86-firmware) |
 
 Which primitives a context is created with determines what it can call; see the
@@ -50,8 +51,9 @@ list/sequence functions, comparison (`=`, `==`, `/=`, `>`, `>=`, …), type
 predicates, alist helpers, error value helpers, control macros (`cond`, `case`,
 `when`, `dotimes`, …), quasiquote expansion, higher-order functions, and
 string/format helpers.
-Its list/sequence functions are written iteratively. Enumerated in the
-[Language Reference](/kec-lisp/language/#standard-library-core).
+Its list/sequence functions are written iteratively. Summarized in the
+[Language Reference](/kec-lisp/language/#standard-library-core); full
+per-function reference in the [Core Library Reference](/kec-lisp/core-library/).
 
 **Runtime / host primitives** are C functions that need only the runtime or C
 library — error control, `type-of`, math, string ops, I/O, and a few system
@@ -59,6 +61,17 @@ calls — bound per
 [profile](/kec-lisp/ffi-bridge/#4-capability-tiers): `SANDBOX` is the portable
 set; `FULL` adds `load`, file I/O, environment, `args`, and `exit`. Enumerated
 in the [Language Reference](/kec-lisp/language/#runtime--host-primitives).
+
+## The Extended Library (editor/REPL tier)
+
+Above Core, `editor/*.lsp` is a second, `provide`-gated Lisp library ([ADR-0002](adr/ADR-0002-editor-repl-extended-library-tier.md)):
+a text buffer + undo, a keymap-as-data dispatcher, a completion ranker, a REPL
+engine, and the SEAM contract a host wires up to get **knEmacs** and a
+standalone REPL. It's not loaded into every context — only sessions that
+`(require ...)` it — and it's entirely portable Lisp: the `kec` CLI is the
+reference host today, and the KN-86 firmware wires the same SEAM against its own
+input/display. Full reference: [Extended Library Reference](/kec-lisp/extended-library/).
+Using it as an editor day-to-day: [knEmacs](/kec-lisp/knemacs/).
 
 ## The FFI bridge
 
