@@ -90,6 +90,17 @@ fe_Object *handle = fe_ptr_typed(ctx, sensor, &SENSOR_HANDLE_TAG);
   values — a raw `(int)fe_tonumber(...)` cast is undefined behavior on NaN and
   out-of-range doubles. `kec_strlen_obj` / `kec_strdup_obj` stringify values at
   their exact printed length with no fixed buffer ceiling.
+- **Never hold a naked heap buffer across a raising Fe call.** `fe_string`,
+  `fe_cons`, and `fe_read` can raise out-of-memory (a `longjmp`), leaking any
+  malloc'd buffer the frame was holding. Prefer computing the C result first
+  and freeing *before* the allocation (see `h_string_ref` / `h_string_search`);
+  when the Fe call needs the buffer's contents, register it with
+  `kec_pending_push(ctx, buf)` for the raising window and `kec_pending_pop`
+  it before the normal `free` — the runtime error handler frees anything still
+  registered when it unwinds. Only for windows that do **not** evaluate user
+  code (an inner caught `try` across user code would free an outer frame's
+  live buffer); a resource held across user evaluation needs an
+  unwind-protect guard instead (see `eval_file_or_error` in `runtime/kec.c`).
 - Plain `fe_ptr` and the legacy `fe_handlers(ctx)->mark/gc` pair remain available
   for older single-owner embedders, but new code should use typed pointers.
 - A handle is **invalid across an arena reset** (`fe_close`+`fe_open`). A

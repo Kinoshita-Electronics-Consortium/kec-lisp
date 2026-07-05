@@ -116,3 +116,23 @@
   (hash-del! h k1)
   (check (nil? (hash-ref h k1)))
   (check (is (hash-ref h k2) 2)))
+
+(deftest "hash/rehash-preserves-long-string-keys-across-growth"
+  ;; Growing rehashes every entry into a fresh slot array. Long keys (past the
+  ;; 1 KiB stack fast path) used to route the rehash through heap-materializing
+  ;; key compares that could raise mid-move (leaking the old array and dropping
+  ;; entries); the rehash is now probe-only. Insert enough long keys to force
+  ;; several growths, then verify every entry survived.
+  (let h (make-hash-table))
+  (let base (string-repeat "k" 1500))
+  (let i 0)
+  (while (< i 40)
+    (hash-set! h (str base "-" i) i)
+    (set i (+ i 1)))
+  (check (is (hash-count h) 40))
+  (let ok 1)
+  (set i 0)
+  (while (< i 40)
+    (if (is (hash-ref h (str base "-" i)) i) nil (set ok nil))
+    (set i (+ i 1)))
+  (check ok))

@@ -23,12 +23,19 @@ typedef enum {
     KEC_PROFILE_SANDBOX = 1
 } kec_Profile;
 
+/* Max heap buffers simultaneously registered for free-on-error (see
+** kec_pending_push). Windows never nest across primitives, so the real
+** high-water mark is 1-2; 8 is generous slack. */
+#define KEC_PENDING_MAX 8
+
 typedef struct {
     uint64_t rng_state;
     unsigned long gensym_counter; /* per-context: fresh contexts number alike */
     double now_base;              /* (now) epoch: monotonic time at state init */
     void *(*container_alloc)(size_t);
     void (*container_free)(void *);
+    void *pending[KEC_PENDING_MAX]; /* malloc'd buffers freed on error unwind */
+    int pending_count;
 } kec_HostState;
 
 /* Runtime-owned state for portable host primitives. One instance belongs to
@@ -56,6 +63,33 @@ size_t kec_strlen_obj(fe_Context *ctx, fe_Object *obj, int qt);
 ** only on OOM; callers route that through fe_error. The buffer is the
 ** caller's to free(). *len_out (if non-NULL) receives the byte length. */
 char *kec_strdup_obj(fe_Context *ctx, fe_Object *obj, int qt, size_t *len_out);
+
+/* ------------------------------------------------------------------ */
+/* Error-path leak guard. fe_error unwinds with longjmp, so a           */
+/* primitive holding a malloc'd buffer across a raising Fe call         */
+/* (fe_string / fe_cons / fe_read / ...) would leak it — permanently,   */
+/* on a fixed-arena device that catches errors and keeps running.       */
+/* Register the buffer while that raising window is open; the runtime's */
+/* error handler frees everything still registered before it unwinds.   */
+/* Pop (no free) once the window closes and free() normally.            */
+/*                                                                      */
+/* Only for windows that do NOT evaluate user code (reads and           */
+/* allocations): across user code an inner caught (try) would free an   */
+/* outer frame's still-live buffer. Resources that user evaluation can  */
+/* hold (the load FILE*) use a guard-slot unwind-protect in kec.c       */
+/* instead.                                                             */
+/* ------------------------------------------------------------------ */
+
+/* Register p for free-on-error. On registry overflow (a static bug — the
+** window depth is bounded), frees p and raises. */
+void kec_pending_push(fe_Context *ctx, void *p);
+
+/* Unregister p (most-recent-first lookup); the caller then owns it again. */
+void kec_pending_pop(fe_Context *ctx, void *p);
+
+/* Free every registered buffer. Called by the runtime error handler on the
+** unwind path; idempotent on an empty registry. */
+void kec_host_state_free_pending(kec_HostState *state);
 
 /* Pull the next argument as an exact integer. Fractional, non-finite, or
 ** out-of-signed-32-bit-range numbers raise a catchable

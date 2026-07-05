@@ -39,7 +39,38 @@ void kec_host_state_init(kec_HostState *state) {
     state->rng_state = KEC_RNG_DEFAULT;
     state->gensym_counter = 0;
     state->now_base = monotonic_seconds();
+    state->pending_count = 0;
     kec_host_state_set_container_allocator(state, NULL, NULL);
+}
+
+/* --- Error-path leak guard (host.h) ------------------------------- */
+
+void kec_pending_push(fe_Context *ctx, void *p) {
+    kec_HostState *state = kec_host_state(ctx);
+    if (state->pending_count >= KEC_PENDING_MAX) {
+        free(p);
+        fe_error(ctx, "internal: pending-buffer registry overflow");
+    }
+    state->pending[state->pending_count++] = p;
+}
+
+void kec_pending_pop(fe_Context *ctx, void *p) {
+    kec_HostState *state = kec_host_state(ctx);
+    int i;
+    for (i = state->pending_count - 1; i >= 0; i--) {
+        if (state->pending[i] == p) {
+            memmove(&state->pending[i], &state->pending[i + 1],
+                    (size_t)(state->pending_count - 1 - i) * sizeof state->pending[0]);
+            state->pending_count--;
+            return;
+        }
+    }
+}
+
+void kec_host_state_free_pending(kec_HostState *state) {
+    while (state->pending_count > 0) {
+        free(state->pending[--state->pending_count]);
+    }
 }
 
 void kec_host_attach_state(fe_Context *ctx, kec_HostState *state) {
@@ -376,8 +407,13 @@ static fe_Object *h_string_ref(fe_Context *ctx, fe_Object *args) {
     buf = host_strdup_obj(ctx, s, &len);
     if (!buf) { fe_error(ctx, "string-ref: out of memory"); }
     if ((size_t)i >= len) { free(buf); return fe_bool(ctx, 0); }
-    res = fe_number(ctx, (fe_Number)(unsigned char)buf[i]);
-    free(buf);
+    {
+        /* Take the byte and free BEFORE fe_number: an out-of-memory raise
+        ** there would longjmp past the free. */
+        unsigned char c = (unsigned char)buf[i];
+        free(buf);
+        res = fe_number(ctx, (fe_Number)c);
+    }
     return res;
 }
 
@@ -393,10 +429,13 @@ static fe_Object *h_substring(fe_Context *ctx, fe_Object *args) {
     if (a < 0) { a = 0; }
     if (b > (int)len) { b = (int)len; }
     if (b < a) { b = a; }
-    /* fe_string copies up to the NUL; clip in place at b, slice from a. */
+    /* fe_string copies up to the NUL; clip in place at b, slice from a.
+    ** The buffer is registered while fe_string can raise out-of-memory. */
     save = buf[b];
     buf[b] = '\0';
+    kec_pending_push(ctx, buf);
     res = fe_string(ctx, buf + a);
+    kec_pending_pop(ctx, buf);
     buf[b] = save;
     free(buf);
     return res;
@@ -424,7 +463,9 @@ static fe_Object *h_string_append(fe_Context *ctx, fe_Object *args) {
         fe_write(ctx, fe_nextarg(ctx, &args), fill_writefn, &b, 0);
     }
     out[b.n] = '\0';
+    kec_pending_push(ctx, out); /* fe_string may raise out-of-memory */
     res = fe_string(ctx, out);
+    kec_pending_pop(ctx, out);
     free(out);
     return res;
 }
@@ -438,15 +479,17 @@ static fe_Object *h_string_search(fe_Context *ctx, fe_Object *args) {
     size_t hlen, nlen;
     char *h = host_strdup_obj(ctx, hay, &hlen);
     char *n, *found;
-    fe_Object *res;
+    long idx;
     if (!h) { fe_error(ctx, "string-search: out of memory"); }
     n = host_strdup_obj(ctx, needle, &nlen);
     if (!n) { free(h); fe_error(ctx, "string-search: out of memory"); }
     found = strstr(h, n);
-    res = found ? fe_number(ctx, (fe_Number)(found - h)) : fe_bool(ctx, 0);
+    /* Take the index and free BEFORE fe_number: an out-of-memory raise there
+    ** would longjmp past the frees. */
+    idx = found ? (long)(found - h) : -1;
     free(h);
     free(n);
-    return res;
+    return idx >= 0 ? fe_number(ctx, (fe_Number)idx) : fe_bool(ctx, 0);
 }
 
 /* (string-split s sepcode) -> the substrings of s split on every occurrence of
@@ -470,6 +513,9 @@ static fe_Object *h_string_split(fe_Context *ctx, fe_Object *args) {
     int gc;
     buf = host_strdup_obj(ctx, s, &len);
     if (!buf) { fe_error(ctx, "string-split: out of memory"); }
+    /* Registered across the whole loop: every fe_string / fe_cons below can
+    ** raise out-of-memory. */
+    kec_pending_push(ctx, buf);
     res = fe_bool(ctx, 0);                 /* nil */
     gc = fe_savegc(ctx);
     fe_pushgc(ctx, res);
@@ -491,6 +537,7 @@ static fe_Object *h_string_split(fe_Context *ctx, fe_Object *args) {
     res = fe_cons(ctx, head, res);
     fe_restoregc(ctx, gc);
     fe_pushgc(ctx, res);
+    kec_pending_pop(ctx, buf);
     free(buf);
     return res;
 }
@@ -584,7 +631,9 @@ static fe_Object *h_repr(fe_Context *ctx, fe_Object *args) {
     char *buf = kec_strdup_obj(ctx, fe_nextarg(ctx, &args), 1, NULL);
     fe_Object *res;
     if (!buf) { fe_error(ctx, "repr: out of memory"); }
+    kec_pending_push(ctx, buf); /* fe_string may raise out-of-memory */
     res = fe_string(ctx, buf);
+    kec_pending_pop(ctx, buf);
     free(buf);
     return res;
 }
@@ -669,7 +718,8 @@ static fe_Object *h_args(fe_Context *ctx, fe_Object *args) {
 static fe_Object *h_read_file(fe_Context *ctx, fe_Object *args) {
     char path[KEC_STRBUF];
     FILE *fp;
-    long len;
+    long len = 0; /* fe_error below never returns, but the compiler can't see
+                  ** that through the ||: keep -Wsometimes-uninitialized quiet */
     char *body;
     fe_Object *res;
     arg_str(ctx, &args, path, sizeof path);
@@ -687,7 +737,10 @@ static fe_Object *h_read_file(fe_Context *ctx, fe_Object *args) {
     if (fread(body, 1, (size_t)len, fp) != (size_t)len) { /* short read tolerated */ }
     body[len] = '\0';
     fclose(fp);
+    kec_pending_push(ctx, body); /* fe_string may raise out-of-memory —
+                                 ** the worst leak here is a whole file body */
     res = fe_string(ctx, body);
+    kec_pending_pop(ctx, body);
     free(body);
     return res;
 }

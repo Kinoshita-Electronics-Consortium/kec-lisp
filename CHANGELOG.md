@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+### Fixed (error-path leak hardening — review sweep, third pass)
+
+Closes the remaining systematic error-path leak class the repository review
+identified (after GWP-235 → PR #52 and GWP-584 → PR #64): heap buffers and
+`FILE*`s held across calls that can raise via `fe_error`'s `longjmp` leaked on
+the unwind — permanently, on a fixed-arena device that catches errors and
+keeps running.
+
+- **A failing `(load)` no longer leaks its `FILE*`.** `fe_read` (syntax error)
+  and `fe_eval` (any script error) unwound straight past the `fclose`, so
+  repeated failing loads inside `(try)` exhausted the fd table. The load loop
+  is now an unwind-protect: a local guard slot closes the file on the error
+  path, then re-raises with the original message intact (verified through
+  nested loads). Regression lowers `RLIMIT_NOFILE` and hammers failing loads
+  (`tests/c/test_error_leaks.c`, ctest `c/error-leaks`).
+- **Free-on-error "pending buffer" registry** (`kec_pending_push` /
+  `kec_pending_pop`, `host.h`). String primitives must hold a heap
+  materialization of their argument across Fe allocations that can raise
+  out-of-memory (`fe_string` / `fe_cons` / `fe_read`); the buffer is now
+  registered for that window and the runtime error handler frees anything
+  still registered before it unwinds. Applied to `substring`,
+  `string-append`, `string-split`, `repr`, `read-file` (worst case: a whole
+  file body), `read-string`, and `read-all`. `string-ref` and `string-search`
+  instead compute their C result first and free *before* allocating — no
+  window at all. Restricted by contract to windows that do not evaluate user
+  code (an inner caught `(try)` across user code would free an outer frame's
+  live buffer — which is why `load` uses the guard-slot pattern instead).
+- **Hash growth can no longer raise mid-rehash.** Re-insertion routed through
+  `hash_index`/`key_equal`, which heap-materializes long string keys and can
+  raise out-of-memory halfway through the move — leaking the old slot array
+  and silently dropping every not-yet-moved entry. Entries from the same
+  table are already distinct, so the rehash is now a raise-free probe for the
+  first empty slot (`key_hash` streams through `fe_write`, no allocation).
+  (`tests/core/hash.lsp` covers long-key survival across several growths.)
+- **`kec build` closes its nested-load `FILE*`s on a parse error.** The bundle
+  guard's `longjmp` abandoned one open `FILE*` per `(load ...)` nesting level;
+  the guard now tracks the open stack and the recovery path closes it.
+- **`sb_putn` checks `realloc`.** The CLI's growable string buffer dereferenced
+  a NULL `realloc` result on OOM (losing the old pointer too); it now fails
+  loudly with `kec: out of memory` instead.
+- **`kec_open_with_arena` rejects a `> INT_MAX` size with NULL** per the
+  `kec.h` contract, instead of narrowing it into `fe_open`'s `int` — the
+  wrapped (negative) size faulted before any error handler existed
+  (`tests/c/test_arena.c`).
+- **`apply` and `read-all` no longer grow the GC stack per element.** Both
+  pass-2 reversal loops rooted one cons per argument/form, so a few thousand
+  elements overflowed the GC stack (`GCSTACKSIZE` is 256 on the device); they
+  now use the same restore/push idiom as their pass 1
+  (`tests/core/applyread.lsp`, `tests/core/eval.lsp`).
+
 ### Fixed (repository review sweep)
 - **The writer escapes backslashes in strings** (kernel delta, `fe.c`).
   `fe_write` escaped only `"`, so any string containing `\` re-read wrong —

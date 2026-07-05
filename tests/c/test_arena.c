@@ -13,6 +13,8 @@
 */
 #include "kec.h"
 
+#include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -69,6 +71,20 @@ static void test_tiny_buffer_returns_null(void) {
     kec_State *S = kec_open_with_arena(tiny, sizeof tiny, KEC_PROFILE_FULL);
     CHECK(S == NULL, "tiny buffer did not return NULL");
     if (S) { kec_close(S); }
+}
+
+/* A size that cannot be represented in fe_open's int must be rejected up
+** front with NULL — never narrowed: the (int) of INT_MAX+1 is negative, and
+** fe_open on a negative size faults or exit()s before any error handler
+** exists. The 2 MB buffer is a decoy — the size check must fire before
+** anything touches it. */
+static void test_oversize_arena_returns_null(void) {
+#if SIZE_MAX > INT_MAX
+    kec_State *S = kec_open_with_arena(g_arena, (size_t)INT_MAX + 1u,
+                                       KEC_PROFILE_FULL);
+    CHECK(S == NULL, ">INT_MAX arena size did not return NULL");
+    if (S) { kec_close(S); }
+#endif
 }
 
 /* kec_close must NOT free a caller-provided buffer: after closing, the same
@@ -194,6 +210,7 @@ int main(void) {
     test_open_with_arena_runs_core();
     test_too_small_returns_null();
     test_tiny_buffer_returns_null();
+    test_oversize_arena_returns_null();
     test_undersized_never_exits();
     test_close_does_not_free_caller_arena();
     test_profile_gating();

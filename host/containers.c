@@ -564,11 +564,30 @@ static Hash *alloc_hash(fe_Context *ctx) {
     return h;
 }
 
+/* Re-insert one USED slot into the grown array. The rehash never compares
+** keys: entries from the same table are already distinct and the fresh array
+** has no tombstones, so the first EMPTY slot is the home. That keeps the
+** whole re-insertion loop raise-free — key_hash streams through fe_write with
+** no allocation, whereas routing through hash_index/key_equal could raise
+** out-of-memory mid-move (heap-materializing a long string key), leaking the
+** old slot array and dropping every not-yet-moved entry. */
+static void rehash_slot(fe_Context *ctx, Hash *h, const HashSlot *s) {
+    int ok;
+    unsigned hv = key_hash(ctx, s->key, &ok); /* was inserted: always hashable */
+    unsigned mask = (unsigned)h->cap - 1u;
+    int i = (int)(hv & mask);
+    (void)ok;
+    while (h->slots[i].state != SLOT_EMPTY) { i = (int)((unsigned)(i + 1) & mask); }
+    h->slots[i] = *s;
+    h->count++;
+    h->used++;
+}
+
 static void hash_grow(fe_Context *ctx, Hash *h) {
     int newcap = h->cap * 2, oldcap = h->cap, i;
     HashSlot *old = h->slots;
     HashSlot *ns = h->head.alloc((size_t)newcap * sizeof(HashSlot));
-    if (!ns) { fe_error(ctx, "hash: out of memory"); }
+    if (!ns) { fe_error(ctx, "hash: out of memory"); } /* pre-move: table intact */
     for (i = 0; i < newcap; i++) {
         ns[i].state = SLOT_EMPTY;
         ns[i].key = NULL;
@@ -579,15 +598,7 @@ static void hash_grow(fe_Context *ctx, Hash *h) {
     h->used = 0;
     h->count = 0;
     for (i = 0; i < oldcap; i++) {
-        if (old[i].state == SLOT_USED) {
-            int found;
-            int idx = hash_index(ctx, h, old[i].key, &found); /* re-hashable: was inserted */
-            h->slots[idx].state = SLOT_USED;
-            h->slots[idx].key = old[i].key;
-            h->slots[idx].val = old[i].val;
-            h->count++;
-            h->used++;
-        }
+        if (old[i].state == SLOT_USED) { rehash_slot(ctx, h, &old[i]); }
     }
     h->head.free_(old);
 }
