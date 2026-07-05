@@ -1425,7 +1425,7 @@ Load with `(load "editor/10-zipper.lsp")` then `(load "editor/30-buffer.lsp")` t
 
 #### `(form->view form)`
 
-Converts an s-expression into a view-node tree, recursively. Every node — leaf or list — is labelled by a truncated `repr` of the subtree it represents (a structural preview), so a list node shows what it contains rather than just its head symbol.
+Converts an s-expression into a view-node tree, iteratively (an explicit frame stack, like `buffer->view-lines`' own DFS — safe on arbitrarily deep nesting; the fixed GC root stack is 256 slots on the device). Every node — leaf or list — is labelled by a truncated `repr` of the subtree it represents (a structural preview), so a list node shows what it contains rather than just its head symbol.
 
 - **Parameters:** form — any s-expression
 - **Returns:** a view node `(label . children)`
