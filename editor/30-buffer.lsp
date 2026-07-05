@@ -10,23 +10,26 @@
 ;;
 ;; Load order: after 10-zipper and 20-undo.
 ;;
-;; record = vector [loc clipboard modified? name undo-ring literal-text]
+;; record = vector [loc clipboard modified? name undo-ring literal-text scroll]
 ;; literal-text is nil except while a literal value is being typed (L3.2 / L4.2):
 ;; the in-progress text, committed (as a leaf) or cancelled.
+;; scroll is the top visible view-line index — state a line-oriented renderer
+;; (96-tty) owns and persists so the cursor row stays on-screen across frames.
 
 (define BUFFER-UNDO-DEPTH 64)
 
 ;; (make-buffer name forms) — a buffer named `name` over the top-level `forms`
 ;; (a list of s-expressions, e.g. from read-all). Cursor seated on the first
-;; form; clipboard empty; not modified; not in literal entry.
+;; form; clipboard empty; not modified; not in literal entry; scrolled to top.
 (defn make-buffer (name forms)
-  (vector (buffer-from-forms forms) nil nil name (make-undo-ring BUFFER-UNDO-DEPTH) nil))
+  (vector (buffer-from-forms forms) nil nil name (make-undo-ring BUFFER-UNDO-DEPTH) nil 0))
 
 (defn buffer-loc (b) (vector-ref b 0))
 (defn buffer-clipboard (b) (vector-ref b 1))
 (defn buffer-modified? (b) (vector-ref b 2))
 (defn buffer-name (b) (vector-ref b 3))
 (defn buffer-undo-ring (b) (vector-ref b 4))
+(defn buffer-scroll (b) (vector-ref b 6))
 
 ;; (buffer-forms b) — the whole buffer back as a flat list of top-level forms.
 (defn buffer-forms (b) (loc->forms (buffer-loc b)))

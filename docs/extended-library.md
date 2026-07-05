@@ -460,7 +460,7 @@ Returns the most-recent snapshot without removing it, or `nil` if empty.
 
 ### `editor/30-buffer.lsp` — the L1 buffer record: zipper cursor + clipboard + modified flag + undo, as verb wrappers
 
-Wraps the bare zipper cursor (`10-zipper.lsp`) with the rest of the L1 buffer state — clipboard, modified flag, buffer name — and an undo ring (`20-undo.lsp`), exposing verb wrappers that thread the clipboard, set the modified flag, and snapshot for undo automatically. Navigation moves the cursor only (no undo, no modified flag); structural edits snapshot the pre-edit location for undo and mark modified. The record itself is a small mutable vector (`[loc clipboard modified? name undo-ring literal-text]`) — one handle per open buffer — even though the cursor value inside it stays an immutable zipper location.
+Wraps the bare zipper cursor (`10-zipper.lsp`) with the rest of the L1 buffer state — clipboard, modified flag, buffer name — and an undo ring (`20-undo.lsp`), exposing verb wrappers that thread the clipboard, set the modified flag, and snapshot for undo automatically. Navigation moves the cursor only (no undo, no modified flag); structural edits snapshot the pre-edit location for undo and mark modified. The record itself is a small mutable vector (`[loc clipboard modified? name undo-ring literal-text scroll]`) — one handle per open buffer — even though the cursor value inside it stays an immutable zipper location. The trailing `scroll` slot (read via `buffer-scroll`) is the top visible view-line index, owned and persisted by a line-oriented renderer (`96-tty`) so the cursor row stays on-screen across frames.
 
 **Load order matters:** this file calls `make-undo-ring` (from `20-undo.lsp`) but does not `load` it itself — a host must `(load "editor/10-zipper.lsp")` and `(load "editor/20-undo.lsp")` *before* `(load "editor/30-buffer.lsp")`, or `make-buffer` fails with a non-callable-value error.
 
@@ -2869,7 +2869,11 @@ Load order: after 40-view and 95-host.
 Renders the whole screen: an inverted-video modeline (buffer name + modified
 marker + a fixed help string), the structural tree body (one line per
 `view-line` record, the cursor's line in reverse video), clipped to `rows`,
-followed by the echo line. Every line is clipped to `cols`.
+followed by the echo line. Every line is clipped to `cols`. The body window is
+vertically scrolled so the cursor line is always visible — the persisted buffer
+`scroll` (slot 6, read via `buffer-scroll`) is pulled toward the cursor row
+when it drifts off either edge and written back, the same recompute-and-persist
+scroll `text-screen` does — so this call is not a pure read.
 
 - **Parameters:** b — a buffer; cols/rows — the terminal's visible width/height.
 - **Returns:** one string containing embedded `\n`s and ANSI SGR escapes (reverse-video on/off).
