@@ -202,6 +202,11 @@ set_tests_properties(cli/test-default PROPERTIES
 add_test(NAME cli/build-reader
   COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/build-reader.sh $<TARGET_FILE:kec>)
 
+# `kec test` exit-code contract: a raising suite must exit nonzero (no
+# false-green CI), and a raise inside one deftest must not abort the rest.
+add_test(NAME cli/test-exit
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/test-exit.sh $<TARGET_FILE:kec>)
+
 # The `kec repl` strong REPL end-to-end (loads the embedded editor tier, drives
 # the REPL engine over piped input).
 add_test(NAME cli/repl-smoke

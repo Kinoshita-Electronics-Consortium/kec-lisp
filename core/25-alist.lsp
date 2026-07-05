@@ -6,12 +6,19 @@
 ;; new runtime type.
 
 (defn equal? (a b)
-  (if (is a b)
-      1
-      (if (and (not (atom a)) (not (atom b)))
-          (and (equal? (car a) (car b))
-               (equal? (cdr a) (cdr b)))
-          nil)))
+  ;; the cdr spine is walked iteratively so long lists cannot exhaust the GC
+  ;; stack; recursion only descends into cars, so depth tracks tree nesting.
+  (let res nil)
+  (let done nil)
+  (while (not done)
+    (if (is a b)
+        (do (set res 1) (set done 1))
+        (if (or (atom a) (atom b))
+            (set done 1)
+            (if (equal? (car a) (car b))
+                (do (set a (cdr a)) (set b (cdr b)))
+                (set done 1)))))
+  res)
 
 (defn get (k alist . default)
   (let p (assoc k alist))

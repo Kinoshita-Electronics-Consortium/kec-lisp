@@ -75,13 +75,19 @@
 
 ;; break a list: children pretty-printed at indent+1, with "(" tucked onto the
 ;; first child's first line and ")" appended to the last child's last line.
+;; An improper (dotted) tail renders as its own ". tail" line.
 (defn %pp-break (lst indent width depth)
   (let out nil)                                  ; reversed accumulated lines
   (let cur lst)
-  (while cur
+  (while (pair? cur)
     (let cl (%pp (car cur) (+ indent 1) width (+ depth 1)))
     (while cl (set out (cons (car cl) out)) (set cl (cdr cl)))
     (set cur (cdr cur)))
+  (if cur                                        ; dotted tail (non-nil atom)
+      (set out (cons (string-append (string-repeat " " (+ indent 1)) ". "
+                                    (%repl-truncate (%display1 cur)
+                                                    (max 4 (- width indent 3))))
+                     out)))
   (let lines (reverse out))
   (let head (car lines))                         ; at indent+1; retuck "(" at indent
   (let head2 (string-append (string-repeat " " indent) "("
@@ -119,9 +125,15 @@
       (do
         (let ev (repl-eval-fn r))
         (let res (try (fn () (ev input))))
+        ;; formatting a *successful* result runs under try too — a value the
+        ;; pretty-printer chokes on must land a failed entry, not kill the loop
         (let entry (if (error? res)
                        (make-repl-entry input (string-append "error: " (error-message res)) nil)
-                       (make-repl-entry input (repl-format r res) t)))
+                       (do
+                         (let txt (try (fn () (repl-format r res))))
+                         (if (error? txt)
+                             (make-repl-entry input (string-append "print-error: " (error-message txt)) nil)
+                             (make-repl-entry input txt t)))))
         (%repl-push! r entry)
         (cons entry r))))
 

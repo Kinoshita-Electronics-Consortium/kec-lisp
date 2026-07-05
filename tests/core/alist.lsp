@@ -35,3 +35,11 @@
   (check (is (get 'name merged) "Ada"))
   (check (is (get 'score merged) 7))
   (check (is (get 'rank merged) 1)))
+
+(deftest "alist/equal?-long-list-gc-safety"
+  ;; the cdr spine is walked iteratively — 2000 elements must not exhaust
+  ;; the GC stack (the device build has only 256 slots)
+  (check (equal? (range 0 2000) (range 0 2000)))
+  (check (nil? (equal? (range 0 2000) (range 0 1999))))
+  (check (equal? (cons 1 2) (cons 1 2)))             ; dotted pairs still work
+  (check (nil? (equal? (cons 1 2) (cons 1 3)))))

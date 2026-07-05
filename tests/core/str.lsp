@@ -73,3 +73,11 @@
   (check (char-digit? 57))                ; '9'
   (check (nil? (char-digit? 65)))         ; 'A'
   (check (char-alpha? (string-ref "x" 0))))
+
+(deftest "str/repr-backslash-roundtrip"
+  ;; the writer escapes backslashes, so repr output re-reads to the same
+  ;; string — kec build round-trips every bundled form through the writer
+  (check (is (repr "a\\b") "\"a\\\\b\""))
+  (check (is (read-string (repr "a\\b")) "a\\b"))
+  (check (is (read-string (repr "x\\")) "x\\"))      ; trailing backslash
+  (check (is (read-string (repr "\\n")) "\\n")))     ; backslash + n, not newline
