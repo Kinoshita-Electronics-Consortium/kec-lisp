@@ -34,7 +34,17 @@
   (check (is (describe-key "C-n") "C-n runs text-next-line!"))
   (check (is (describe-key "C-q") "C-q is undefined")))
 
-(deftest "bindings/rebinding is live (the map is data)"
+(deftest "bindings/M-slash-is-free-for-dabbrev"
+  ;; In Emacs M-/ is dabbrev-expand, not redo. It stays UNBOUND (reserved for a
+  ;; future dabbrev) rather than repurposed — knEmacs copies Emacs keys exactly.
+  (check (nil? (key-command "M-/")))
+  (check (is (resolve-key "M-/") "undefined")))
+
+(deftest "bindings/redo-on-emacs-undo-redo-keys"
+  ;; Emacs 28+ binds undo-redo to C-M-_ and C-? — redo lives there, not on M-/.
+  (check (is (key-command "C-M-_") 'text-redo!))
+  (check (is (key-command "C-?") 'text-redo!))
+  (check (is (resolve-key "C-M-_") "buffer:text-redo!")))
   (bind-key "C-q" 'text-forward!)
   (check (is (key-command "C-q") 'text-forward!))
   (check (is (resolve-key "C-q") "buffer:text-forward!")))

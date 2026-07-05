@@ -1884,7 +1884,7 @@ change. The default bindings (as loaded):
 | `C-d` | `text-delete!` |
 | `TAB` | `text-insert-tab!` |
 | `C-/` / `C-x u` | `text-undo!` |
-| `M-/` | `text-redo!` |
+| `C-M-_` / `C-?` | `text-redo!` (the Emacs 28+ `undo-redo` keys; `M-/` is left unbound, reserved for a future dabbrev. The `kec` CLI's key encoder cannot emit either notation yet, so redo is reachable from other hosts but not that TTY.) |
 | `C-@` | `text-set-mark!` |
 | `C-w` | `text-kill-region!` |
 | `M-w` | `text-kill-ring-save!` |
