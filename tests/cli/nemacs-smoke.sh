@@ -81,13 +81,17 @@ if ! cmp -s "$tmp" "$exp"; then
   rm -f "$tmp" "$exp"; exit 1
 fi
 
-# --- undo + redo: type "hi", C-/ undoes the run, M-/ redoes it, save -> "hi".
-#     Exercises host dispatch of C-/ (byte 037) and M-/ (ESC /) to buffer verbs. ---
-printf '' > "$tmp"
-printf 'hi\037\033/\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
-printf 'hi' > "$exp"
+# --- undo: type "hi", C-/ undoes the coalesced run, save -> empty file.
+#     Exercises host dispatch of C-/ (byte 037) to a buffer verb. Redo now
+#     lives on the Emacs 28+ undo-redo keys (C-M-_ / C-?), which this host's
+#     key encoder cannot emit yet (ESC+0x1F falls through to "ESC"; byte 127
+#     is Backspace) — end-to-end redo coverage returns with that encoder
+#     branch; table-level redo is covered in tests/editor/bindings.lsp. ---
+printf 'seed' > "$tmp"
+printf '\005hi\037\030\023\030\003' | "$KEC" nemacs "$tmp" >/dev/null 2>&1
+printf 'seed' > "$exp"
 if ! cmp -s "$tmp" "$exp"; then
-  echo "FAIL: undo/redo expected 'hi', got: [$(cat "$tmp")]"
+  echo "FAIL: undo expected 'seed', got: [$(cat "$tmp")]"
   rm -f "$tmp" "$exp"; exit 1
 fi
 

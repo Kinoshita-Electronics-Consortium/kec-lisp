@@ -45,6 +45,8 @@
   (check (is (key-command "C-M-_") 'text-redo!))
   (check (is (key-command "C-?") 'text-redo!))
   (check (is (resolve-key "C-M-_") "buffer:text-redo!")))
+
+(deftest "bindings/rebinding is live (the map is data)"
   (bind-key "C-q" 'text-forward!)
   (check (is (key-command "C-q") 'text-forward!))
   (check (is (resolve-key "C-q") "buffer:text-forward!")))
