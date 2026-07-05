@@ -7,15 +7,29 @@
 ;;   ... then (test-report) prints a summary and returns the failure count.
 ;;
 ;; `kec test FILE...` loads this harness, then each FILE, then calls
-;; (test-report); its exit code is the number of failed checks.
+;; (test-report); it exits 0 only when every check passed and every file
+;; loaded cleanly, 1 otherwise.
 
 (set %tests-run 0)
 (set %tests-failed 0)
 (set %current-test "")
 
-;; (deftest name body...) — set the current label, run the body.
+;; (deftest name body...) — set the current label, run the body. The body runs
+;; under `try`, so a raise counts as one failed check instead of aborting the
+;; rest of the file — a crashed suite must never read as green.
 (set deftest (mac (name . body)
-  (cons 'do (cons (list 'set '%current-test name) body))))
+  (list '%deftest name (cons 'fn (cons nil body)))))
+
+(defn %deftest (name thunk)
+  (set %current-test name)
+  (let res (try thunk))
+  (if (error? res)
+      (do
+        (set %tests-run (+ %tests-run 1))
+        (set %tests-failed (+ %tests-failed 1))
+        (princ "  FAIL [") (princ name) (princ "] raised: ")
+        (princ (error-message res)) (newline))
+      nil))
 
 (defn %check (result text)
   (set %tests-run (+ %tests-run 1))

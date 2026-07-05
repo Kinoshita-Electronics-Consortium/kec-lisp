@@ -484,7 +484,7 @@ static void write_(fe_Context *ctx, fe_Object *obj, fe_WriteFn fn, void *udata, 
       while (!isnil(obj)) {
         int i;
         for (i = 0; i < STRBUFSIZE && strbuf(obj)[i]; i++) {
-          if (qt && strbuf(obj)[i] == '"') { fn(ctx, udata, '\\'); }
+          if (qt && (strbuf(obj)[i] == '"' || strbuf(obj)[i] == '\\')) { fn(ctx, udata, '\\'); }
           fn(ctx, udata, strbuf(obj)[i]);
         }
         obj = cdr(obj);

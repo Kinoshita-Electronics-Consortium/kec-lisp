@@ -8,7 +8,8 @@
 **   kec eval "EXPR"          evaluate EXPR, print the result
 **   kec build FILE [-o OUT]  inline top-level loads, parse-check, write a .kec
 **   kec test [FILE...]       run the harness over FILE(s), or the whole
-**                            embedded suite when no FILE is given; exit=fails
+**                            embedded suite when no FILE is given; exit 0 only
+**                            when all checks pass and every file loads
 **   kec version | help
 */
 #define _POSIX_C_SOURCE 200809L /* scandir / alphasort / struct dirent */
@@ -717,6 +718,7 @@ static int do_eval(const char *src) {
 static int do_test(int argc, char **argv) {
     kec_State *S = cli_open();
     int i, failed;
+    int load_errors = 0;    /* a file that aborts mid-load must fail the run */
     if (!S) { fprintf(stderr, "kec: failed to open interpreter\n"); return 1; }
     if (kec_eval_string(S, KEC_HARNESS_SRC, NULL) != 0) {
         fprintf(stderr, "kec: harness load failed: %s\n", kec_error(S));
@@ -730,18 +732,20 @@ static int do_test(int argc, char **argv) {
         printf("• full suite (embedded)\n");
         if (kec_eval_string(S, KEC_SUITE_SRC, NULL) != 0) {
             fprintf(stderr, "  ERROR running embedded suite: %s\n", kec_error(S));
+            load_errors++;
         }
     }
     for (i = 0; i < argc; i++) {
         printf("• %s\n", argv[i]);
         if (kec_eval_file(S, argv[i], NULL) != 0) {
             fprintf(stderr, "  ERROR loading %s: %s\n", argv[i], kec_error(S));
+            load_errors++;
         }
     }
     kec_eval_string(S, "(test-report)", NULL);
     failed = kec_global_int(S, "%tests-failed", 1);
     kec_close(S);
-    return failed == 0 ? 0 : 1;
+    return (failed == 0 && load_errors == 0) ? 0 : 1;
 }
 
 /* ------------------------------------------------------------------ */

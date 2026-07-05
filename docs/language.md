@@ -108,7 +108,7 @@ Equality has two useful levels:
 |---|---|
 | `(is a b)` | Kernel equality: numbers by value, strings structurally, pairs and most other atoms by identity. |
 | `(= a b)` / `(== a b)` | Core aliases for `is`; good for scalar comparison. |
-| `(equal? a b)` | Recursive pair/list comparison. |
+| `(equal? a b)` | Structural pair/list comparison (iterative down the spine, so long lists are GC-stack-safe). |
 
 ## Evaluation
 
@@ -264,7 +264,7 @@ stack on ordinary list work.
 | Function | Summary |
 |---|---|
 | `=`, `==`, `/=` | Scalar/identity equality and inequality. |
-| `equal?` | Recursive list equality. |
+| `equal?` | Structural list equality. |
 | `>`, `>=` | Greater-than comparisons. |
 | `zero?`, `positive?`, `negative?` | Numeric predicates. |
 | `min`, `max` | Variadic extrema. |

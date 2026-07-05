@@ -125,3 +125,13 @@
   (let r (make-repl 16 6 nil))                  ; tiny width -> one line per element
   (let s (repl-format r (range 0 60)))          ; 60 elements >> the budget
   (check (string-contains? s "more lines)")))   ; budget truncation note
+
+(deftest "repl/improper-list-result-survives"
+  ;; a dotted pair too wide to print flat must format as a broken list with a
+  ;; ". tail" line — not raise out of repl-submit and kill the loop (L6.5)
+  (let r (mkrepl))
+  (let res (repl-submit r (read-string
+    "(cons \"aaaaaaaaaaaaaaaaaaaaaaaaaa\" \"bbbbbbbbbbbbbbbbbbbbbbbbbb\")")))
+  (check (entry-ok? (car res)))
+  (check (is (repl-count r) 1))
+  (check (string-search (out res) ". ")))            ; dotted tail rendered

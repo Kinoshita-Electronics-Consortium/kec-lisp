@@ -21,10 +21,11 @@
   (let b (%rng-seq 43 8))
   (check (not (equal? a b))))
 
-(deftest "rng/rand-int-zero"
+(deftest "rng/rand-int-requires-positive-bound"
+  ;; GWP-584: an empty [0, n) domain raises instead of inventing 0
   (set-seed! 1)
-  (check (is (rand-int 0) 0))
-  (check (is (rand-int -5) 0)))
+  (check-err (rand-int 0))
+  (check-err (rand-int -5)))
 
 (deftest "rng/set-seed-returns-seed"
   (check (is (set-seed! 7) 7)))

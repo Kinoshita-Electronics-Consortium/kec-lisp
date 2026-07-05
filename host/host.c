@@ -239,10 +239,16 @@ static fe_Object *copy_spine(fe_Context *ctx, fe_Object *lst) {
         int gc = fe_savegc(ctx);
         fe_Object *head = fe_car(ctx, lst);
         fe_Object *rest;
+        fe_Object *out;
         fe_pushgc(ctx, head);
         rest = copy_spine(ctx, fe_cdr(ctx, lst));
+        /* cons BEFORE dropping the roots: rest is a fresh spine reachable from
+        ** nothing else, and fe_cons may collect. Re-push the result so each
+        ** level hands its caller a rooted object (net one slot per level). */
+        out = fe_cons(ctx, head, rest);
         fe_restoregc(ctx, gc);
-        return fe_cons(ctx, head, rest);
+        fe_pushgc(ctx, out);
+        return out;
     }
 }
 
@@ -669,9 +675,13 @@ static fe_Object *h_read_file(fe_Context *ctx, fe_Object *args) {
     arg_str(ctx, &args, path, sizeof path);
     fp = fopen(path, "rb");
     if (!fp) { fe_error(ctx, "read-file: cannot open file"); }
-    fseek(fp, 0, SEEK_END);
-    len = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
+    /* ftell is -1 on a non-seekable stream (FIFO, /dev/stdin); feeding that
+    ** into malloc/fread would write into a zero-byte buffer. */
+    if (fseek(fp, 0, SEEK_END) != 0 || (len = ftell(fp)) < 0
+        || fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        fe_error(ctx, "read-file: not a seekable file");
+    }
     body = malloc((size_t)len + 1);
     if (!body) { fclose(fp); fe_error(ctx, "read-file: out of memory"); }
     if (fread(body, 1, (size_t)len, fp) != (size_t)len) { /* short read tolerated */ }

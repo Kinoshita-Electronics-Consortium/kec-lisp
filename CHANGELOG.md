@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Fixed (repository review sweep)
+- **The writer escapes backslashes in strings** (kernel delta, `fe.c`).
+  `fe_write` escaped only `"`, so any string containing `\` re-read wrong —
+  `kec build`, which round-trips every bundled form through the writer,
+  silently deleted backslashes from shipped `.kec` bundles, and a string
+  *ending* in `\` produced an unparseable bundle. `repr` output now re-reads
+  to the identical string (`tests/core/str.lsp` round-trip checks).
+- **`equal?` walks the cdr spine iteratively.** It recursed per element, so
+  lists past the GC stack depth (~100 elements on the device's 256-slot
+  build) crashed with "gc stack overflow" — and the editor tier calls it on
+  every REPL submission (history dup-coalescing). Recursion now only descends
+  into cars; 2000-element lists compare fine (`tests/core/alist.lsp`).
+- **A raising test can no longer pass CI green.** `deftest` runs its body
+  under `try` (a raise = one failed check, later tests still run) and
+  `kec test` exits nonzero when a file aborts mid-load. Previously a raise
+  aborted the file, the driver printed "ERROR loading" — and still exited 0.
+  This immediately exposed `tests/core/rng.lsp` asserting the pre-GWP-584
+  `(rand-int 0)` → `0` contract (directly contradicting
+  `tests/core/validate.lsp` in the same suite); updated to the current
+  raise-on-empty-domain contract. New `cli/test-exit` ctest pins both paths.
+- **`read-file` rejects non-seekable files instead of corrupting the heap.**
+  `ftell` returning -1 (FIFO, `/dev/stdin`) flowed into `malloc`/`fread`,
+  writing stream content into a zero-byte buffer. Now a catchable
+  "not a seekable file" error.
+- **`fn-params` is GC-safe.** `copy_spine` un-rooted the freshly copied tail
+  before the outer `fe_cons`; a collection triggered by that cons could sweep
+  the copy and return recycled cells. The cons now happens under the roots.
+- **The REPL pretty-printer survives improper lists.** `%pp-break` called
+  `car` on a dotted tail, and `repl-submit` only guarded *eval* — so a wide
+  dotted-pair result raised out of the loop, violating the L6.5
+  loop-survives contract. Dotted tails now render as a `. tail` line, and
+  result *formatting* runs under `try` (a printer failure lands a
+  `print-error:` entry instead of killing the session).
+
 ### Fixed (language hardening, GWP-584)
 - **Container constructors no longer leak backing memory on arena exhaustion.**
   Every constructor allocated its C backing before `fe_ptr_typed`; an

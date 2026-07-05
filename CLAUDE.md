@@ -26,7 +26,7 @@ ctest --test-dir build --output-on-failure   # run the full suite
 ./build/kec run FILE [args...]   # run a script; args reach Lisp (args)
 ./build/kec eval "EXPR"          # evaluate one expression, print result
 ./build/kec build FILE [-o OUT]  # inline top-level loads, parse-check, write one .kec
-./build/kec test [FILE...]       # run the harness over FILE(s), or the whole embedded suite if none; exit code = # failures
+./build/kec test [FILE...]       # run the harness over FILE(s), or the whole embedded suite if none; exit 0 = all green
 ```
 
 Run a single conformance file directly (faster than ctest for one file):
