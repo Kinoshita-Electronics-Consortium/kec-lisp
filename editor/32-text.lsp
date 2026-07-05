@@ -529,14 +529,14 @@
   (let ml (str " " (text-name b) (if (text-modified? b) " * " "   ")
                " L" (number->string (+ prow 1)) " C" (number->string (+ pcol 1))))
   (let out (str (%esc) "[7m" (pad-right (%clip ml cols) cols) (%esc) "[0m"))
-  ;; content rows (blank rows past end-of-buffer get a ~ marker, vi-style); each
+  ;; content rows (rows past end-of-buffer stay blank, as in Emacs); each
   ;; visible line is sliced from hscroll so the window pans across long lines
   (let i 0)
   (while (< i content-rows)
     (set out (str out (char->string 10)
                   (if (< i win-n)
                       (%clip (substring (nth win i) hscroll (+ hscroll cols)) cols)
-                      "~")))
+                      "")))
     (set i (+ i 1)))
   ;; status / echo line on the bottom row
   (set out (str out (char->string 10) (%clip status cols)))

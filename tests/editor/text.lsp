@@ -150,6 +150,14 @@
   (check (string-contains? s ";10H"))    ; cursor parked at col 10 (== cols), on-screen
   (check (not (string-contains? s ";21H"))))   ; NOT off the right edge (pcol+1)
 
+(deftest "text/screen-eob-rows-blank-not-tilde"
+  ;; Emacs leaves rows past end-of-buffer blank; the ~ fringe marker is vim's
+  ;; signature and knEmacs copies Emacs, never vim.
+  (let b (mk "hello"))
+  (let s (text-screen b 20 8 "ok"))
+  (check (string-contains? s "hello"))
+  (check (not (string-contains? s "~"))))
+
 ;; ---- search ----------------------------------------------------------------
 (deftest "text/search-forward-finds"
   (let b (mk "hello world\nfoo hello"))

@@ -1404,7 +1404,7 @@ Drives the incremental (`C-s`) search loop: finds `needle` at or after `(fr, fc)
 
 #### `(text-screen b cols rows status)`
 
-Renders the buffer as an ANSI escape-coded string for a `cols`×`rows` terminal: row 1 is an inverse-video modeline (name, a `*` if modified, `L`/`C` position), the middle rows are the vertically- and horizontally-scrolled visible text window (blank trailing rows get a `~`, vi-style), the last row is the supplied `status`/echo text, and the string ends with an absolute cursor-park escape so the terminal's hardware cursor lands exactly at point. This call also recomputes and persists `scroll`/`hscroll` (slots 6/8) so point stays on-screen — it is not a pure read.
+Renders the buffer as an ANSI escape-coded string for a `cols`×`rows` terminal: row 1 is an inverse-video modeline (name, a `*` if modified, `L`/`C` position), the middle rows are the vertically- and horizontally-scrolled visible text window (rows past end-of-buffer stay blank, as in Emacs), the last row is the supplied `status`/echo text, and the string ends with an absolute cursor-park escape so the terminal's hardware cursor lands exactly at point. This call also recomputes and persists `scroll`/`hscroll` (slots 6/8) so point stays on-screen — it is not a pure read.
 
 - **Parameters:** b — a text buffer; cols, rows — terminal dimensions; status — the bottom-row status/echo text
 - **Returns:** the full ANSI-coded frame string
