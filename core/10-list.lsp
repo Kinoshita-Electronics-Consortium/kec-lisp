@@ -4,10 +4,13 @@
 ;; construction, all iterative (the GC stack is bounded). This file uses only
 ;; the kernel — none of the later predicate names — so it can load before pred.
 
-;; (nth xs i) -> 0-indexed element; nil past the end.
+;; (nth xs i) -> 0-indexed element; nil past the end and for a negative i.
 (defn nth (xs i)
-  (while (< 0 i) (set xs (cdr xs)) (set i (- i 1)))
-  (car xs))
+  (if (< i 0)
+      nil
+      (do
+        (while (< 0 i) (set xs (cdr xs)) (set i (- i 1)))
+        (car xs))))
 
 ;; (length xs) -> proper-list length.
 (defn length (xs)
@@ -55,7 +58,8 @@
     (if (is (car (car alist)) k) (set r (car alist)) (set alist (cdr alist))))
   r)
 
-;; (take xs n) -> first n elements.
+;; (take xs n) -> first n elements. Strips while 0 < n, so a fractional n
+;; rounds UP (2.5 takes 3); same for drop.
 (defn take (xs n)
   (let acc nil)
   (while (and xs (< 0 n))

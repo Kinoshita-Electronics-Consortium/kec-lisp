@@ -29,6 +29,17 @@
   (check (is (nth (range 3 7) 0) 3))
   (check (is (last (range 3 7)) 6)))
 
+(deftest "list/nth-negative"
+  ;; nil for a negative index, same as past-the-end — never element 0.
+  (check (nil? (nth (list 'a 'b 'c) -1)))
+  (check (nil? (nth (list 'a 'b 'c) -100)))
+  (check (nil? (nth nil -1))))
+
+(deftest "list/take-drop-fractional"
+  ;; Documented: take/drop strip while 0 < n, so a fractional count rounds UP.
+  (check (is (length (take (list 1 2 3 4 5) 2.5)) 3))
+  (check (is (car (drop (list 1 2 3 4 5) 2.5)) 4)))
+
 (deftest "list/large-iterative"        ; regression: bounded GC-stack depth
   (check (is (length (append (range 0 500) (range 0 500))) 1000))
   (check (is (last (take (range 0 1000) 300)) 299))
