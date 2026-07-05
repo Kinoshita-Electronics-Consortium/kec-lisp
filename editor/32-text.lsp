@@ -229,6 +229,7 @@
 
 ;; ---- undo / redo bookkeeping ------------------------------------------------
 (define %text-undo-cap 512)            ; bounded history (device discipline)
+(define %text-coalesce-cap 20)         ; Emacs undo-auto-amalgamate: 20 chars/step
 
 ;; push `rec` onto the undo stack (slot 9), bounded; clear redo (slot 10).
 (defn %text-record! (b rec)
@@ -236,22 +237,45 @@
   (vector-set! b 10 nil)
   b)
 
+;; replace the TOP undo record with a coalesced `rec` (a fresh edit: redo clears).
+(defn %text-replace-top! (b rec)
+  (vector-set! b 9 (cons rec (cdr (vector-ref b 9))))
+  (vector-set! b 10 nil)
+  b)
+
+;; (%text-record-del! b r c ch) — record a one-char delete (an ':ins inverse at
+;; row r, col c restoring `ch`). Consecutive deletes around one spot COALESCE
+;; into a single undo step, capped at %text-coalesce-cap chars like Emacs's
+;; undo-auto-amalgamate: a backspace whose char sits just before the pending
+;; span PREPENDS to it; a forward delete at the span start APPENDS to it.
+(defn %text-record-del! (b r c ch)
+  (let stack (vector-ref b 9))
+  (let top (if stack (car stack) nil))
+  (if (and top (is (nth top 0) ':ins) (is (nth top 1) r)
+           (< (string-length (nth top 3)) %text-coalesce-cap))
+      (cond
+        ((is (+ c 1) (nth top 2))        ; backspace: extend the span leftward
+         (%text-replace-top! b (list ':ins r c (string-append ch (nth top 3)))))
+        ((is c (nth top 2))              ; forward delete: extend rightward
+         (%text-replace-top! b (list ':ins r c (string-append (nth top 3) ch))))
+        (else (%text-record! b (list ':ins r c ch))))
+      (%text-record! b (list ':ins r c ch))))
+
 ;; ---- recording edit commands (the bound verbs) ------------------------------
 ;; (text-insert! b s) — insert s (one line, no newline) at point. Consecutive
 ;; inserts that abut the previous run COALESCE into one undo step (typing a word
-;; undoes at once).
+;; undoes at once), capped at %text-coalesce-cap chars per step (Emacs
+;; amalgamates 20 consecutive self-inserts, then opens a fresh undo group).
 (defn text-insert! (b s)
   (let r (text-point-row b))
   (let c (text-col b))
   (let stack (vector-ref b 9))
   (let top (if stack (car stack) nil))
   (if (and top (is (nth top 0) ':del) (is (nth top 1) r)
-           (is (+ (nth top 2) (string-length (nth top 3))) c))
-      (do                                ; extend the pending delete-span
-        (vector-set! b 9 (cons (list ':del (nth top 1) (nth top 2)
-                                     (string-append (nth top 3) s))
-                               (cdr stack)))
-        (vector-set! b 10 nil))
+           (is (+ (nth top 2) (string-length (nth top 3))) c)
+           (< (string-length (nth top 3)) %text-coalesce-cap))
+      (%text-replace-top! b (list ':del (nth top 1) (nth top 2)   ; extend the run
+                                  (string-append (nth top 3) s)))
       (%text-record! b (list ':del r c s)))
   (%text-raw-insert! b s))
 
@@ -267,7 +291,7 @@
   (let c (text-col b))
   (let cur (text-cur b))
   (if (< 0 c)
-      (do (%text-record! b (list ':ins r (- c 1) (substring cur (- c 1) c)))
+      (do (%text-record-del! b r (- c 1) (substring cur (- c 1) c))
           (%text-raw-backspace! b))
       (if (text-above b)
           (do (%text-record! b (list ':ins (- r 1) (string-length (car (text-above b)))
@@ -283,7 +307,7 @@
   (let cur (text-cur b))
   (let n (string-length cur))
   (if (< c n)
-      (do (%text-record! b (list ':ins r c (substring cur c (+ c 1))))
+      (do (%text-record-del! b r c (substring cur c (+ c 1)))
           (%text-raw-delete! b))
       (if (text-below b)
           (do (%text-record! b (list ':ins r c (char->string 10)))

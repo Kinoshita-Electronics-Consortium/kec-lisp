@@ -1144,7 +1144,7 @@ Moves point to the very end of the buffer (last line, last column).
 
 #### `(text-insert! b s)`
 
-Inserts `s` (one line's worth, no embedded newline) at point and records an inverse `:del` undo entry. Consecutive inserts that abut the previous edit's span **coalesce into a single undo step** — so typing a whole word undoes in one `text-undo!` call, not one per keystroke.
+Inserts `s` (one line's worth, no embedded newline) at point and records an inverse `:del` undo entry. Consecutive inserts that abut the previous edit's span **coalesce into a single undo step** — so typing a whole word undoes in one `text-undo!` call, not one per keystroke — capped at **20 characters per step** (matching Emacs's `undo-auto-amalgamate` boundary); a longer run splits into successive 20-character undo groups.
 
 - **Parameters:** b — a text buffer; s — text to insert (no newline)
 - **Returns:** the raw-insert result (buffer state; return value not meaningful, call for effect)
@@ -1172,7 +1172,7 @@ Splits the current line at point, recording the inverse delete.
 
 #### `(text-backspace! b)`
 
-Deletes the character before point; at column 0 it joins the current line onto the previous one. A no-op (and records nothing) at the very start of the buffer.
+Deletes the character before point; at column 0 it joins the current line onto the previous one. A no-op (and records nothing) at the very start of the buffer. Consecutive character deletes around one spot (backspaces, forward deletes, or a mix) **coalesce into a single undo step**, capped at 20 characters like inserts — one `text-undo!` restores the whole run.
 
 - **Parameters:** b — a text buffer
 - **Returns:** the raw-backspace result
@@ -1185,7 +1185,7 @@ Deletes the character before point; at column 0 it joins the current line onto t
 
 #### `(text-delete! b)`
 
-Deletes the character at point (forward delete); at end-of-line it joins the next line onto the current one. A no-op at the very end of the buffer.
+Deletes the character at point (forward delete); at end-of-line it joins the next line onto the current one. A no-op at the very end of the buffer. Coalesces with adjacent character deletes into one undo step (capped at 20 characters), same as `text-backspace!`.
 
 - **Parameters:** b — a text buffer
 - **Returns:** the raw-delete result
