@@ -18,8 +18,11 @@
 (defn positive? (n) (< 0 n))
 (defn negative? (n) (< n 0))
 
-;; (min a b...) / (max a b...) -> fold over the variadic tail.
+;; (min a b...) / (max a b...) -> fold over the variadic tail. Zero arguments
+;; raises: Fe binds a missing required param to nil, which would otherwise
+;; silently return nil and surface as a type error far from the call.
 (defn min (a . rest)
+  (if (and (not a) (not rest)) (raise "min: needs at least one argument"))
   (let m a)
   (while rest
     (if (< (car rest) m) (set m (car rest)))
@@ -27,6 +30,7 @@
   m)
 
 (defn max (a . rest)
+  (if (and (not a) (not rest)) (raise "max: needs at least one argument"))
   (let m a)
   (while rest
     (if (< m (car rest)) (set m (car rest)))

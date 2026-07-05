@@ -27,3 +27,9 @@
   (check (is (max 3 9 2 7) 9))
   (check (is (min 5) 5))
   (check (is (max -4 -9) -4)))
+
+(deftest "cmp/minmax-zero-args-raise"
+  ;; Fe binds a missing required param to nil; (min) must raise loudly
+  ;; instead of silently returning nil.
+  (check-err (min))
+  (check-err (max)))

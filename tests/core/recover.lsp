@@ -31,6 +31,27 @@
            (e 'should-not-run)))
   (check (is r 30)))
 
+(deftest "recover/returned-error-value-is-not-a-raise"
+  ;; A body that legitimately RETURNS an (:error . msg) value is a normal
+  ;; return — the recovery macros must not treat it as if it had raised.
+  (let v (ignore-errors (error "legit value")))
+  (check (error? v))                          ; value passed through, not nil
+  (check (is (error-message v) "legit value"))
+  (set %uw-flag nil)
+  (let u (unwind-protect (error "payload") (set %uw-flag 1)))
+  (check (error? u))                          ; returned as a value, no re-raise
+  (check (is (error-message u) "payload"))
+  (check (is %uw-flag 1))                     ; cleanup still ran
+  (let r (condition-case e (error "as-value") (e 'handler-ran)))
+  (check (error? r))                          ; handler must NOT run
+  (check (is (error-message r) "as-value")))
+
+(deftest "recover/raise-paths-still-recover"
+  ;; The sentinel rework must not weaken the raise paths themselves.
+  (check (nil? (ignore-errors (raise "x"))))
+  (let r (condition-case e (raise "nope") (e 'caught)))
+  (check (is r 'caught)))
+
 (deftest "recover/macroexpand-full-and-identity"
   ;; when nests if+do; macroexpand drives macroexpand-1 to a fixpoint.
   (check (equal? (macroexpand '(when 1 2)) '(if 1 (do 2) nil)))

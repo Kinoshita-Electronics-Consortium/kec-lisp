@@ -90,11 +90,13 @@ length — not GC-stack depth — bounds their cost. It depends on nothing but t
 Returns the 0-indexed element of `xs` at position `i`, walking `cdr` `i` times.
 
 - **Parameters:** `xs` — a list; `i` — a 0-based index.
-- **Returns:** the element at `i`, or `nil` if `i` is past the end of the list.
+- **Returns:** the element at `i`, or `nil` if `i` is past the end of the list
+  or negative.
 
 ```lisp
-(nth (list 10 20 30) 1)  ; => 20
-(nth (list 10 20 30) 5)  ; => nil
+(nth (list 10 20 30) 1)   ; => 20
+(nth (list 10 20 30) 5)   ; => nil
+(nth (list 10 20 30) -1)  ; => nil
 ```
 
 #### `(length xs)`
@@ -179,7 +181,9 @@ under `is`.
 
 Returns the first `n` elements of `xs`.
 
-- **Parameters:** `xs` — a list; `n` — count of elements to take.
+- **Parameters:** `xs` — a list; `n` — count of elements to take. Both `take`
+  and `drop` strip while `0 < n`, so a fractional `n` rounds **up** (`2.5`
+  takes 3).
 - **Returns:** a new list of up to `n` elements — fewer if `xs` is shorter than `n`.
 
 ```lisp
@@ -357,6 +361,9 @@ Folds over a variadic argument list, returning the smallest.
 
 - **Parameters:** `a` — first value (required); `rest` — zero or more additional values.
 - **Returns:** the minimum of all arguments.
+- **Raises:** `"min: needs at least one argument"` when called with no
+  arguments (Fe binds a missing required param to `nil`, which would otherwise
+  silently return `nil`).
 
 ```lisp
 (min 5 3 8 1)  ; => 1
@@ -369,6 +376,7 @@ Folds over a variadic argument list, returning the largest.
 
 - **Parameters:** `a` — first value (required); `rest` — zero or more additional values.
 - **Returns:** the maximum of all arguments.
+- **Raises:** `"max: needs at least one argument"` when called with no arguments.
 
 ```lisp
 (max 5 3 8 1)  ; => 8
@@ -623,12 +631,14 @@ Extract the message from an error value (just `cdr`).
 
 Higher-level recovery macros built on the runtime's `try`/`raise` (documented elsewhere) and the `35-error.lsp` vocabulary. This module loads before `45-quasiquote.lsp`, so all three macros hand-build their expansions with `list`/`cons` rather than backtick/comma.
 
+These macros react only to a **raised** error. A body that legitimately *returns* an `(:error . message)` value — the same shape `(error ...)` builds and `try` returns on a raise — is a normal return: the value passes through untouched. Internally each macro wraps its body's normal result as `(%recover-tag . value)` inside the `try` thunk; `%recover-tag` is a unique load-time pair compared by identity, so the raise path is unambiguous. `%recover-tag` is `%`-private — do not shadow it (same contract as `%append`).
+
 #### `(unwind-protect body . cleanup)`
 
-Run `body`, then **always** run the `cleanup` forms — on normal return and on a raised error alike. On error, cleanup runs *first*, then the original error is re-raised (message-only, since KEC errors carry just a message) so an enclosing handler still observes the failure.
+Run `body`, then **always** run the `cleanup` forms — on normal return and on a raised error alike. On a raise, cleanup runs *first*, then the original error is re-raised (message-only, since KEC errors carry just a message) so an enclosing handler still observes the failure. A `body` that *returns* an error value is a normal return — cleanup runs and the value passes through, nothing is re-raised.
 
 - **Parameters:** body — a single form to evaluate; cleanup — one or more forms run unconditionally afterward.
-- **Returns:** `body`'s value on success. On error, nothing is returned locally — the error is re-raised to the caller.
+- **Returns:** `body`'s value on success (including a returned `(:error . message)` value). On a raise, nothing is returned locally — the error is re-raised to the caller.
 
 ```lisp
 (unwind-protect (+ 1 2) (princ "cleanup ran") (princ "|"))
@@ -650,18 +660,19 @@ Run `body`, then **always** run the `cleanup` forms — on normal return and on 
 
 Evaluate `body`, swallowing any raised error.
 
-- **Parameters:** body — one or more forms (only the *macro's* body sequencing matters; internally it's wrapped in a single `(fn nil body...)`).
-- **Returns:** the body's value, or `nil` if evaluation raised an error.
+- **Parameters:** body — one or more forms (only the *macro's* body sequencing matters; internally it's wrapped in a single thunk).
+- **Returns:** the body's value, or `nil` if evaluation raised an error. A body that *returns* an `(:error . message)` value gets that value back, not `nil`.
 
 ```lisp
 (ignore-errors (+ 1 2))                    ; => 3
 (ignore-errors (raise "kaboom") (+ 1 2))   ; => nil
 (ignore-errors (car nil))                  ; => nil   (kernel's car errors on non-pairs)
+(ignore-errors (error "as-value"))         ; => (:error . "as-value")  (returned, not raised)
 ```
 
 #### `(condition-case var bodyform . handlers)`
 
-Evaluate `bodyform`. If it raises, bind `var` to the resulting `(:error . message)` value and run the **first** handler clause's body; any additional handler clauses are ignored (message-based catch-all only — no class dispatch yet). With zero handlers, the error value (or the success value) is simply returned.
+Evaluate `bodyform`. If it **raises**, bind `var` to the resulting `(:error . message)` value and run the **first** handler clause's body; any additional handler clauses are ignored (message-based catch-all only — no class dispatch yet). With zero handlers, the error value (or the success value) is simply returned. A `bodyform` that *returns* an error value is a normal return — the handler does not run.
 
 - **Parameters:** var — symbol bound to the error value inside the handler; bodyform — the form to evaluate; handlers — handler clause(s); only the first is used.
 - **Returns:** `bodyform`'s value on success; otherwise the first handler's body value (or the raw error value if no handler is given).
@@ -684,7 +695,8 @@ Fully expand `form`, repeatedly applying the host primitive `macroexpand-1` (doc
 
 ```lisp
 (macroexpand '(ignore-errors (+ 1 2)))
-; => (do (let %g0 (try (fn nil (+ 1 2)))) (if (error? %g0) nil %g0))
+; => (do (let %g0 (try (fn nil (cons %recover-tag (do (+ 1 2))))))
+;        (if (is (car %g0) %recover-tag) (cdr %g0) nil))
 ```
 ---
 
@@ -828,10 +840,11 @@ everything else into nested `cons` calls. It uses only kernel primitives
 
 #### `(quasiquote x)`
 
-Template-builds `x`: literal data is quoted as-is, `(unquote y)` (`,y`) substitutes the evaluated `y` in place, and `(unquote-splicing ys)` (`,@ys`) splices the evaluated list `ys` in place of one element. Normally written with the reader sugar rather than called directly.
+Template-builds `x`: literal data is quoted as-is, `(unquote y)` (`,y`) substitutes the evaluated `y` in place, and `(unquote-splicing ys)` (`,@ys`) splices the evaluated list `ys` in place of one element. An unquote in dotted tail position (`` `(a . ,b) ``) splices `b` as the spine tail. Normally written with the reader sugar rather than called directly.
 
 - **Parameters:** x — a quasiquoted template, generally supplied via `` `x `` syntax.
 - **Returns:** the constructed list/value with all unquotes and splices resolved.
+- **Raises:** on a nested quasiquote (`` `(a `(b ,c)) `` — the expander has no nesting-depth tracking, so it raises `"quasiquote: nested quasiquote is not supported"` at expansion time rather than substituting inner unquotes one level too early) and on `,@` in dotted tail position (`` `(1 . ,@b) ``).
 
 ```lisp
 `(1 2 3)                                    ; => (1 2 3)
@@ -840,6 +853,7 @@ Template-builds `x`: literal data is quoted as-is, `(unquote y)` (`,y`) substitu
 (let a 1) (let b 2) `(x (,a ,b) y)          ; => (x (1 2) y)
 (let xs (list 1 2)) (let ys (list 3 4))
 `(,@xs mid ,@ys)                            ; => (1 2 mid 3 4)
+(let b (list 2 3)) `(1 . ,b)                ; => (1 2 3)   (dotted unquote tail)
 ```
 
 **Note:** `macroexpand-1` on `` `(1 ,x) `` shows the raw expansion: `(cons (quote 1) (cons x (quote nil)))` — confirming unquoted subforms are spliced in as live code, everything else as quoted data.
@@ -1278,9 +1292,11 @@ in `args` in order.
 
 - **Parameters:** `fmt` — format string with `%d`/`%u` (decimal), `%x` (hex), `%c` (char code → character), `%s` (stringify anything), `%%` (literal `%`). `args` — values consumed left to right, one per directive (except `%%`).
 - **Returns:** the formatted string.
+- **Raises:** `"format: missing argument for %d"` (naming the directive) when a directive has no argument left to consume.
 
 ```lisp
 (format "%d-%u-%x-%c-%s-%%" 10 20 255 65 "hi")  ; => "10-20-ff-A-hi-%"
+(format "50%")                                   ; => "50%"  (trailing lone % is literal)
 ```
 
 **Note:** an unrecognized directive (e.g. `%q`) is not an error — it's echoed
