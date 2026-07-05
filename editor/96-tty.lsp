@@ -21,10 +21,16 @@
                      cols))
   (if (view-line-cursor? rec) (string-append %REV txt %RST) txt))
 
+;; The help strip lists ONLY keys bound in editor/55-bindings — never advertise
+;; a key the dispatcher can't resolve. (The former C-M-f/b, C-M-d/u, C-M-k,
+;; M-(, and "C-x C-e eval" entries were bound nowhere.)
+;; TODO: 'eval-current is declared a host command in editor/55-bindings.lsp but
+;; no host wires it yet (needs cli/main.c); bind + re-advertise "C-x C-e eval"
+;; here once a host performs it.
 (define %TTY-HELP
   (string-append
-    "  C-n/C-p line  C-M-f/b sexp  C-M-d/u in/out  C-M-k kill  M-( wrap  "
-    "C-x C-e eval  C-/ undo  C-x C-s save  C-x C-c exit"))
+    "  C-n/C-p line  C-f/C-b char  C-w kill  C-y yank  "
+    "C-/ undo  C-x C-s save  C-x C-c exit"))
 
 ;; (tty-screen b cols rows) -> the full screen as one string.
 (defn tty-screen (b cols rows)

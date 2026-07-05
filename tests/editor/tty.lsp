@@ -61,6 +61,23 @@
   (check (string-contains? scr %REV))            ; reverse-video used
   (check (string-contains? scr "\n")))           ; multi-line screen
 
+(deftest "tty/help-advertises-only-bound-keys"
+  ;; The help strip must list only keys that actually resolve through the
+  ;; binding table (editor/55-bindings). C-M-f/b, C-M-d/u, C-M-k, M-(, and
+  ;; "C-x C-e eval" were advertised but bound nowhere.
+  (load "editor/32-text.lsp")
+  (load "editor/55-bindings.lsp")
+  (check (not (string-contains? %TTY-HELP "C-M-")))
+  (check (not (string-contains? %TTY-HELP "M-(")))
+  (check (not (string-contains? %TTY-HELP "C-x C-e")))
+  ;; what it does advertise really is bound
+  (check (not (nil? (key-command "C-/"))))
+  (check (not (nil? (key-command "C-x C-s"))))
+  (check (not (nil? (key-command "C-x C-c"))))
+  (check (string-contains? %TTY-HELP "C-/ undo"))
+  (check (string-contains? %TTY-HELP "C-x C-s save"))
+  (check (string-contains? %TTY-HELP "C-x C-c exit")))
+
 (deftest "tty/screen-clips-to-width"
   (let b (mkbuf "n" "(a b)"))
   (let lines (split (tty-screen b 12 6) "\n"))
