@@ -48,6 +48,18 @@
   (check (is (format "100%%") "100%"))
   (check (is (string-ref (format "%c" 65) 0) 65)))   ; 'A'
 
+(deftest "str/format-edge"
+  ;; A trailing lone % is a literal %, not an opaque char->string crash.
+  (check (is (format "50%") "50%"))
+  (check (is (format "%") "%"))
+  ;; A directive with no argument left raises a clear, named error.
+  (check-err (format "%d"))
+  (check-err (format "a %s b"))
+  (check-err (format "%d %d" 1))
+  (let r (try (fn () (format "%d"))))
+  (check (error? r))
+  (check (string-search (error-message r) "missing argument")))
+
 (deftest "str/convert"
   (check (is (string->number "42") 42))
   (check (is (number->string 42) "42"))

@@ -12,20 +12,33 @@
 ;; itself uses only kernel prims (atom/car/cdr/is/and/not/list) for the same
 ;; reason.
 
+;; Nested quasiquote (a backquote inside a backquote) is NOT supported: the
+;; expander has no nesting-depth tracking, so it would substitute inner
+;; unquotes one level too early — silent wrong data. It raises loudly at
+;; expansion time instead. Build inner templates with list/cons if needed.
+
 (defn %qq (x)
   (if (atom x)
       (list 'quote x)
-      (if (and (not (atom x)) (is (car x) 'unquote))
+      (if (is (car x) 'unquote)
           (car (cdr x))
-          (%qq-list x))))
+          (if (is (car x) 'quasiquote)
+              (raise "quasiquote: nested quasiquote is not supported")
+              (%qq-list x)))))
 
 (defn %qq-list (xs)
   (if (atom xs)
       (%qq xs)
-      (if (and (not (atom (car xs)))
-               (is (car (car xs)) 'unquote-splicing))
-          (list '%append (car (cdr (car xs))) (%qq-list (cdr xs)))
-          (list 'cons (%qq (car xs)) (%qq-list (cdr xs))))))
+      (if (is (car xs) 'unquote)          ; dotted unquote tail: `(a . ,b)
+          (car (cdr xs))
+          (if (is (car xs) 'quasiquote)   ; dotted nested tail: `(a . `b)
+              (raise "quasiquote: nested quasiquote is not supported")
+              (if (is (car xs) 'unquote-splicing)
+                  (raise "quasiquote: ,@ cannot appear in dotted tail position")
+                  (if (and (not (atom (car xs)))
+                           (is (car (car xs)) 'unquote-splicing))
+                      (list '%append (car (cdr (car xs))) (%qq-list (cdr xs)))
+                      (list 'cons (%qq (car xs)) (%qq-list (cdr xs)))))))))
 
 (defmacro quasiquote (x)
   (%qq x))

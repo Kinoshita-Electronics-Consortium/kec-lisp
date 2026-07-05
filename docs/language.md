@@ -201,11 +201,11 @@ Pairs and lists are the primary data structure. Use `cons` for one pair and
 | `(setcar pair value)` | Mutate the first slot. |
 | `(setcdr pair value)` | Mutate the second slot. |
 | `(list a b ...)` | Build a proper list. |
-| `(nth xs i)` | Element at index `i`, or `nil` past the end. |
+| `(nth xs i)` | Element at index `i`, or `nil` past the end or for a negative `i`. |
 | `(length xs)` | List length. |
 | `(reverse xs)` | Reversed copy. |
 | `(append a b)` | Append two lists. |
-| `(take xs n)` / `(drop xs n)` | Prefix or suffix by count. |
+| `(take xs n)` / `(drop xs n)` | Prefix or suffix by count. A fractional `n` rounds **up** (both strip while `0 < n`, so `2.5` takes/drops 3). |
 | `(range a b)` | Numbers from `a` through `b - 1`. |
 | `(member x xs)` | Matching tail, or `nil`. |
 | `(assoc key alist)` | Matching pair in an association list, or `nil`. |
@@ -267,7 +267,7 @@ stack on ordinary list work.
 | `equal?` | Structural list equality. |
 | `>`, `>=` | Greater-than comparisons. |
 | `zero?`, `positive?`, `negative?` | Numeric predicates. |
-| `min`, `max` | Variadic extrema. |
+| `min`, `max` | Variadic extrema. Zero arguments raises (`"min: needs at least one argument"`) instead of silently returning `nil`. |
 
 ### Predicates
 
@@ -292,11 +292,18 @@ Higher-level recovery macros built on the runtime's `try` / `raise` (see
 class yet, so `condition-case` dispatch is message-based and re-raises are
 message-only (typed/structured errors are a deferred follow-up, ADR-0001).
 
+These macros react only to a **raised** error. A body that legitimately
+*returns* an `(:error . message)` value — the same shape `(error ...)` builds —
+is a normal return: the value passes through untouched, no cleanup-then-reraise,
+no handler. (Internally the macros tag the normal-return path through `try`
+with the private `%recover-tag` sentinel; bare `(try thunk)` by itself still
+cannot make this distinction.)
+
 | Macro | Summary |
 |---|---|
-| `(unwind-protect body cleanup...)` | Run `body`, then **always** run the cleanup forms — on normal return *and* on a raised error. On error, cleanup runs first, then the error is re-raised (message-only) so an outer handler still sees it. The `save-excursion`-class wrapper primitive. |
+| `(unwind-protect body cleanup...)` | Run `body`, then **always** run the cleanup forms — on normal return *and* on a raised error. On a raise, cleanup runs first, then the error is re-raised (message-only) so an outer handler still sees it. The `save-excursion`-class wrapper primitive. |
 | `(ignore-errors body...)` | Evaluate `body`, yielding `nil` on any raised error and the body value otherwise. |
-| `(condition-case var bodyform handler...)` | Evaluate `bodyform`. On error, bind `var` to the `(:error . message)` value and run the first handler's body (message-based, catch-all); otherwise return the body value. With no handlers, the result is returned as-is. |
+| `(condition-case var bodyform handler...)` | Evaluate `bodyform`. On a raised error, bind `var` to the `(:error . message)` value and run the first handler's body (message-based, catch-all); otherwise return the body value. With no handlers, the result is returned as-is. |
 
 ```lisp
 (unwind-protect
@@ -358,6 +365,16 @@ Backquote builds data, comma evaluates a subform, and comma-at splices a list:
   `(if ,test (do ,@body) nil))
 ```
 
+An unquote may supply a **dotted tail**: `` `(1 . ,b) `` splices `b` as the
+tail of the spine, so with `b` bound to `(2 3)` it yields `(1 2 3)`.
+`,@` in dotted tail position (`` `(1 . ,@b) ``) has no meaning and raises.
+
+**Nested quasiquote is not supported.** The expander has no nesting-depth
+tracking, so `` `(a `(b ,c)) `` cannot mean what standard Lisps make it mean —
+instead of silently substituting `c` one level too early, a backquote inside a
+backquote raises `"quasiquote: nested quasiquote is not supported"` at
+expansion time. Build inner templates with `list`/`cons` when you need one.
+
 ### Higher-Order Functions
 
 | Function | Summary |
@@ -374,7 +391,7 @@ Backquote builds data, comma evaluates a subform, and comma-at splices a list:
 | `(str value...)` | Stringify and concatenate values. |
 | `(join xs sep)` | Join strings with a separator. |
 | `(split s sep)` | Split a string on a separator. |
-| `(format fmt args...)` | Format using `%d`, `%u`, `%x`, `%c`, `%s`, and `%%`. |
+| `(format fmt args...)` | Format using `%d`, `%u`, `%x`, `%c`, `%s`, and `%%`. A trailing lone `%` is a literal `%`; a directive with no argument left raises (`"format: missing argument for %d"`). |
 | `char-whitespace?`, `char-digit?`, `char-alpha?`, `char-alphanumeric?` | Character-class predicates over char codes (as returned by `string-ref`). |
 
 #### String / char toolkit

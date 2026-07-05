@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### Fixed (Core library correctness, repository review)
+- **Quasiquote splices a dotted unquote tail.** `` `(1 . ,b) `` with `b`
+  bound to `(2 3)` now yields `(1 2 3)`; previously the spine tail was
+  emitted as the literal symbols `(1 unquote b)` — silent wrong data
+  (`core/45-quasiquote.lsp`).
+- **Nested quasiquote raises instead of mis-expanding.** The expander has no
+  nesting-depth tracking, so `` `(a `(b ,c)) `` substituted inner unquotes
+  one level too early. A backquote inside a backquote now raises
+  `"quasiquote: nested quasiquote is not supported"` at expansion time, and
+  `,@` in dotted tail position (`` `(1 . ,@b) ``) raises too. Documented in
+  `docs/language.md`.
+- **Recovery macros no longer conflate returned error values with raises.**
+  `(try ...)` returns `(:error . msg)` on a raise, and `(error ...)` builds
+  that same shape as an ordinary value — so `unwind-protect` /
+  `ignore-errors` / `condition-case` treated a body that legitimately
+  *returned* an error value as if it had raised (value swallowed, spurious
+  re-raise, handler run on a normal return). The macros now tag the
+  normal-return path through `try` with a unique load-time sentinel pair
+  (`%recover-tag`, identity-compared, `%`-private like `%append`), making
+  the raise path unambiguous (`core/36-recover.lsp`).
+- **`format` fails clearly instead of opaquely.** A trailing lone `%`
+  (`(format "50%")`) is now a literal `%`, and a directive with no argument
+  left (`(format "%d")`) raises `"format: missing argument for %d"` — both
+  previously died with `"expected number, got nil"` pointing at the wrong
+  thing (`core/60-str.lsp`).
+- **`(min)` / `(max)` with zero arguments raise.** Fe binds a missing
+  required param to `nil`, so they silently returned `nil` and the failure
+  surfaced far from the call. Now: `"min: needs at least one argument"`
+  (`core/20-cmp.lsp`).
+- **`(nth xs i)` returns `nil` for a negative index.** The loop guard never
+  fired for negative `i`, so `(nth '(a b c) -1)` returned `a`; negative
+  indexes now return `nil`, matching the documented past-the-end behavior.
+  Fractional counts for `take`/`drop` are documented (they round up) and
+  pinned by test (`core/10-list.lsp`).
+
 ### Fixed (repository review sweep)
 - **The writer escapes backslashes in strings** (kernel delta, `fe.c`).
   `fe_write` escaped only `"`, so any string containing `\` re-read wrong —
