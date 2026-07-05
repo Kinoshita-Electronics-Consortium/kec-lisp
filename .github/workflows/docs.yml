@@ -4,6 +4,11 @@ name: Docs
 # GitHub Pages — no gh-pages branch. Requires repo Settings → Pages →
 # Build and deployment → Source: "GitHub Actions" (already configured).
 # Served at https://kinoshita-electronics-consortium.github.io/kec-lisp/
+#
+# The build job also runs on pull requests that touch docs/ or website/, so
+# bad frontmatter fails on the PR instead of only after merge (the language
+# CI never touches website/ — this used to be a blind spot). Deploy stays
+# push-to-main only.
 
 on:
   push:
@@ -12,17 +17,15 @@ on:
       - 'docs/**'
       - 'website/**'
       - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'website/**'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-# Allow one concurrent deployment; don't cancel an in-progress one.
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
   build:
@@ -36,8 +39,16 @@ jobs:
           node-version: 22
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    # Allow one concurrent deployment; don't cancel an in-progress one.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

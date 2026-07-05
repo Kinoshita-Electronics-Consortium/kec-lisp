@@ -93,6 +93,7 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/time.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/rng.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/validate.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/pathlen.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/bigstr.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fileio.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fsenv.lsp
@@ -207,10 +208,23 @@ add_test(NAME cli/build-reader
 add_test(NAME cli/test-exit
   COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/test-exit.sh $<TARGET_FILE:kec>)
 
+# `load` path resolution: file-relative (matching `kec build`), CWD fallback.
+add_test(NAME cli/load-path
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/load-path.sh $<TARGET_FILE:kec>)
+
 # The `kec repl` strong REPL end-to-end (loads the embedded editor tier, drives
 # the REPL engine over piped input).
 add_test(NAME cli/repl-smoke
   COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/repl-smoke.sh $<TARGET_FILE:kec>)
+
+# REPL accumulator overflow: an oversized form is discarded whole, with a
+# diagnostic, and the loop recovers (no truncated half-form submission).
+add_test(NAME cli/repl-overflow
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/repl-overflow.sh $<TARGET_FILE:kec>)
+
+# `kec nemacs` refuses NUL-bearing (binary) files instead of truncating them.
+add_test(NAME cli/nemacs-binary
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/nemacs-binary.sh $<TARGET_FILE:kec>)
 
 # The `kec nemacs` structural-editor surface end-to-end (drives the :nemacs-nav
 # keymap over piped keystrokes, then serializes the edit back).

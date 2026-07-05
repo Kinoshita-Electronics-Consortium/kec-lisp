@@ -36,6 +36,11 @@ typedef struct {
     void (*container_free)(void *);
     void *pending[KEC_PENDING_MAX]; /* malloc'd buffers freed on error unwind */
     int pending_count;
+    /* (args)/(argc) source. Context-owned — no cross-context sharing. The
+    ** pointers are BORROWED (never copied or freed) and must outlive the
+    ** state; main()'s argv qualifies. NULL/0 until the embedder sets them. */
+    char **argv;
+    int argc;
 } kec_HostState;
 
 /* Runtime-owned state for portable host primitives. One instance belongs to
@@ -117,7 +122,10 @@ void kec_host_state_set_container_allocator(kec_HostState *state,
                                             void *(*alloc)(size_t),
                                             void (*free_)(void *));
 
-/* Expose CLI argv to (args). Call once before evaluation. */
-void kec_host_set_args(int argc, char **argv);
+/* Expose argv to this state's (args). Per-state, replacing the old
+** process-global (the GWP-235/584 context-ownership rule); embedders with a
+** kec_State should call the kec_set_args wrapper (kec.h) instead. The
+** pointers are borrowed and must outlive the state. */
+void kec_host_state_set_args(kec_HostState *state, int argc, char **argv);
 
 #endif /* KEC_HOST_H */

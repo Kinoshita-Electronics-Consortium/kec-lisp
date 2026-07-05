@@ -31,6 +31,11 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile);
 
 void kec_close(kec_State *S);
 
+/* Expose argv to this interpreter's (args). Context-owned (no process-global
+** sharing between states); the pointers are borrowed and must outlive the
+** kec_State — main()'s argv qualifies. Call any time after open. */
+void kec_set_args(kec_State *S, int argc, char **argv);
+
 /* Select the allocator used by containers subsequently created in this
 ** interpreter. Existing containers retain their original allocator/free pair. */
 void kec_set_container_allocator_for(kec_State *S,

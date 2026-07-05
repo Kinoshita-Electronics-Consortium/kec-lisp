@@ -239,6 +239,54 @@ static void test_now_is_measured_from_context_open(void) {
     kec_close(S);
 }
 
+/* (args) is context-owned host state, set per interpreter — the same
+** ownership rule as the RNG and gensym counters (GWP-235/584). Regression:
+** argv lived in process-global statics shared across every context. */
+static void test_args_are_context_owned(void) {
+    static char *argv_a[] = { (char *)"prog-a", (char *)"one" };
+    static char *argv_b[] = { (char *)"prog-b" };
+    kec_State *a = kec_open(4u * 1024u * 1024u, KEC_PROFILE_FULL);
+    kec_State *b = kec_open(4u * 1024u * 1024u, KEC_PROFILE_FULL);
+
+    CHECK(a != NULL && b != NULL, "two contexts did not open for args test");
+    if (!a || !b) { kec_close(a); kec_close(b); return; }
+    kec_set_args(a, 2, argv_a);
+    kec_set_args(b, 1, argv_b);
+    CHECK(eval_int(a, "(length (args))") == 2, "context A lost its own args");
+    CHECK(eval_int(b, "(length (args))") == 1, "context B lost its own args");
+    CHECK(eval_int(a, "(if (is (car (args)) \"prog-a\") 1 0)") == 1,
+          "context A returned the wrong argv");
+    kec_close(a);
+    kec_close(b);
+
+    /* A fresh context with no args set reads an empty list, not a stale
+    ** process-global left over from an earlier context. */
+    a = kec_open(4u * 1024u * 1024u, KEC_PROFILE_FULL);
+    CHECK(a != NULL, "third context did not open for args test");
+    if (a) {
+        CHECK(eval_int(a, "(length (args))") == 0, "unset args were not empty");
+        kec_close(a);
+    }
+}
+
+/* (args) must not grow the GC stack per element (the h_apply / read-all
+** idiom): ~2 stale roots per arg times 5000 args would overflow even the
+** desktop 8192-slot GC stack, let alone the device's 256. */
+static void test_args_do_not_grow_the_gc_stack(void) {
+    enum { ARGS_N = 5000 };
+    static char *argv[ARGS_N];
+    kec_State *S = kec_open(8u * 1024u * 1024u, KEC_PROFILE_FULL);
+    int i;
+
+    CHECK(S != NULL, "context did not open for args GC test");
+    if (!S) { return; }
+    for (i = 0; i < ARGS_N; i++) { argv[i] = (char *)"a"; }
+    kec_set_args(S, ARGS_N, argv);
+    CHECK(eval_int(S, "(length (args))") == ARGS_N,
+          "(args) with many arguments failed (GC stack overflow?)");
+    kec_close(S);
+}
+
 static void test_read_string_has_no_fixed_input_ceiling(void) {
     static const char prefix[] = "(string-length (read-string \"\\\"";
     static const char suffix[] = "\\\"\"))";
@@ -264,6 +312,8 @@ int main(void) {
     test_constructors_do_not_leak_backing_on_arena_exhaustion();
     test_gensym_is_context_owned();
     test_now_is_measured_from_context_open();
+    test_args_are_context_owned();
+    test_args_do_not_grow_the_gc_stack();
     test_read_string_has_no_fixed_input_ceiling();
     if (g_failures == 0) { printf("test_host_state: all checks passed\n"); }
     return g_failures;
