@@ -10,6 +10,7 @@
 */
 #include "kec.h"
 
+#include <limits.h>
 #include <setjmp.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +43,10 @@ static void on_error(fe_Context *ctx, const char *err, fe_Object *cl) {
     if (S) {
         snprintf(S->errmsg, sizeof S->errmsg, "%s", err);
         S->had_error = 1;
+        /* Free any heap buffer a host primitive registered across a raising
+        ** window (host.h) — the longjmp below abandons the frame that would
+        ** otherwise free it. */
+        kec_host_state_free_pending(&S->host);
         if (S->depth > 0) { longjmp(S->recover[S->depth - 1], 1); }
     }
     /* Unreachable in practice: every eval entry installs a guard. */
@@ -158,13 +163,37 @@ static void global_string_list_add(fe_Context *ctx, const char *global, const ch
     fe_restoregc(ctx, gc);
 }
 
+/* Read + eval every form of the file at `path`, closing the FILE* even when a
+** form raises. fe_read (syntax error) and fe_eval (any script error) unwind
+** with longjmp, so the FILE* must not be held naked across them: a failing
+** (load) inside (try) would otherwise leak one fd per attempt and eventually
+** exhaust the fd table. Unwind-protect: install a local guard slot, close on
+** the error path, then re-raise so the error reaches the enclosing guard
+** (try / run_forms) with its message intact. */
 static void eval_file_or_error(fe_Context *ctx, const char *path, const char *who) {
+    kec_State *S = fe_userdata(ctx, &g_runtime_state_tag); /* always set: h_load
+                                    ** and h_require exist only in kec contexts */
     FILE *fp = fopen(path, "rb");
-    char msg[128];
+    char msg[sizeof S->errmsg + 32];
+    int slot;
     if (!fp) {
         snprintf(msg, sizeof msg, "%s: cannot open file", who);
         fe_error(ctx, msg);
     }
+    slot = S->depth;
+    if (slot >= KEC_GUARD_MAX) {
+        fclose(fp);
+        snprintf(msg, sizeof msg, "%s: guard stack overflow", who);
+        fe_error(ctx, msg);
+    }
+    if (setjmp(S->recover[slot])) {
+        S->depth = slot;
+        fclose(fp);
+        snprintf(msg, sizeof msg, "%s", S->errmsg); /* fe_error must not read
+                                    ** errmsg itself: on_error snprintfs into it */
+        fe_error(ctx, msg);
+    }
+    S->depth = slot + 1;
     for (;;) {
         int gc = fe_savegc(ctx);
         fe_Object *form = fe_readfp(ctx, fp);
@@ -172,6 +201,7 @@ static void eval_file_or_error(fe_Context *ctx, const char *path, const char *wh
         fe_eval(ctx, form);
         fe_restoregc(ctx, gc);
     }
+    S->depth = slot;
     fclose(fp);
 }
 
@@ -250,10 +280,16 @@ static fe_Object *h_apply(fe_Context *ctx, fe_Object *args) {
     /* Pass 2: reverse rev back to source order, then cons fn on the front.
     ** Result: (fn (quote a1) (quote a2) ...). Putting the function object itself
     ** in operator position works because eval of a non-symbol / non-pair returns
-    ** it as-is — so fn may be a cfunc, a closure, or a kernel primitive. */
+    ** it as-is — so fn may be a cfunc, a closure, or a kernel primitive.
+    ** Same restore/push idiom as pass 1: each cons auto-roots itself, so
+    ** without the reset the GC stack grew by one per argument (fn stays
+    ** reachable through the caller's argument list). */
     while (!fe_isnil(ctx, rev)) {
         call = fe_cons(ctx, fe_car(ctx, rev), call);
         rev = fe_cdr(ctx, rev);
+        fe_restoregc(ctx, gc);
+        fe_pushgc(ctx, rev);
+        fe_pushgc(ctx, call);
     }
     call = fe_cons(ctx, fn, call);
     {
@@ -289,7 +325,9 @@ static fe_Object *h_read_string(fe_Context *ctx, fe_Object *args) {
     if (!buf) { fe_error(ctx, "read-string: out of memory"); }
     r.s = buf;
     r.i = 0;
+    kec_pending_push(ctx, buf); /* fe_read raises on a syntax error */
     form = fe_read(ctx, str_readfn, &r);
+    kec_pending_pop(ctx, buf);
     free(buf);
     if (form == NULL) { return fe_bool(ctx, 0); }
     return form;
@@ -310,8 +348,11 @@ static fe_Object *h_read_all(fe_Context *ctx, fe_Object *args) {
     buf = kec_strdup_obj(ctx, src, 0, NULL);      /* measure + fill, exact */
     if (!buf) { fe_error(ctx, "read-all: out of memory"); }
 
-    /* Pass 1: read forms, accumulating reversed (cons grows at the head). */
+    /* Pass 1: read forms, accumulating reversed (cons grows at the head).
+    ** The buffer is registered while fe_read (syntax error) and fe_cons
+    ** (out-of-memory) can raise. */
     r.s = buf; r.i = 0;
+    kec_pending_push(ctx, buf);
     rev = fe_bool(ctx, 0); /* nil */
     gc = fe_savegc(ctx);
     fe_pushgc(ctx, rev);
@@ -320,17 +361,23 @@ static fe_Object *h_read_all(fe_Context *ctx, fe_Object *args) {
         fe_restoregc(ctx, gc);
         fe_pushgc(ctx, rev);
     }
+    kec_pending_pop(ctx, buf);
     free(buf);
 
-    /* Pass 2: reverse into source order. rev stays rooted (reachable via the
-    ** pushed head); each new res cons is rooted before the next allocation. */
+    /* Pass 2: reverse into source order, with the same restore/push idiom as
+    ** pass 1 so the root set stays bounded — one push per cons overflowed the
+    ** GC stack on a few thousand forms. Both the remaining spine (rev) and
+    ** the growing result (res) must stay rooted across each allocation. */
     res = fe_bool(ctx, 0);
-    fe_pushgc(ctx, res);
     while (!fe_isnil(ctx, rev)) {
         res = fe_cons(ctx, fe_car(ctx, rev), res);
-        fe_pushgc(ctx, res);
         rev = fe_cdr(ctx, rev);
+        fe_restoregc(ctx, gc);
+        fe_pushgc(ctx, rev);
+        fe_pushgc(ctx, res);
     }
+    fe_restoregc(ctx, gc);
+    fe_pushgc(ctx, res);
     return res;
 }
 
@@ -379,6 +426,12 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
     kec_State *S;
     size_t floor;
     if (!buf) { return NULL; }
+
+    /* fe_open takes an int: a size beyond INT_MAX cannot be represented, and
+    ** narrowing it would hand fe_open a wrapped (negative) size that faults
+    ** before any error handler exists. The contract is NULL on any unusable
+    ** buffer — never truncation, never exit. */
+    if (size > (size_t)INT_MAX) { return NULL; }
 
     /* Reject a buffer too small to even survive fe_open. fe_open subtracts its
     ** context header off the front, then registers ~30 primitives; a buffer

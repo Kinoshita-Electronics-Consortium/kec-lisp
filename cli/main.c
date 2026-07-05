@@ -50,8 +50,18 @@ typedef struct { char *p; size_t len, cap; } Strbuf;
 static void sb_putn(Strbuf *b, const char *s, size_t n) {
     if (b->len + n + 1 > b->cap) {
         size_t cap = b->cap ? b->cap : 1024;
+        char *np;
         while (cap < b->len + n + 1) { cap *= 2; }
-        b->p = realloc(b->p, cap);
+        np = realloc(b->p, cap);
+        if (!np) {
+            /* The CLI has no recovery path for heap OOM mid-append: fail
+            ** loudly instead of dereferencing NULL (the raw `b->p = realloc`
+            ** also lost the old pointer). */
+            fprintf(stderr, "kec: out of memory\n");
+            free(b->p);
+            exit(1);
+        }
+        b->p = np;
         b->cap = cap;
     }
     memcpy(b->p + b->len, s, n);
@@ -752,9 +762,17 @@ static int do_test(int argc, char **argv) {
 /* build — inline top-level (load ...) forms, parse-check, stamp, write. */
 /* ------------------------------------------------------------------ */
 
+#define BUILD_LOAD_DEPTH_MAX 16
+
 typedef struct {
     jmp_buf recover;
     char errmsg[256];
+    /* Every FILE* bundle_forms currently holds, deepest last. A parse error
+    ** longjmps out of the whole recursion, so the recovery path in bundle()
+    ** — not the abandoned frames — must close them (one leak per nesting
+    ** level otherwise). */
+    FILE *open_files[BUILD_LOAD_DEPTH_MAX + 1];
+    int open_count;
 } BuildReadGuard;
 
 static BuildReadGuard *g_build_read_guard = NULL;
@@ -805,9 +823,13 @@ static int load_form_path(fe_Context *ctx, fe_Object *form, char *out, size_t ou
 static int bundle_forms(fe_Context *ctx, const char *path, Strbuf *out, int depth) {
     FILE *fp;
     char dir[1024];
-    if (depth > 16) { fprintf(stderr, "kec build: (load ...) nesting too deep\n"); return 1; }
+    if (depth > BUILD_LOAD_DEPTH_MAX) {
+        fprintf(stderr, "kec build: (load ...) nesting too deep\n");
+        return 1;
+    }
     fp = fopen(path, "rb");
     if (!fp) { fprintf(stderr, "kec build: cannot read %s\n", path); return 1; }
+    g_build_read_guard->open_files[g_build_read_guard->open_count++] = fp;
     dir_of(path, dir, sizeof dir);
     sb_puts(out, ";; --- begin ");
     sb_puts(out, path);
@@ -823,6 +845,7 @@ static int bundle_forms(fe_Context *ctx, const char *path, Strbuf *out, int dept
         if (load_form_path(ctx, form, rel, sizeof rel)) {
             path_join(dir, rel, full, sizeof full);
             if (bundle_forms(ctx, full, out, depth + 1) != 0) {
+                g_build_read_guard->open_count--;
                 fclose(fp);
                 return 1;
             }
@@ -832,6 +855,7 @@ static int bundle_forms(fe_Context *ctx, const char *path, Strbuf *out, int dept
         }
         fe_restoregc(ctx, gc);
     }
+    g_build_read_guard->open_count--;
     fclose(fp);
     return 0;
 }
@@ -844,10 +868,15 @@ static int bundle(const char *path, Strbuf *out) {
     if (!arena) { fprintf(stderr, "kec build: out of memory\n"); return 1; }
     ctx = fe_open(arena, (int)ARENA_BYTES);
     guard.errmsg[0] = '\0';
+    guard.open_count = 0;
     g_build_read_guard = &guard;
     fe_handlers(ctx)->error = build_read_error;
     if (setjmp(guard.recover)) {
+        int i;
         fprintf(stderr, "kec build: parse error while bundling: %s\n", guard.errmsg);
+        /* The longjmp abandoned every bundle_forms frame; close the FILE*s
+        ** they were holding (deepest last). */
+        for (i = guard.open_count - 1; i >= 0; i--) { fclose(guard.open_files[i]); }
         g_build_read_guard = NULL;
         fe_close(ctx);
         free(arena);

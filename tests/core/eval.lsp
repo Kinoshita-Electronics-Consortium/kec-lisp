@@ -39,3 +39,13 @@
   (for-each eval (read-all "(set %ra-x 7) (set %ra-y (* %ra-x 3))"))
   (check (is %ra-x 7))
   (check (is %ra-y 21)))
+
+(deftest "read-all/does-not-grow-the-gc-stack-per-form"
+  ;; Pass 2 (reversing into source order) used to push one GC root per form,
+  ;; so a few thousand top-level forms overflowed the GC stack (desktop
+  ;; GCSTACKSIZE 8192). The restore/push idiom keeps the root set bounded.
+  (check (is (length (read-all (string-repeat "1 " 5000))) 5000)))
+
+(deftest "read-all/syntax-error-is-catchable"
+  (check-err (read-all "(a (b)"))
+  (check (error? (try (fn () (read-all "(a (b)"))))))

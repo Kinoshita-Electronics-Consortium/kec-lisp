@@ -54,3 +54,18 @@
   (let parsed (read-string (string-append "\"" payload "\"")))
   (check (is (string-length parsed) 5000))
   (check (is parsed payload)))
+
+(deftest "apply/does-not-grow-the-gc-stack-per-argument"
+  ;; apply's pass 2 (reversing the quoted-arg list into the call form) used to
+  ;; root one cons per argument on the GC stack, so a few thousand arguments
+  ;; overflowed it (desktop GCSTACKSIZE 8192; the device default is 256). With
+  ;; the restore/push idiom apply's own root set is bounded; the remaining
+  ;; per-argument growth is the kernel's own call-form evaluation, which 6000
+  ;; arguments stay comfortably inside on the desktop build.
+  (check (is (apply + (map (fn (x) 1) (range 0 6000))) 6000)))
+
+(deftest "read-string/syntax-error-is-catchable"
+  ;; A syntax error inside the reader must raise catchably (and, per the
+  ;; error-path leak sweep, must not leak the heap materialization it holds).
+  (check-err (read-string "(1 2"))
+  (check (error? (try (fn () (read-string "(1 2"))))))
