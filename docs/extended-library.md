@@ -2299,6 +2299,13 @@ if a co-due sibling's thunk cancels it first — cancellation only affects
 once** per `timers-advance!` call and re-anchors to `now + repeat`, even after
 a large clock jump — missed periods are not replayed.
 
+**Failed-thunk policy:** each thunk fires under `try`, so a thunk that raises
+cannot skip its co-due siblings or make `timers-advance!` return abnormally —
+and the raiser's timer is **dropped** (a repeating thunk that raises would
+otherwise re-raise every period forever; a one-shot is already gone, so the
+cancel is a no-op). The error itself is swallowed: a thunk that wants to
+report failures must catch its own.
+
 ```lisp
 (cancel-all-timers!)
 (let outer 0) (let inner 0)

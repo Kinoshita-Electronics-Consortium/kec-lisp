@@ -64,6 +64,29 @@
   (check (is (timers-advance! 1.0) 1))
   (check (is (timers-poll-ms 5) -1)))
 
+(deftest "timer/raising-thunk-does-not-abort-siblings"
+  ;; A thunk that raises must not skip co-due siblings or make timers-advance!
+  ;; return abnormally. (*timers* is a cons stack, so the LAST registration
+  ;; fires FIRST — the raiser goes second to fire ahead of the counter.)
+  (cancel-all-timers!)
+  (let hits 0)
+  (run-with-timer 1 nil (fn () (set hits (+ hits 1))) 0)
+  (run-with-timer 1 nil (fn () (raise "boom")) 0)          ; fires first
+  (check (is (timers-advance! 1.0) 2))   ; returns normally; both were due
+  (check (is hits 1)))                   ; the sibling still ran
+
+(deftest "timer/raising-repeat-is-dropped"
+  ;; Failed-thunk policy: a repeating timer whose thunk raises is DROPPED, not
+  ;; left armed — otherwise it would re-raise every period forever.
+  (cancel-all-timers!)
+  (let n 0)
+  (run-with-timer 1 1 (fn () (set n (+ n 1)) (raise "boom")) 0)
+  (check (is (timers-advance! 1.0) 1))
+  (check (is n 1))
+  (check (is (timers-poll-ms 5) -1))     ; registry empty — it was dropped
+  (check (is (timers-advance! 2.0) 0))
+  (check (is n 1)))                      ; never fired again
+
 (deftest "timer/reentrancy-add-during-fire"
   (cancel-all-timers!)
   (let outer 0)
