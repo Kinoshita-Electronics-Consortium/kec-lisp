@@ -21,6 +21,7 @@ monorepo CLAUDE.md ("Repository Topology") and `kn86-docs` ADR-0039.
 cmake -S . -B build              # configure (Release by default)
 cmake --build build              # build → build/kec
 ctest --test-dir build --output-on-failure   # run the full suite
+cmake --install build            # install kec → ~/.local/bin (no sudo; prefix defaults to ~/.local)
 
 ./build/kec                      # REPL
 ./build/kec run FILE [args...]   # run a script; args reach Lisp (args)

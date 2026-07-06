@@ -21,6 +21,18 @@ add_compile_options(-Wall -Wextra)
 set(KEC_VERSION "0.1.0")
 
 # ---------------------------------------------------------------------------
+# Install prefix. `kec` is a user-facing CLI, so default to the user's
+# ~/.local (no sudo, and ~/.local/bin is on PATH in most modern shells) rather
+# than the CMake default of /usr/local (which needs sudo). This only fires when
+# the user did NOT pass -DCMAKE_INSTALL_PREFIX; packagers (who always pass an
+# explicit prefix, or use DESTDIR) are unaffected.
+# ---------------------------------------------------------------------------
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT AND DEFINED ENV{HOME})
+  set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.local" CACHE PATH
+      "Install prefix — kec installs to <prefix>/bin" FORCE)
+endif()
+
+# ---------------------------------------------------------------------------
 # Codegen: bake KEC Core (and the test harness) into C string literals so the
 # `kec` binary is a single relocatable artifact with no runtime file lookup.
 # ---------------------------------------------------------------------------
@@ -163,7 +175,25 @@ add_dependencies(kec_core kec_generated)
 add_executable(kec cli/main.c)
 target_link_libraries(kec kec_core m)
 
+# ---------------------------------------------------------------------------
+# Install: drop the `kec` binary in <prefix>/bin (see the prefix default near
+# the top). Run it explicitly after a build:
+#
+#     cmake --install build                       # install what's built
+#     cmake --build build --target install-local  # build + install in one step
+#
+# `install-local` is a convenience alias for the second line — it depends on the
+# `kec` target, so it always builds fresh before installing.
+# ---------------------------------------------------------------------------
 install(TARGETS kec RUNTIME DESTINATION bin)
+
+# Friendly note so the user sees exactly where it landed (and how to reach it).
+install(CODE "message(STATUS \"kec installed to \${CMAKE_INSTALL_PREFIX}/bin/kec — ensure \${CMAKE_INSTALL_PREFIX}/bin is on your PATH\")")
+
+add_custom_target(install-local
+  COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR}
+  COMMENT "Installing kec to ${CMAKE_INSTALL_PREFIX}/bin")
+add_dependencies(install-local kec)
 
 # ---------------------------------------------------------------------------
 # Conformance suite — each file runs under `kec test` (exit code = failures).
