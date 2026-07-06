@@ -81,10 +81,17 @@
 (bind-key "DEL"     'text-backspace!)     ; delete-backward-char (Backspace)
 (bind-key "C-d"     'text-delete!)        ; delete-char (forward)
 (bind-key "TAB"     'text-insert-tab!)    ; indent: soft spaces to the next stop
-;; Undo / redo (command-based; see editor/32-text).
+;; Undo / redo (command-based; see editor/32-text). Redo follows the Emacs 28+
+;; undo-redo convention: C-M-_ canonical, C-? the documented alias. M-/ is left
+;; UNBOUND — in Emacs it is dabbrev-expand, reserved for a future dabbrev, never
+;; repurposed. NOTE: the kec CLI's key encoder (cli/main.c norm_key) cannot emit
+;; either redo notation yet — ESC+C-_ falls through to "ESC" and byte 127 is
+;; claimed by Backspace ("DEL") — so redo is table-reachable for other hosts but
+;; unreachable from that TTY until its encoder learns ESC+0x1F -> "C-M-_".
 (bind-key "C-/"     'text-undo!)          ; undo (terminal C-_ / C-/ arrive as this)
 (bind-key "C-x u"   'text-undo!)          ; undo (Emacs alias)
-(bind-key "M-/"     'text-redo!)          ; redo
+(bind-key "C-M-_"   'text-redo!)          ; undo-redo (Emacs 28+)
+(bind-key "C-?"     'text-redo!)          ; undo-redo alias (Emacs 28+)
 ;; Mark / region / kill / yank (see editor/32-text).
 (bind-key "C-@"     'text-set-mark!)      ; set-mark (terminal C-SPC arrives as C-@)
 (bind-key "C-w"     'text-kill-region!)   ; kill-region

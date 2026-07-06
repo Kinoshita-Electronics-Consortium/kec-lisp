@@ -150,6 +150,14 @@
   (check (string-contains? s ";10H"))    ; cursor parked at col 10 (== cols), on-screen
   (check (not (string-contains? s ";21H"))))   ; NOT off the right edge (pcol+1)
 
+(deftest "text/screen-eob-rows-blank-not-tilde"
+  ;; Emacs leaves rows past end-of-buffer blank; the ~ fringe marker is vim's
+  ;; signature and knEmacs copies Emacs, never vim.
+  (let b (mk "hello"))
+  (let s (text-screen b 20 8 "ok"))
+  (check (string-contains? s "hello"))
+  (check (not (string-contains? s "~"))))
+
 ;; ---- search ----------------------------------------------------------------
 (deftest "text/search-forward-finds"
   (let b (mk "hello world\nfoo hello"))
@@ -259,6 +267,59 @@
   (check (= (text->string b) "hi!"))
   (text-undo! b)                         ; one undo removes the whole contiguous run
   (check (= (text->string b) "")))
+
+(deftest "text/undo-insert-coalescing-caps-at-20"
+  ;; Emacs amalgamates at most 20 consecutive self-inserts into one undo step
+  ;; (undo-auto-amalgamate); an uncapped run would undo a whole session at once.
+  (let b (mk ""))
+  (let i 0)
+  (while (< i 25) (text-insert! b "x") (set i (+ i 1)))
+  (check (= (string-length (text->string b)) 25))
+  (text-undo! b)                         ; second group: chars 21..25
+  (check (= (string-length (text->string b)) 20))
+  (text-undo! b)                         ; first group: chars 1..20
+  (check (= (text->string b) "")))
+
+(deftest "text/undo-coalesces-backspaces"
+  ;; Consecutive backspaces amalgamate into one undo step, like Emacs deletes.
+  (let b (mk "abcdefghij"))
+  (text-end! b)
+  (text-backspace! b) (text-backspace! b) (text-backspace! b) (text-backspace! b)
+  (check (= (text->string b) "abcdef"))
+  (text-undo! b)                         ; ONE undo restores the whole run
+  (check (= (text->string b) "abcdefghij"))
+  (check (not (text-can-undo? b))))      ; ... and it really was one step
+
+(deftest "text/undo-backspace-coalescing-caps-at-20"
+  (let b (mk "abcdefghijklmnopqrstuvwxy"))   ; 25 chars
+  (text-end! b)
+  (let i 0)
+  (while (< i 25) (text-backspace! b) (set i (+ i 1)))
+  (check (= (text->string b) ""))
+  (text-undo! b)                         ; second group: backspaces 21..25
+  (check (= (text->string b) "abcde"))
+  (text-undo! b)                         ; first group: backspaces 1..20
+  (check (= (text->string b) "abcdefghijklmnopqrstuvwxy")))
+
+(deftest "text/undo-coalesces-forward-deletes"
+  (let b (mk "abcdefgh"))
+  (text-delete! b) (text-delete! b) (text-delete! b)
+  (check (= (text->string b) "defgh"))
+  (text-undo! b)                         ; one undo restores the whole run
+  (check (= (text->string b) "abcdefgh"))
+  (check (not (text-can-undo? b))))
+
+(deftest "text/undo-insert-then-backspace-not-merged"
+  ;; Opposite-direction edits never cross-merge: undoing the backspace must not
+  ;; also undo the insert.
+  (let b (mk ""))
+  (text-insert! b "x")
+  (text-backspace! b)
+  (check (= (text->string b) ""))
+  (text-undo! b)
+  (check (= (text->string b) "x"))       ; the backspace undone...
+  (text-undo! b)
+  (check (= (text->string b) "")))       ; ...then the insert
 
 (deftest "text/undo-newline"
   (let b (mk "abcd"))

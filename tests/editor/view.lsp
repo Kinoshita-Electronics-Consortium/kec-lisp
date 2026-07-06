@@ -20,6 +20,33 @@
   (check (= (vlabel a) "a"))                ; leaf
   (check (nil? (vchildren a))))
 
+(deftest "view/form->view-deep-nesting-no-crash"
+  ;; form->view recursed to nesting depth, exhausting the fixed GC root stack
+  ;; (256 slots on the device) on a deeply nested form. The tree build must be
+  ;; iterative, like buffer->view-lines' own explicit-stack DFS.
+  (let deep (read-string (string-append (string-repeat "(" 500) "x"
+                                        (string-repeat ")" 500))))
+  (let n (form->view deep))
+  (check (pair? n))
+  (check (<= (string-length (vlabel n)) VIEW-LABEL-MAX))
+  ;; walk to the innermost leaf: 500 list levels down sits the x leaf
+  (let d 0)
+  (let cur n)
+  (while (vchildren cur)
+    (set cur (car (vchildren cur)))
+    (set d (+ d 1)))
+  (check (is d 500))
+  (check (= (vlabel cur) "x")))
+
+(deftest "view/form->view-wide-and-mixed"
+  ;; siblings after a nested child must land in order (the frame hand-back)
+  (let n (form->view (read-string "(a (b c) d)")))
+  (check (is (length (vchildren n)) 3))
+  (check (= (vlabel (nth (vchildren n) 0)) "a"))
+  (check (= (vlabel (nth (vchildren n) 1)) "(b c)"))
+  (check (is (length (vchildren (nth (vchildren n) 1))) 2))
+  (check (= (vlabel (nth (vchildren n) 2)) "d")))
+
 (deftest "view/root-labelled-by-name"
   (let b (mkbuf "main" "(a) (b) (c)"))
   (let v (buffer->view b))

@@ -61,6 +61,38 @@
   (check (string-contains? scr %REV))            ; reverse-video used
   (check (string-contains? scr "\n")))           ; multi-line screen
 
+(deftest "tty/help-advertises-only-bound-keys"
+  ;; The help strip must list only keys that actually resolve through the
+  ;; binding table (editor/55-bindings). C-M-f/b, C-M-d/u, C-M-k, M-(, and
+  ;; "C-x C-e eval" were advertised but bound nowhere.
+  (load "editor/32-text.lsp")
+  (load "editor/55-bindings.lsp")
+  (check (not (string-contains? %TTY-HELP "C-M-")))
+  (check (not (string-contains? %TTY-HELP "M-(")))
+  (check (not (string-contains? %TTY-HELP "C-x C-e")))
+  ;; what it does advertise really is bound
+  (check (not (nil? (key-command "C-/"))))
+  (check (not (nil? (key-command "C-x C-s"))))
+  (check (not (nil? (key-command "C-x C-c"))))
+  (check (string-contains? %TTY-HELP "C-/ undo"))
+  (check (string-contains? %TTY-HELP "C-x C-s save"))
+  (check (string-contains? %TTY-HELP "C-x C-c exit")))
+
+(deftest "tty/screen-scrolls-cursor-into-view"
+  ;; 10 leaves under the root = 11 view lines; rows 6 -> 4 body rows. A cursor
+  ;; past the visible window must scroll into view, not clip off-screen.
+  (let b (mkbuf "s" "a b c d e f g h i j"))      ; cursor seated on a
+  (let i 0)
+  (while (< i 9) (buffer-next! b) (set i (+ i 1)))   ; focus j (view line 10)
+  (let scr (tty-screen b 40 6))
+  (check (string-contains? scr (string-append %REV "  j" %RST)))
+  (check (< 0 (buffer-scroll b)))                ; scroll state persisted
+  ;; moving back above the window scrolls up again
+  (set i 0)
+  (while (< i 9) (buffer-prev! b) (set i (+ i 1)))   ; focus a (view line 1)
+  (let scr2 (tty-screen b 40 6))
+  (check (string-contains? scr2 (string-append %REV "  a" %RST))))
+
 (deftest "tty/screen-clips-to-width"
   (let b (mkbuf "n" "(a b)"))
   (let lines (split (tty-screen b 12 6) "\n"))

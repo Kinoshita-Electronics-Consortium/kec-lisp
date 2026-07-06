@@ -460,7 +460,7 @@ Returns the most-recent snapshot without removing it, or `nil` if empty.
 
 ### `editor/30-buffer.lsp` — the L1 buffer record: zipper cursor + clipboard + modified flag + undo, as verb wrappers
 
-Wraps the bare zipper cursor (`10-zipper.lsp`) with the rest of the L1 buffer state — clipboard, modified flag, buffer name — and an undo ring (`20-undo.lsp`), exposing verb wrappers that thread the clipboard, set the modified flag, and snapshot for undo automatically. Navigation moves the cursor only (no undo, no modified flag); structural edits snapshot the pre-edit location for undo and mark modified. The record itself is a small mutable vector (`[loc clipboard modified? name undo-ring literal-text]`) — one handle per open buffer — even though the cursor value inside it stays an immutable zipper location.
+Wraps the bare zipper cursor (`10-zipper.lsp`) with the rest of the L1 buffer state — clipboard, modified flag, buffer name — and an undo ring (`20-undo.lsp`), exposing verb wrappers that thread the clipboard, set the modified flag, and snapshot for undo automatically. Navigation moves the cursor only (no undo, no modified flag); structural edits snapshot the pre-edit location for undo and mark modified. The record itself is a small mutable vector (`[loc clipboard modified? name undo-ring literal-text scroll]`) — one handle per open buffer — even though the cursor value inside it stays an immutable zipper location. The trailing `scroll` slot (read via `buffer-scroll`) is the top visible view-line index, owned and persisted by a line-oriented renderer (`96-tty`) so the cursor row stays on-screen across frames.
 
 **Load order matters:** this file calls `make-undo-ring` (from `20-undo.lsp`) but does not `load` it itself — a host must `(load "editor/10-zipper.lsp")` and `(load "editor/20-undo.lsp")` *before* `(load "editor/30-buffer.lsp")`, or `make-buffer` fails with a non-callable-value error.
 
@@ -1144,7 +1144,7 @@ Moves point to the very end of the buffer (last line, last column).
 
 #### `(text-insert! b s)`
 
-Inserts `s` (one line's worth, no embedded newline) at point and records an inverse `:del` undo entry. Consecutive inserts that abut the previous edit's span **coalesce into a single undo step** — so typing a whole word undoes in one `text-undo!` call, not one per keystroke.
+Inserts `s` (one line's worth, no embedded newline) at point and records an inverse `:del` undo entry. Consecutive inserts that abut the previous edit's span **coalesce into a single undo step** — so typing a whole word undoes in one `text-undo!` call, not one per keystroke — capped at **20 characters per step** (matching Emacs's `undo-auto-amalgamate` boundary); a longer run splits into successive 20-character undo groups.
 
 - **Parameters:** b — a text buffer; s — text to insert (no newline)
 - **Returns:** the raw-insert result (buffer state; return value not meaningful, call for effect)
@@ -1172,7 +1172,7 @@ Splits the current line at point, recording the inverse delete.
 
 #### `(text-backspace! b)`
 
-Deletes the character before point; at column 0 it joins the current line onto the previous one. A no-op (and records nothing) at the very start of the buffer.
+Deletes the character before point; at column 0 it joins the current line onto the previous one. A no-op (and records nothing) at the very start of the buffer. Consecutive character deletes around one spot (backspaces, forward deletes, or a mix) **coalesce into a single undo step**, capped at 20 characters like inserts — one `text-undo!` restores the whole run.
 
 - **Parameters:** b — a text buffer
 - **Returns:** the raw-backspace result
@@ -1185,7 +1185,7 @@ Deletes the character before point; at column 0 it joins the current line onto t
 
 #### `(text-delete! b)`
 
-Deletes the character at point (forward delete); at end-of-line it joins the next line onto the current one. A no-op at the very end of the buffer.
+Deletes the character at point (forward delete); at end-of-line it joins the next line onto the current one. A no-op at the very end of the buffer. Coalesces with adjacent character deletes into one undo step (capped at 20 characters), same as `text-backspace!`.
 
 - **Parameters:** b — a text buffer
 - **Returns:** the raw-delete result
@@ -1404,7 +1404,7 @@ Drives the incremental (`C-s`) search loop: finds `needle` at or after `(fr, fc)
 
 #### `(text-screen b cols rows status)`
 
-Renders the buffer as an ANSI escape-coded string for a `cols`×`rows` terminal: row 1 is an inverse-video modeline (name, a `*` if modified, `L`/`C` position), the middle rows are the vertically- and horizontally-scrolled visible text window (blank trailing rows get a `~`, vi-style), the last row is the supplied `status`/echo text, and the string ends with an absolute cursor-park escape so the terminal's hardware cursor lands exactly at point. This call also recomputes and persists `scroll`/`hscroll` (slots 6/8) so point stays on-screen — it is not a pure read.
+Renders the buffer as an ANSI escape-coded string for a `cols`×`rows` terminal: row 1 is an inverse-video modeline (name, a `*` if modified, `L`/`C` position), the middle rows are the vertically- and horizontally-scrolled visible text window (rows past end-of-buffer stay blank, as in Emacs), the last row is the supplied `status`/echo text, and the string ends with an absolute cursor-park escape so the terminal's hardware cursor lands exactly at point. This call also recomputes and persists `scroll`/`hscroll` (slots 6/8) so point stays on-screen — it is not a pure read.
 
 - **Parameters:** b — a text buffer; cols, rows — terminal dimensions; status — the bottom-row status/echo text
 - **Returns:** the full ANSI-coded frame string
@@ -1425,7 +1425,7 @@ Load with `(load "editor/10-zipper.lsp")` then `(load "editor/30-buffer.lsp")` t
 
 #### `(form->view form)`
 
-Converts an s-expression into a view-node tree, recursively. Every node — leaf or list — is labelled by a truncated `repr` of the subtree it represents (a structural preview), so a list node shows what it contains rather than just its head symbol.
+Converts an s-expression into a view-node tree, iteratively (an explicit frame stack, like `buffer->view-lines`' own DFS — safe on arbitrarily deep nesting; the fixed GC root stack is 256 slots on the device). Every node — leaf or list — is labelled by a truncated `repr` of the subtree it represents (a structural preview), so a list node shows what it contains rather than just its head symbol.
 
 - **Parameters:** form — any s-expression
 - **Returns:** a view node `(label . children)`
@@ -1884,7 +1884,7 @@ change. The default bindings (as loaded):
 | `C-d` | `text-delete!` |
 | `TAB` | `text-insert-tab!` |
 | `C-/` / `C-x u` | `text-undo!` |
-| `M-/` | `text-redo!` |
+| `C-M-_` / `C-?` | `text-redo!` (the Emacs 28+ `undo-redo` keys; `M-/` is left unbound, reserved for a future dabbrev. The `kec` CLI's key encoder cannot emit either notation yet, so redo is reachable from other hosts but not that TTY.) |
 | `C-@` | `text-set-mark!` |
 | `C-w` | `text-kill-region!` |
 | `M-w` | `text-kill-ring-save!` |
@@ -2298,6 +2298,13 @@ if a co-due sibling's thunk cancels it first — cancellation only affects
 *future* ticks, matching Emacs's behavior. Also: a due repeat fires **exactly
 once** per `timers-advance!` call and re-anchors to `now + repeat`, even after
 a large clock jump — missed periods are not replayed.
+
+**Failed-thunk policy:** each thunk fires under `try`, so a thunk that raises
+cannot skip its co-due siblings or make `timers-advance!` return abnormally —
+and the raiser's timer is **dropped** (a repeating thunk that raises would
+otherwise re-raise every period forever; a one-shot is already gone, so the
+cancel is a no-op). The error itself is swallowed: a thunk that wants to
+report failures must catch its own.
 
 ```lisp
 (cancel-all-timers!)
@@ -2869,7 +2876,11 @@ Load order: after 40-view and 95-host.
 Renders the whole screen: an inverted-video modeline (buffer name + modified
 marker + a fixed help string), the structural tree body (one line per
 `view-line` record, the cursor's line in reverse video), clipped to `rows`,
-followed by the echo line. Every line is clipped to `cols`.
+followed by the echo line. Every line is clipped to `cols`. The body window is
+vertically scrolled so the cursor line is always visible — the persisted buffer
+`scroll` (slot 6, read via `buffer-scroll`) is pulled toward the cursor row
+when it drifts off either edge and written back, the same recompute-and-persist
+scroll `text-screen` does — so this call is not a pure read.
 
 - **Parameters:** b — a buffer; cols/rows — the terminal's visible width/height.
 - **Returns:** one string containing embedded `\n`s and ANSI SGR escapes (reverse-video on/off).

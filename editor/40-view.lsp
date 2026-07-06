@@ -25,10 +25,37 @@
 (defn %node-label (form) (%view-truncate (repr form) VIEW-LABEL-MAX))
 
 ;; (form->view form) -> (label . children)
+;; ITERATIVE over an explicit frame stack, like buffer->view-lines' own DFS —
+;; the naive (map form->view form) recursion grew the fixed GC root stack with
+;; nesting depth (256 slots on the device) and crashed on a deeply nested form.
+;; A frame is [form remaining children-acc]: the list being converted, its
+;; elements still to convert, and the converted children (reversed).
 (defn form->view (form)
-  (if (pair? form)
-      (cons (%node-label form) (map form->view form))
-      (cons (%node-label form) nil)))
+  (if (not (pair? form))
+      (cons (%node-label form) nil)
+      (do
+        (let result nil)
+        (let stack (list (vector form form nil)))
+        (while stack
+          (let top (car stack))
+          (let rem (vector-ref top 1))
+          (if rem
+              (do                                ; convert this frame's next element
+                (vector-set! top 1 (cdr rem))
+                (let c (car rem))
+                (if (pair? c)
+                    (set stack (cons (vector c c nil) stack))
+                    (vector-set! top 2 (cons (cons (%node-label c) nil)
+                                             (vector-ref top 2)))))
+              (do                                ; frame complete -> build its node
+                (let node (cons (%node-label (vector-ref top 0))
+                                (reverse (vector-ref top 2))))
+                (set stack (cdr stack))
+                (if stack
+                    (do (let parent (car stack)) ; hand the node up as a child
+                        (vector-set! parent 2 (cons node (vector-ref parent 2))))
+                    (set result node)))))
+        result)))
 
 ;; Index path (top-level-first) from the buffer root to the focus, derived from
 ;; the zipper crumbs: each frame's reversed-left length is the focus's index

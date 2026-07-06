@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Fixed (editor tier — repository review sweep, Emacs-not-vim)
+- **End-of-buffer rows render blank, not vi-style `~` markers.** knEmacs
+  copies Emacs, never vim (hard product direction); `text-screen` painted
+  vim's signature tilde fringe past end-of-buffer. Emacs leaves those rows
+  blank; now we do too.
+- **Redo moved off `M-/` onto the Emacs 28+ `undo-redo` keys.** In Emacs
+  `M-/` is dabbrev-expand, not redo. `text-redo!` now binds `C-M-_` (with
+  the `C-?` alias); `M-/` is left unbound, reserved for a future dabbrev.
+  The `kec` CLI's key encoder cannot emit either notation yet (ESC+0x1F
+  falls through to `"ESC"`; byte 127 is Backspace), so redo is
+  table-reachable for other hosts and needs a follow-up encoder branch for
+  that TTY.
+- **Undo amalgamates like Emacs: inserts cap at 20 chars, deletes coalesce
+  too.** Insert coalescing was uncapped (a long typing run became one giant
+  undo step) and backspaces/forward-deletes never coalesced (one undo per
+  keystroke). Consecutive character edits now group into 20-character undo
+  steps in both directions, matching `undo-auto-amalgamate`; opposite-
+  direction records never cross-merge.
+- **The TTY help strip advertises only keys that are actually bound.**
+  `%TTY-HELP` listed `C-M-f/b`, `C-M-d/u`, `C-M-k`, `M-(`, and
+  `"C-x C-e eval"` — none resolvable through `editor/55-bindings` or the C
+  dispatcher. `'eval-current` stays declared as a host command with a TODO
+  to re-advertise once a host wires it.
+- **`tty-screen` scrolls the cursor into view.** The body window was taken
+  from the top with no offset, clipping a cursor past the visible rows
+  off-screen. The structural buffer record gains a persisted `scroll` slot
+  (`buffer-scroll`) and `tty-screen` mirrors `text-screen`'s
+  recompute-and-persist scroll.
+- **`form->view` builds the view tree iteratively.** It recursed to nesting
+  depth, exhausting the fixed GC root stack on a deeply nested form (256
+  slots on the device; the desktop's 8192 died at depth 500) — defeating
+  `buffer->view-lines`' own iterative DFS, which calls it. Now an explicit
+  frame stack, same pattern as the DFS.
+- **A raising timer thunk no longer aborts co-due siblings.** Each due
+  thunk in `timers-advance!` fires under `try`; the raiser's timer is
+  dropped (a repeating thunk that raises would otherwise re-raise every
+  period — a raise-loop) and the advance returns normally.
+
 ### Fixed (error-path leak hardening — review sweep, third pass)
 
 Closes the remaining systematic error-path leak class the repository review

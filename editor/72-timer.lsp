@@ -87,6 +87,12 @@
 ;;     device wake). Missed ticks are NOT replayed — callers wanting "roughly
 ;;     every N seconds" are fine; callers counting ticks must not assume one fire
 ;;     per elapsed period.
+;;   - A RAISING thunk is isolated and its timer DROPPED: each thunk runs under
+;;     try, so a raise can't skip co-due siblings or make timers-advance! return
+;;     abnormally, and the raiser's timer is cancelled (a repeating thunk that
+;;     raises would otherwise re-raise every period forever — a raise-loop; a
+;;     one-shot is already gone, so the cancel is a no-op). The error itself is
+;;     swallowed — a thunk wanting to report failures must catch its own.
 (defn timers-advance! (now)
   (let due  (filter (fn (tm) (<= (%timer-due tm) now)) *timers*))
   (let keep (filter (fn (tm) (>  (%timer-due tm) now)) *timers*))
@@ -95,7 +101,13 @@
                           (%timer-repeat tm) (%timer-fn tm)))
          (filter (fn (tm) (%timer-repeat tm)) due)))
   (set *timers* (append keep rearmed))
-  (for-each (fn (tm) ((%timer-fn tm))) due)     ; fire the snapshot
+  (for-each                                     ; fire the snapshot, isolated
+    (fn (tm)
+      ;; the t wrapper disambiguates: only a real raise looks like an error
+      ;; value here, not a thunk that happens to RETURN (:error . msg)
+      (when (error? (try (fn () ((%timer-fn tm)) t)))
+        (cancel-timer (%timer-id tm))))
+    due)
   (length due))
 
 (provide 'editor/timer)
