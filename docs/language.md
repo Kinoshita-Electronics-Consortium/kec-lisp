@@ -451,14 +451,20 @@ Common host forms:
 | `(read-all s)` | Parse **every** top-level form of `s` and return them as a list in source order (the multi-form companion to `read-string`). Nothing is evaluated. Empty/blank input returns `nil`. |
 | `(string-search haystack needle)` | 0-based index of the first occurrence of `needle` in `haystack`, or `nil` if absent. |
 | `(eval form)` | Evaluate an already-read data form in the live image and return its value. `(eval (read-string s))` reads and runs one form; `(for-each eval (read-all s))` runs a whole config string. **`FULL` only** — a privileged editor/REPL-tier capability, deliberately not in `SANDBOX`. |
-| `(load path)` | Read and evaluate a file. `FULL` only. |
+| `(load path)` | Read and evaluate a file. A **relative** path resolves against the **loading file's directory** (the same dependency graph `kec build` bundles), falling back to the CWD when no file exists at the file-relative candidate; at the top level (REPL, `kec eval`) relative paths are CWD-relative. Absolute paths pass through. `FULL` only. |
 | `(provide feature)` / `(provided? feature)` | Mark and query loaded features. |
-| `(require key [path])` | Load a feature once. `FULL` only. |
+| `(require key [path])` | Load a feature once. The path resolves like `load`'s. `FULL` only. |
 | `(read-file path)` | Return file contents as a string. `FULL` only. |
 | `(write-file path value)` / `(append-file path value)` | Write or append a stringified value. Both raise a catchable error on I/O failure. `FULL` only. |
 | `(file-exists? path)` | Truthy if a path exists. `FULL` only. |
 | `(list-dir path)` | Return directory entry names, excluding `.` and `..`; order is unspecified. `FULL` only. |
 | `(getenv name)` | Return an environment value or `nil`. `FULL` only. |
+
+Path and name arguments to the file/system primitives are bounded (4 KB): an
+over-long path raises a catchable "path too long" error instead of being
+silently truncated — a clipped path would name a *different* file. The same
+guard applies to `string->number` / `string->symbol` / `symbol->string`
+arguments and to `provide` / `provided?` / `require` feature names (1 KB).
 
 ### Containers
 

@@ -40,7 +40,14 @@ void kec_host_state_init(kec_HostState *state) {
     state->gensym_counter = 0;
     state->now_base = monotonic_seconds();
     state->pending_count = 0;
+    state->argv = NULL;
+    state->argc = 0;
     kec_host_state_set_container_allocator(state, NULL, NULL);
+}
+
+void kec_host_state_set_args(kec_HostState *state, int argc, char **argv) {
+    state->argc = (argv && argc > 0) ? argc : 0;
+    state->argv = argv;
 }
 
 /* --- Error-path leak guard (host.h) ------------------------------- */
@@ -124,10 +131,25 @@ int kec_checked_byte(fe_Context *ctx, fe_Object **args, const char *who) {
 }
 
 /* Pull the next arg as a C string into a caller buffer; returns length.
-** For the short, bounded conversions (a number's radix form, a path). The
+** For the short, bounded conversions (a number's radix form, a prefix). The
 ** length-aware helpers below replace this for arbitrary user strings. */
 static int arg_str(fe_Context *ctx, fe_Object **args, char *buf, int size) {
     return fe_tostring(ctx, fe_nextarg(ctx, args), buf, size);
+}
+
+/* As arg_str, but raise a catchable "<who>: <what> too long" when the printed
+** form does not fit, instead of silently truncating. A clipped path names a
+** DIFFERENT file — (write-file longpath ...) would clobber the wrong target —
+** and truncate-then-parse misreads string->number / string->symbol input. */
+static int arg_str_bounded(fe_Context *ctx, fe_Object **args, char *buf, int size,
+                           const char *who, const char *what) {
+    fe_Object *v = fe_nextarg(ctx, args);
+    if (kec_strlen_obj(ctx, v, 0) >= (size_t)size) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "%s: %s too long", who, what);
+        fe_error(ctx, msg);
+    }
+    return fe_tostring(ctx, v, buf, size);
 }
 
 /* ------------------------------------------------------------------ */
@@ -577,7 +599,9 @@ static fe_Object *h_number_to_string(fe_Context *ctx, fe_Object *args) {
         }
         v = (long)d;
         neg = v < 0;
-        uv = neg ? (unsigned long)(-(v)) : (unsigned long)v;
+        /* Magnitude in unsigned arithmetic: -(v) is signed-overflow UB for
+        ** INT32_MIN where long is 32 bits (the armhf device target). */
+        uv = neg ? (0UL - (unsigned long)v) : (unsigned long)v;
         if (uv == 0) { tmp[ti++] = '0'; }
         while (uv) { tmp[ti++] = digits[uv % (unsigned)radix]; uv /= (unsigned)radix; }
         if (neg) { buf[bi++] = '-'; }
@@ -590,7 +614,7 @@ static fe_Object *h_number_to_string(fe_Context *ctx, fe_Object *args) {
 static fe_Object *h_string_to_number(fe_Context *ctx, fe_Object *args) {
     char buf[KEC_STRBUF], *end;
     double v;
-    arg_str(ctx, &args, buf, sizeof buf);
+    arg_str_bounded(ctx, &args, buf, sizeof buf, "string->number", "argument");
     v = strtod(buf, &end);
     if (end == buf) { return fe_bool(ctx, 0); } /* unparseable -> nil */
     return fe_number(ctx, (fe_Number)v);
@@ -598,13 +622,13 @@ static fe_Object *h_string_to_number(fe_Context *ctx, fe_Object *args) {
 
 static fe_Object *h_symbol_to_string(fe_Context *ctx, fe_Object *args) {
     char buf[KEC_STRBUF];
-    arg_str(ctx, &args, buf, sizeof buf);
+    arg_str_bounded(ctx, &args, buf, sizeof buf, "symbol->string", "argument");
     return fe_string(ctx, buf);
 }
 
 static fe_Object *h_string_to_symbol(fe_Context *ctx, fe_Object *args) {
     char buf[KEC_STRBUF];
-    arg_str(ctx, &args, buf, sizeof buf);
+    arg_str_bounded(ctx, &args, buf, sizeof buf, "string->symbol", "argument");
     return fe_symbol(ctx, buf);
 }
 
@@ -697,20 +721,18 @@ static fe_Object *h_now(fe_Context *ctx, fe_Object *args) {
 
 /* ------------------ FULL-profile only (file / sys) ----------------- */
 
-static char **g_argv = NULL;
-static int g_argc = 0;
-
-void kec_host_set_args(int argc, char **argv) {
-    g_argc = argc;
-    g_argv = argv;
-}
-
 static fe_Object *h_args(fe_Context *ctx, fe_Object *args) {
+    kec_HostState *state = kec_host_state(ctx);
     fe_Object *res = fe_bool(ctx, 0); /* nil */
-    int i;
+    int i, gc = fe_savegc(ctx);
     (void)args;
-    for (i = g_argc - 1; i >= 0; i--) {
-        res = fe_cons(ctx, fe_string(ctx, g_argv[i]), res);
+    for (i = state->argc - 1; i >= 0; i--) {
+        res = fe_cons(ctx, fe_string(ctx, state->argv[i]), res);
+        /* Keep only the growing list rooted across the GC reset (see
+        ** h_list_dir): without it each arg leaves ~2 stale roots, and ~100
+        ** args overflow the device's 256-slot GC stack. */
+        fe_restoregc(ctx, gc);
+        fe_pushgc(ctx, res);
     }
     return res;
 }
@@ -722,7 +744,7 @@ static fe_Object *h_read_file(fe_Context *ctx, fe_Object *args) {
                   ** that through the ||: keep -Wsometimes-uninitialized quiet */
     char *body;
     fe_Object *res;
-    arg_str(ctx, &args, path, sizeof path);
+    arg_str_bounded(ctx, &args, path, sizeof path, "read-file", "path");
     fp = fopen(path, "rb");
     if (!fp) { fe_error(ctx, "read-file: cannot open file"); }
     /* ftell is -1 on a non-seekable stream (FIFO, /dev/stdin); feeding that
@@ -758,7 +780,7 @@ static fe_Object *h_write_file_mode(fe_Context *ctx, fe_Object *args, const char
     char *body;
     FILE *fp;
     size_t wrote;
-    arg_str(ctx, &args, path, sizeof path);
+    arg_str_bounded(ctx, &args, path, sizeof path, name, "path");
     val = fe_nextarg(ctx, &args);
     body = host_strdup_obj(ctx, val, &len);
     if (!body) {
@@ -796,7 +818,7 @@ static fe_Object *h_append_file(fe_Context *ctx, fe_Object *args) {
 static fe_Object *h_file_exists(fe_Context *ctx, fe_Object *args) {
     char path[KEC_STRBUF];
     struct stat st;
-    arg_str(ctx, &args, path, sizeof path);
+    arg_str_bounded(ctx, &args, path, sizeof path, "file-exists?", "path");
     return fe_bool(ctx, stat(path, &st) == 0);
 }
 
@@ -809,7 +831,7 @@ static fe_Object *h_list_dir(fe_Context *ctx, fe_Object *args) {
     struct dirent *e;
     fe_Object *res = fe_bool(ctx, 0); /* nil */
     int gc;
-    arg_str(ctx, &args, path, sizeof path);
+    arg_str_bounded(ctx, &args, path, sizeof path, "list-dir", "path");
     d = opendir(path);
     if (!d) { fe_error(ctx, "list-dir: cannot open directory"); }
     gc = fe_savegc(ctx);
@@ -830,7 +852,7 @@ static fe_Object *h_list_dir(fe_Context *ctx, fe_Object *args) {
 static fe_Object *h_getenv(fe_Context *ctx, fe_Object *args) {
     char name[KEC_STRBUF];
     const char *v;
-    arg_str(ctx, &args, name, sizeof name);
+    arg_str_bounded(ctx, &args, name, sizeof name, "getenv", "name");
     v = getenv(name);
     if (!v) { return fe_bool(ctx, 0); } /* unset -> nil */
     return fe_string(ctx, v);

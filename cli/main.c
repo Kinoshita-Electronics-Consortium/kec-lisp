@@ -242,10 +242,21 @@ static int do_repl(void) {
         fflush(stderr);
         if (!fgets(line, sizeof line, stdin)) { printf("\n"); break; }
         if (depth == 0 && (strcmp(line, ":q\n") == 0 || strcmp(line, ":quit\n") == 0)) { break; }
-        if (acclen + strlen(line) < sizeof acc) {
-            strcpy(acc + acclen, line);
-            acclen += strlen(line);
+        if (acclen + strlen(line) >= sizeof acc) {
+            /* The form can't fit the accumulator: discard the WHOLE form —
+            ** including chunks already buffered — and reset the paren
+            ** bookkeeping. Dropping only the overflowing chunk while still
+            ** applying its paren_delta submitted a truncated half-form with
+            ** "balanced" counts. */
+            fprintf(stderr, "kec: input too long (form exceeds %zu bytes); discarded\n",
+                    sizeof acc - 1);
+            acc[0] = '\0';
+            acclen = 0;
+            depth = 0;
+            continue;
         }
+        strcpy(acc + acclen, line);
+        acclen += strlen(line);
         depth += paren_delta(line);
         if (depth > 0) { continue; } /* form still open — keep reading */
         depth = 0;
@@ -548,6 +559,18 @@ static int do_nemacs(const char *file) {
                 fclose(fp);
             }
         }
+        /* A NUL byte cannot survive the trip into the editor: Fe strings are
+        ** C strings, so everything after the first NUL would silently vanish
+        ** — and C-x C-s would write the truncated content back over the
+        ** original. Refuse to open rather than silently destroy data. */
+        if (init.len && memchr(init.p, '\0', init.len)) {
+            fprintf(stderr,
+                    "kec nemacs: %s: binary file (contains NUL bytes); refusing to open\n",
+                    file);
+            free(init.p);
+            kec_close(S);
+            return 1;
+        }
         sb_puts(&src, "(set *nemacs* (text-open \"");
         sb_put_escaped(&src, file ? file : "*scratch*");
         sb_puts(&src, "\" \"");
@@ -605,9 +628,16 @@ static int do_nemacs(const char *file) {
                 else                        ms = (int)d;
             }
             pfd.fd = STDIN_FILENO; pfd.events = POLLIN; pfd.revents = 0;
-            if (poll(&pfd, 1, ms) == 0) {            /* timed out: idle tick */
-                kec_eval_string(S, "(timers-advance! (now))", NULL);
-                continue;
+            /* Retry EINTR (like l_poll_key): a signal (SIGWINCH on resize)
+            ** returns -1, which is NOT key-ready — falling through to the
+            ** blocking read stalled armed idle timers until the next key. */
+            {
+                int r;
+                do { r = poll(&pfd, 1, ms); } while (r < 0 && errno == EINTR);
+                if (r == 0) {                        /* timed out: idle tick */
+                    kec_eval_string(S, "(timers-advance! (now))", NULL);
+                    continue;
+                }
             }
         }
 
@@ -696,9 +726,9 @@ static int do_run(int argc, char **argv) {
     kec_State *S;
     int rc;
     if (argc < 1) { fprintf(stderr, "kec run: missing FILE\n"); return 2; }
-    kec_host_set_args(argc, argv); /* (args) -> (FILE script-arg...) */
     S = cli_open();
     if (!S) { fprintf(stderr, "kec: failed to open interpreter\n"); return 1; }
+    kec_set_args(S, argc, argv); /* (args) -> (FILE script-arg...) */
     rc = kec_eval_file(S, argv[0], NULL);
     if (rc != 0) { fprintf(stderr, "kec: %s\n", kec_error(S)); }
     kec_close(S);
@@ -844,6 +874,15 @@ static int bundle_forms(fe_Context *ctx, const char *path, Strbuf *out, int dept
         }
         if (load_form_path(ctx, form, rel, sizeof rel)) {
             path_join(dir, rel, full, sizeof full);
+            /* Match the runtime's load resolution exactly: fall back to the
+            ** path as given (CWD-relative) when nothing exists at the
+            ** file-relative candidate, so run and build always bundle the
+            ** same dependency graph. */
+            if (rel[0] != '/') {
+                FILE *probe = fopen(full, "rb");
+                if (probe) { fclose(probe); }
+                else { snprintf(full, sizeof full, "%s", rel); }
+            }
             if (bundle_forms(ctx, full, out, depth + 1) != 0) {
                 g_build_read_guard->open_count--;
                 fclose(fp);

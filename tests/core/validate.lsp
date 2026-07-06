@@ -48,6 +48,14 @@
   (check-err (number->string 255 8.5))          ; fractional radix
   (check-err (number->string 3.7 16)))          ; non-integral value, radix /= 10
 
+(deftest "validate/number->string-int32-min"
+  ;; INT32_MIN passes the range gate; its magnitude must be computed in
+  ;; unsigned arithmetic — negating the signed value is undefined behavior
+  ;; where long is 32 bits (the armhf device target).
+  (check (is (number->string -2147483648 16) "-80000000"))
+  (check (is (number->string -2147483648 2)
+             "-10000000000000000000000000000000")))
+
 (deftest "validate/rand-int-domain"
   (set-seed! 7)
   (let v (rand-int 10))

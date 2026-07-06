@@ -2,6 +2,69 @@
 
 ## Unreleased
 
+### Fixed (CLI-host & portability — review sweep, final pass)
+
+Closes the remaining CLI-host and portability defects from the 2026-07-05
+repository review (after PRs #66, #67, #68 and the editor-tier pass #69).
+This completes the review backlog.
+
+- **`load` resolves relative paths against the loading file's directory**,
+  matching the dependency graph `kec build` bundles — the same program no
+  longer has two different dependency graphs depending on the CWD. Falls
+  back to the old CWD-relative meaning when nothing exists at the
+  file-relative candidate (so repo-root-relative layouts, including the test
+  suites, keep working); absolute paths and top-level loads (REPL,
+  `kec eval`) are unchanged. `require` paths resolve the same way, and
+  `kec build` applies the identical fallback, so run and build always bundle
+  the same graph. (`tests/cli/load-path.sh`; `docs/language.md` updated.)
+- **`kec nemacs` refuses binary (NUL-bearing) files** instead of silently
+  destroying data. Fe strings are C strings, so everything after the first
+  NUL vanished on open — and `C-x C-s` wrote the truncated content back over
+  the original. Now a clear "binary file … refusing to open" error, exit
+  nonzero, file untouched. (`tests/cli/nemacs-binary.sh`.)
+- **REPL accumulator overflow is loud and clean.** A form larger than the
+  16 KB accumulator had its overflowing chunk dropped while `paren_delta`
+  was still applied, so a truncated half-form was submitted with "balanced"
+  bookkeeping. The whole form is now discarded with an "input too long"
+  diagnostic and the accumulator + paren counter reset.
+  (`tests/cli/repl-overflow.sh`.)
+- **Over-long path/name arguments raise instead of silently truncating.**
+  `read-file` / `write-file` / `append-file` / `file-exists?` / `list-dir` /
+  `getenv` clipped paths at 4 KB — `write-file` could then write a
+  *different existing file*. Same truncate-then-act fix for
+  `string->number` / `string->symbol` / `symbol->string`, and for
+  `provide` / `provided?` / `require` feature names and `load`/`require`
+  paths (the 1 KB registry buffers could dedupe two long names sharing a
+  prefix). All raise catchable "… too long" errors. (`tests/core/pathlen.lsp`.)
+- **`(args)` is context-owned host state.** argv lived in process-global
+  statics shared across every interpreter — the exact class GWP-235/584
+  moved into `kec_HostState` (RNG, gensym, now). New `kec_set_args(S, argc,
+  argv)` (and `kec_host_state_set_args`) replace `kec_host_set_args`; the
+  pointers are borrowed and must outlive the state. `h_args` also no longer
+  grows the GC stack per argument (~2 stale roots per arg overflowed the
+  device's 256-slot stack around 100 args) — same restore/push idiom as
+  `apply`/`read-all` from #68. (`tests/c/test_host_state.c`.)
+- **`number->string` computes INT32_MIN's magnitude in unsigned arithmetic.**
+  `-(v)` on the in-range value `-2147483648` is signed-overflow UB where
+  `long` is 32 bits (the armhf device target). (`tests/core/validate.lsp`.)
+- **`kec nemacs` idle loop no longer treats `poll()` EINTR as key-ready.**
+  A signal (e.g. SIGWINCH on resize) fell through to the blocking read and
+  stalled armed idle timers until the next keystroke; EINTR now retries,
+  the way `poll-key` already did.
+- **`mkembed` is byte-faithful and checks its output.** It stripped every
+  `\r` — including inside Lisp string literals, changing program semantics
+  (now escaped as `\r` in the C literal); a NUL byte in an input silently
+  truncated the embedded source (now a hard error); and all output was
+  unchecked, so a full disk produced a truncated header and exit 0 (now
+  `ferror`/`fclose`-checked, nonzero exit, partial output removed).
+- **Docs CI blind spot closed.** The `Docs` workflow now runs its build job
+  (no deploy) on pull requests touching `docs/**` or `website/**`, so bad
+  Starlight frontmatter fails on the PR instead of only after merge.
+- **Stale `fe_min_arena_bytes` doc comment fixed** (`kernel/fe.h`): it still
+  described the pre-fix "context header only" contract; the floor also
+  covers fe_open's own init allocations (~`P_MAX*6+32` object slots).
+  Comment-only kernel change.
+
 ### Fixed (editor tier — repository review sweep, Emacs-not-vim)
 - **End-of-buffer rows render blank, not vi-style `~` markers.** knEmacs
   copies Emacs, never vim (hard product direction); `text-screen` painted

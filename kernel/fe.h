@@ -128,11 +128,15 @@ void fe_arena_stats(fe_Context *ctx, int *live_objects, int *total_objects);
  * without having to know the internal struct layout. */
 int fe_object_size(void);
 
-/* Minimum arena size in bytes fe_open() can be safely called with: the size
- * of the context header (which fe_open subtracts off the front of the arena).
- * A buffer smaller than this underflows fe_open's internal size and faults
- * before any error handler exists. Embedders that take a caller-supplied
- * arena should reject buffers below this floor. Tracks GCSTACKSIZE. */
+/* Minimum arena size in bytes fe_open() can be safely called with: the
+ * context header (which fe_open subtracts off the front of the arena) PLUS
+ * room for fe_open's own init allocations — the `t` symbol and the P_MAX
+ * built-in primitives, each of which allocates a prim object, an interned
+ * symbol, its name string, and a binding cons (~P_MAX*6 + 32 object slots of
+ * cover). A smaller buffer exhausts the arena inside fe_open, before any
+ * error handler exists. Embedders that take a caller-supplied arena should
+ * reject buffers below this floor. Tracks GCSTACKSIZE (the header is
+ * dominated by the gcstack). */
 int fe_min_arena_bytes(void);
 
 /* Read-only access to the interned-symbol list, for host-side introspection

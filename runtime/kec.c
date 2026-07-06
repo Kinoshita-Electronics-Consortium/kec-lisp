@@ -18,6 +18,7 @@
 #include "kec_core_embed.h" /* generated: static const char KEC_CORE_SRC[] */
 
 #define KEC_GUARD_MAX 32
+#define KEC_PATH_MAX 2048
 
 struct kec_State {
     fe_Context *ctx;
@@ -29,6 +30,14 @@ struct kec_State {
     int had_error;
     jmp_buf recover[KEC_GUARD_MAX];
     int depth; /* number of active guards */
+    /* Directory stack of the files currently being evaluated: a relative
+    ** (load "...") resolves against the top entry (the including file's
+    ** directory), so a program's dependency graph is the same one `kec build`
+    ** bundles and doesn't change with the CWD. Empty at the REPL /
+    ** eval-string top level, where relative loads stay CWD-relative. Depth is
+    ** bounded by the load guard slots (one per nesting level). */
+    char load_dir[KEC_GUARD_MAX][KEC_PATH_MAX];
+    int load_dirs;
 };
 
 static const char g_runtime_state_tag;
@@ -110,6 +119,73 @@ static int run_forms(kec_State *S, fe_ReadFn rfn, void *ud, fe_Object **out) {
 /* kec-level primitives.                                               */
 /* ------------------------------------------------------------------ */
 
+/* Copy obj's printed form into buf, raising catchably when it does not fit —
+** never silently truncating. A clipped path names a *different* file; a
+** clipped feature key dedupes two distinct features sharing a prefix. */
+static void str_arg_bounded(fe_Context *ctx, fe_Object *obj, char *buf, int size,
+                            const char *who, const char *what) {
+    char msg[64];
+    if (kec_strlen_obj(ctx, obj, 0) >= (size_t)size) {
+        snprintf(msg, sizeof msg, "%s: %s too long", who, what);
+        fe_error(ctx, msg);
+    }
+    fe_tostring(ctx, obj, buf, size);
+}
+
+/* ------------------ load-path resolution ------------------ */
+
+/* Directory portion of `path` (with trailing slash), or "" for a bare name. */
+static void dir_of(const char *path, char *dir, size_t sz) {
+    const char *slash = strrchr(path, '/');
+    size_t n;
+    if (!slash) { dir[0] = '\0'; return; }
+    n = (size_t)(slash - path) + 1;
+    if (n >= sz) { n = sz - 1; }
+    memcpy(dir, path, n);
+    dir[n] = '\0';
+}
+
+static void load_dir_push(kec_State *S, const char *path) {
+    if (S->load_dirs < KEC_GUARD_MAX) {
+        dir_of(path, S->load_dir[S->load_dirs], sizeof S->load_dir[0]);
+    }
+    S->load_dirs++;
+}
+
+static void load_dir_pop(kec_State *S) {
+    if (S->load_dirs > 0) { S->load_dirs--; }
+}
+
+/* Resolve a relative load path against the including file's directory — the
+** same dependency graph the `kec build` bundler resolves. Falls back to the
+** path as given (CWD-relative) when nothing exists at the file-relative
+** candidate, so repo-root-relative layouts (the test suites) keep working.
+** Absolute paths and top-level loads (no including file) pass through.
+** Raises, catchably, when the joined path would not fit. */
+static void resolve_load_path(kec_State *S, const char *rel, char *out, size_t outsz,
+                              const char *who) {
+    char msg[64];
+    if (rel[0] != '/' && S->load_dirs > 0 && S->load_dirs <= KEC_GUARD_MAX) {
+        const char *dir = S->load_dir[S->load_dirs - 1];
+        if (dir[0] != '\0') {
+            if (strlen(dir) + strlen(rel) >= outsz) {
+                snprintf(msg, sizeof msg, "%s: path too long", who);
+                fe_error(S->ctx, msg);
+            }
+            snprintf(out, outsz, "%s%s", dir, rel);
+            {
+                FILE *probe = fopen(out, "rb");
+                if (probe) { fclose(probe); return; }
+            }
+        }
+    }
+    if (strlen(rel) >= outsz) {
+        snprintf(msg, sizeof msg, "%s: path too long", who);
+        fe_error(S->ctx, msg);
+    }
+    snprintf(out, outsz, "%s", rel);
+}
+
 static int string_list_has(fe_Context *ctx, fe_Object *xs, const char *needle) {
     char buf[1024];
     while (!fe_isnil(ctx, xs)) {
@@ -188,12 +264,14 @@ static void eval_file_or_error(fe_Context *ctx, const char *path, const char *wh
     }
     if (setjmp(S->recover[slot])) {
         S->depth = slot;
+        load_dir_pop(S);
         fclose(fp);
         snprintf(msg, sizeof msg, "%s", S->errmsg); /* fe_error must not read
                                     ** errmsg itself: on_error snprintfs into it */
         fe_error(ctx, msg);
     }
     S->depth = slot + 1;
+    load_dir_push(S, path); /* nested relative loads resolve against this file */
     for (;;) {
         int gc = fe_savegc(ctx);
         fe_Object *form = fe_readfp(ctx, fp);
@@ -202,13 +280,18 @@ static void eval_file_or_error(fe_Context *ctx, const char *path, const char *wh
         fe_restoregc(ctx, gc);
     }
     S->depth = slot;
+    load_dir_pop(S);
     fclose(fp);
 }
 
-/* (load path) — read + eval a file in the current context. FULL profile. */
+/* (load path) — read + eval a file in the current context. FULL profile.
+** Relative paths resolve against the loading file's directory (see
+** resolve_load_path). */
 static fe_Object *h_load(fe_Context *ctx, fe_Object *args) {
-    char path[1024];
-    fe_tostring(ctx, fe_nextarg(ctx, &args), path, sizeof path);
+    kec_State *S = fe_userdata(ctx, &g_runtime_state_tag);
+    char rel[KEC_PATH_MAX], path[KEC_PATH_MAX];
+    str_arg_bounded(ctx, fe_nextarg(ctx, &args), rel, sizeof rel, "load", "path");
+    resolve_load_path(S, rel, path, sizeof path, "load");
     eval_file_or_error(ctx, path, "load");
     return fe_bool(ctx, 0);
 }
@@ -216,34 +299,39 @@ static fe_Object *h_load(fe_Context *ctx, fe_Object *args) {
 static fe_Object *h_provide(fe_Context *ctx, fe_Object *args) {
     fe_Object *feature = fe_nextarg(ctx, &args);
     char name[1024];
-    fe_tostring(ctx, feature, name, sizeof name);
+    str_arg_bounded(ctx, feature, name, sizeof name, "provide", "feature name");
     global_string_list_add(ctx, "%provided", name);
     return feature;
 }
 
 static fe_Object *h_provided_p(fe_Context *ctx, fe_Object *args) {
     char name[1024];
-    fe_tostring(ctx, fe_nextarg(ctx, &args), name, sizeof name);
+    str_arg_bounded(ctx, fe_nextarg(ctx, &args), name, sizeof name,
+                    "provided?", "feature name");
     return fe_bool(ctx, global_string_list_has(ctx, "%provided", name));
 }
 
 /* (require key [path]) — load once, by feature key. If path is omitted, key's
 ** printed name is used as the path. FULL profile only because it evaluates a
 ** file. Files may call (provide key), but require also records the key after a
-** successful load so plain scripts are still loaded once. */
+** successful load so plain scripts are still loaded once. Relative paths
+** resolve like load's. */
 static fe_Object *h_require(fe_Context *ctx, fe_Object *args) {
+    kec_State *S = fe_userdata(ctx, &g_runtime_state_tag);
     fe_Object *feature = fe_nextarg(ctx, &args);
-    char key[1024], path[1024];
-    fe_tostring(ctx, feature, key, sizeof key);
+    char key[1024], rel[KEC_PATH_MAX], path[KEC_PATH_MAX];
+    str_arg_bounded(ctx, feature, key, sizeof key, "require", "feature name");
     if (!fe_isnil(ctx, args)) {
-        fe_tostring(ctx, fe_nextarg(ctx, &args), path, sizeof path);
+        str_arg_bounded(ctx, fe_nextarg(ctx, &args), rel, sizeof rel,
+                        "require", "path");
     } else {
-        snprintf(path, sizeof path, "%s", key);
+        snprintf(rel, sizeof rel, "%s", key);
     }
     if (global_string_list_has(ctx, "%provided", key) ||
         global_string_list_has(ctx, "%required", key)) {
         return feature;
     }
+    resolve_load_path(S, rel, path, sizeof path, "require");
     eval_file_or_error(ctx, path, "require");
     global_string_list_add(ctx, "%required", key);
     return feature;
@@ -524,6 +612,11 @@ void kec_close(kec_State *S) {
     free(S);
 }
 
+void kec_set_args(kec_State *S, int argc, char **argv) {
+    if (!S) { return; }
+    kec_host_state_set_args(&S->host, argc, argv);
+}
+
 void kec_set_container_allocator_for(kec_State *S,
                                      void *(*alloc)(size_t),
                                      void (*free_)(void *)) {
@@ -550,7 +643,12 @@ int kec_eval_file(kec_State *S, const char *path, fe_Object **out) {
         snprintf(S->errmsg, sizeof S->errmsg, "cannot open file: %s", path);
         return 1;
     }
+    /* Relative loads inside the file resolve against its directory, exactly
+    ** as they would under a nested (load ...). run_forms recovers errors into
+    ** a normal return, so the pop is unconditional. */
+    load_dir_push(S, path);
     rc = run_forms(S, file_readfn, fp, out);
+    load_dir_pop(S);
     fclose(fp);
     return rc;
 }
