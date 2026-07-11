@@ -31,7 +31,7 @@ Every Lisp value is a `fe_Object` — two machine words (`car` and `cdr`, each a
 | `0` | `FE_TPAIR` — `car` and `cdr` are pointers to other objects |
 | `1` | Non-pair — full type code stored in bits 2–7 of `car` |
 
-Bit 1 of `car` is the **GC mark bit** (`GCMARKBIT = 0x2`). It is always `0` outside of `collectgarbage()`.
+Bit 1 of `car` is the **GC mark bit** (`GCMARKBIT = 0x2`). It is `0` while a program runs; both `collectgarbage()` and the cycle-detecting `fe_write` set it transiently and clear it before returning.
 
 Non-pair types: `FE_TNIL`, `FE_TNUMBER`, `FE_TSYMBOL`, `FE_TSTRING`, `FE_TFUNC`, `FE_TMACRO`, `FE_TPRIM`, `FE_TCFUNC`, `FE_TPTR`, `FE_TFREE`.
 
@@ -173,6 +173,7 @@ Changes applied on top of rxi/fe 1.0, in `kernel/fe.c` and `kernel/fe.h`:
 | **Tagged context userdata** | GWP-235 | `fe_set_userdata` / `fe_userdata` provide four fixed, non-owning tagged entries for runtime and portable-host state without numeric slot collisions. |
 | **Composable typed pointers** | GWP-235 | `fe_register_ptr_type` / `fe_ptr_typed` / `fe_ptr_is_type` dispatch foreign-pointer lifecycle callbacks by registered tag while retaining legacy raw-pointer handlers. |
 | **Typed-pointer setter** | GWP-584 | `fe_set_ptr` replaces an `FE_TPTR`'s pointer, enabling leak-free two-phase foreign construction (pointer object first, backing attached after). |
+| **Standard-global symbol protection** | GWP-584 | `fe_protect_symbol` / `fe_symbol_protected` / `fe_set_symbol_protection_enabled` plus a `SYM_PROTECTED` bit freeze standard globals against rebinding via `set` and top-level `let`; applied to the primitives in `fe_open`, extended by `kec_protect_standard_globals`. |
 
 ---
 

@@ -116,6 +116,7 @@ cleanup, re-raise if the result was an `error?`.
 - **`equal?` cycle-safety** — bounded/seen-set traversal so a cyclic structure
   cannot hang the device.
 - **Exact integers beyond ±2²⁴**, optional float trig (`sin`/`cos`/`atan2`).
+  *(Trig has since shipped — see ADR-0005.)*
 
 ## Rejected (won't do)
 

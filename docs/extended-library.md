@@ -530,6 +530,17 @@ Returns the buffer's underlying undo ring (see `20-undo.lsp`), for hosts that wa
 (undo-depth (buffer-undo-ring (make-buffer "s" (read-all "(a b)"))))  ; => 0
 ```
 
+#### `(buffer-scroll b)`
+
+Returns the buffer's scroll position (slot 6): the top visible view-line index. Owned and persisted by a line-oriented renderer (`96-tty`) so the cursor row stays on-screen across frames; starts at 0 for a fresh buffer.
+
+- **Parameters:** b — a buffer
+- **Returns:** the top visible view-line index (a number)
+
+```lisp
+(buffer-scroll (make-buffer "s" (read-all "(a b)")))  ; => 0
+```
+
 #### `(buffer-forms b)`
 
 Returns the whole buffer as a flat list of top-level forms (round-trips through `loc->forms`).
@@ -1462,7 +1473,7 @@ Returns the modeline string: the buffer name, plus `" *"` when modified.
 
 #### `(buffer-echo b)`
 
-Returns a one-line cursor-context hint for the echo area. While composing a literal (see `buffer-enter-literal!` in `30-buffer.lsp`), shows the pending text with a trailing caret (`_`); otherwise shows the focus's kind (`:list` for a pair, else its `type-of` keyword, e.g. `:symbol`) and its crumb depth.
+Returns a one-line cursor-context hint for the echo area. While composing a literal (see `buffer-enter-literal!` in `30-buffer.lsp`), shows the pending text prefixed with `literal: ` and followed by a trailing caret (`_`) — e.g. `literal: xy_`; otherwise shows the focus's kind (`:list` for a pair, else its `type-of` keyword, e.g. `:symbol`) and its crumb depth.
 
 - **Parameters:** b — a buffer
 - **Returns:** the echo string
@@ -2362,13 +2373,34 @@ Worked example: candidates `map`/`filter`/`foldl`/`car` (functions) and
                        (list (cons "map" 4) (cons "filter" 2))
                        (list "car" "cdr")))
 (rank cands (ranker-context 'function nil nil nil) idx)
-; => ((9 . "map") (7 . "filter"))
+; => ((9 . "map") (7 . "filter") (5 . "foldl"))
 ```
 `map` scores 5 (vocab) + 4 (popularity) = 9; `filter` scores 5 + 2 = 7;
-`foldl` would score 5 but the ranker only returns non-zero-filtered legal
-candidates present — here `car` is excluded as a builtin and `xs`/`acc` are
-illegal at a `function` position, so only `map`/`filter` (and `foldl` at 5)
-survive the filter; `rank-tokens` gives just the names in order.
+`foldl` scores 5 (vocab only). All three are returned — the filter drops only
+`car` (a builtin) and `xs`/`acc` (bindings, illegal at a `function` position).
+`rank-tokens` gives just the names in order.
+
+#### `(string-less? a b)`
+
+Lexicographic string ordering by char code — `t` if `a` sorts before `b`
+(shorter is "less" on a prefix tie). Hand-rolled because there is no built-in
+`string<`; also reused by `85-minibuffer` for sorting completions.
+
+- **Parameters:** a, b — strings.
+- **Returns:** `t` if `a < b` lexicographically, else `nil`.
+
+```lisp
+(string-less? "filter" "map")  ; => t
+```
+
+#### `(better? sa na sb nb)`
+
+The ordering used by `topn-insert`: `t` if candidate `(sa . na)` outranks
+`(sb . nb)` — higher score wins, `string-less?` alphabetic tiebreak on equal
+score.
+
+- **Parameters:** sa, sb — scores; na, nb — candidate name strings.
+- **Returns:** `t` if the first candidate ranks better, else `nil`.
 
 #### `(legal-categories pos)`
 
@@ -2744,7 +2776,7 @@ concerns layered on top by the firmware.
 ```lisp
 (repl-run-guided r (list (cons (read-string "(+ 1 1)") 2)
                           (cons (read-string "(+ 2 2)") 5)))  ; second is wrong on purpose
-; => (((+ 1 1) t) ((+ 2 2) nil))
+; => (((+ 1 1) 1) ((+ 2 2) nil))   ; the pass flag is 1 (truthy, from equal?), not t
 ```
 
 #### `*repl-history-keymap*`
@@ -2889,7 +2921,8 @@ scroll `text-screen` does — so this call is not a pure read.
 (let b (make-buffer "draft" (read-all "(a b c)")))
 (buffer-descend! b)
 (tty-screen b 80 24)
-; => "\x1b[7m draft  C-n/C-p line ... C-x C-c exit\x1b[0m\ndraft\n  (a b c)\n\x1b[7m    a\x1b[0m\n    b\n    c\n:symbol @ depth 2"
+; => "\x1b[7m draft  C-n/C-p line ... C-x C-s save\x1b[0m\ndraft\n  (a b c)\n\x1b[7m    a\x1b[0m\n    b\n    c\n:symbol @ depth 2"
+; (the full modeline help text is 92 chars, so at cols = 80 the tail — "C-x C-c exit" — is clipped off)
 ```
 
 **Note:** the echo line defaults to the buffer's type/depth description

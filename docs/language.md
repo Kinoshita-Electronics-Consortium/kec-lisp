@@ -51,11 +51,11 @@ primitive call.
 
 ### Punctuation Characters
 
-KEC Lisp uses **19 distinct punctuation characters**. Ten are recognized by the
-reader (`read_` in `kernel/fe.c`) as structure; nine appear inside the names of
-kernel primitives and Core definitions you have to type. `!`, `#`, `&`, `%`,
-`^`, `$`, `~`, and `|` are *not* used — there is no bang-mutation convention and
-none are reader-special.
+KEC Lisp uses **21 distinct punctuation characters**. Ten are recognized by the
+reader (`read_` in `kernel/fe.c`) as structure; eleven appear inside the names of
+kernel primitives and Core definitions you have to type. `#`, `&`, `^`, `$`,
+`~`, and `|` are *not* used — none are reader-special and none appear in any
+standard name.
 
 **Reader / structural** — handled specially by the reader:
 
@@ -81,6 +81,8 @@ none are reader-special.
 | `=` | `=`, `==`, `/=`, `<=`, `>=`. | `is` covers equality; `<=`/`>=` still need it. |
 | `+` `-` `*` `/` | Arithmetic primitives; `-` is also the kebab-case separator in most multi-word names. | None. |
 | `:` | Keyword-style symbols, notably `type-of` results (`:number`, `:pair`, ...). | None. |
+| `!` | The bang-mutation suffix — `vector-set!`, `matrix-set!`, `blob-set!`, `hash-set!`, `hash-del!`, `vector-fill!`, `matrix-fill!`, `set-seed!`. | None. |
+| `%` | The private-name prefix for Core internals (`%append`, `%qq`, ...) and the `format` directive character (`%d`, `%x`, ...). | None. |
 
 `<` and `?` have no word-form escape: ordering comparisons and the standard
 predicates can only be written with them. Whether a given physical keyboard can
@@ -237,10 +239,10 @@ full signatures, parameters, and worked examples per function, see the
 
 | Form | Expands to |
 |---|---|
-| `(defn name (params...) body...)` | `(set name (fn (params...) body...))` |
-| `(defmacro name (params...) body...)` | `(set name (mac (params...) body...))` |
-| `(define name value)` | `(set name value)` |
-| `(define (f args...) body...)` | `(set f (fn (args...) body...))` |
+| `(defn name (params...) body...)` | `(do (set name (fn (params...) body...)) name)` |
+| `(defmacro name (params...) body...)` | `(do (set name (mac (params...) body...)) name)` |
+| `(define name value)` | `(do (set name value) name)` |
+| `(define (f args...) body...)` | `(do (set f (fn (args...) body...)) f)` |
 | `(defvar name value)` | `(if (bound? 'name) name (do (set name value) name))` |
 
 Each definition form returns the value it defines, which makes REPL output and
@@ -331,10 +333,12 @@ them. Redefining one is the KEC analog of overriding a standard method that
 *must* run (AMOP §4.2.2, "Overriding the Standard Method") — treat it as
 prohibited, because on a device there is no debugger to catch the fallout.
 
-- **Never shadow** the frozen kernel primitives (`cons`, `car`, `cdr`, `list`,
-  `is`, `not`, `atom`, `if`, `let`, `set`, `fn`, `mac`, `do`, `while`, `and`,
-  `or`, `quote`, `<`, `<=`, `+`, `-`, `*`, `/`) or `gensym`. The macro expanders
-  emit these by name; redefining them corrupts every macro.
+- **Never shadow** the frozen kernel primitives (`cons`, `car`, `cdr`, `setcar`,
+  `setcdr`, `list`, `is`, `not`, `atom`, `print`, `if`, `let`, `set`, `fn`,
+  `mac`, `do`, `while`, `quote`, `and`, `or`, `<`, `<=`, `+`, `-`, `*`, `/`) or
+  `gensym`. The macro expanders emit these by name; redefining them corrupts
+  every macro — and the runtime enforces it: all 26 raise
+  `cannot rebind load-bearing primitive`.
 - **Avoid shadowing** the core list/sequence functions the prelude leans on
   (`nth`, `length`, `reverse`, `append`, `member`, `map`). Macro *expansions* no
   longer depend on them, but the rest of Core does.
@@ -423,7 +427,7 @@ The `kec` CLI uses `FULL`.
 | Math | `mod`, `floor`, `ceil`, `round`, `abs`, `sqrt`, `pow`, `sin`, `cos`, `tan`, `atan2` | both |
 | Bitwise | `bit-and`, `bit-or`, `bit-xor`, `bit-not`, `bit-shl`, `bit-shr` | both |
 | Containers | `make-vector`, `vector`, `vector-ref`, `vector-set!`, `vector-length`, `vector?`, `make-matrix`, `matrix-ref`, `matrix-set!`, `matrix-rows`, `matrix-cols`, `matrix?`, `make-blob`, `blob-ref`, `blob-set!`, `blob-length`, `blob?`, `make-hash-table`, `hash-set!`, `hash-ref`, `hash-has?`, `hash-del!`, `hash-count`, `hash-keys`, `hash-table?` | both |
-| String | `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` | both |
+| String | `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `string-split`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` | both |
 | I/O | `princ`, `newline`, `repr` | both |
 | System | `set-seed!`, `rand`, `rand-int`, `clock`, `now` | both |
 | Control | `try`, `raise`, `apply`, `read-string`, `read-all`, `macroexpand-1`, `provide`, `provided?` | both |
@@ -440,7 +444,7 @@ Common host forms:
 | `(apply f arglist)` | Call `f` with the elements of `arglist`; `f` may be a closure, host primitive, or kernel primitive. |
 | `(read-string s)` | Parse the first s-expression in `s` and return it as data, without evaluating it. Empty input returns `nil`; input length is not clipped to a fixed reader buffer. |
 | `(macroexpand-1 form)` | Expand one symbolic macro call, or return `form` unchanged. Quote the form to inspect: `(macroexpand-1 '(when 1 2))`. |
-| `(macroexpand form)` | Full expansion: loop `macroexpand-1` to a fixpoint. Core macro (`core/36-recover`), not a host primitive. |
+| `(macroexpand form)` | Full expansion: loop `macroexpand-1` to a fixpoint. Core function (`core/36-recover.lsp`), not a host primitive. |
 | `(bit-and a b)` / `(bit-or a b)` / `(bit-xor a b)` / `(bit-not a)` / `(bit-shl a n)` / `(bit-shr a n)` | 32-bit integer bitwise ops. Operands must be finite, integral, and in signed 32-bit range; invalid inputs raise instead of truncating. Negative operands use two's-complement bits, e.g. `(bit-and -1 255)` → `255`. `bit-shr` is a **logical** (zero-fill) right shift; shift counts are masked to `n & 31`. Results remain subject to KEC's single-precision number limit. |
 | `(sin x)` / `(cos x)` / `(tan x)` / `(atan2 y x)` | Trigonometry in **radians** (`atan2` takes `(y x)` like C, resolving the full `-pi..pi` range). `pi` and `tau` are Core constants. Single-precision: results carry ~1e-7 error, so `(sin pi)` is `~1e-7`, not `0` — compare with an epsilon, never `(is …)`. |
 | `(now)` vs `(clock)` | `(now)` is **monotonic** elapsed wall-clock seconds **since this interpreter context opened** (for timers, animation, elapsed-time); `(clock)` is **CPU** seconds (for profiling). `now` never goes backward, and the per-context baseline keeps single-precision numbers sub-millisecond for the life of any session. |
@@ -552,7 +556,7 @@ and [Memory Model](/kec-lisp/memory-model/).
 | Comparison/predicates | `=`, `==`, `/=`, `equal?`, `>`, `>=`, `zero?`, `positive?`, `negative?`, `nil?`, `pair?`, `even?`, `odd?`, `number?`, `symbol?`, `string?`, `fn?` |
 | Higher-order | `map`, `filter`, `remove`, `fold-left`, `fold-right`, `for-each`, `find`, `any?`, `every?`, `count` |
 | Containers | `make-vector`, `vector`, `vector-ref`, `vector-set!`, `vector-length`, `vector?`, `vector->list`, `list->vector`, `vector-map`, `vector-for-each`, `vector-fill!`, `vector-copy`, `make-matrix`, `matrix-ref`, `matrix-set!`, `matrix-rows`, `matrix-cols`, `matrix?`, `matrix-fill!`, `matrix-map`, `matrix-for-each`, `make-blob`, `blob-ref`, `blob-set!`, `blob-length`, `blob?`, `make-hash-table`, `hash-set!`, `hash-ref`, `hash-has?`, `hash-del!`, `hash-count`, `hash-keys`, `hash-table?`, `hash-values`, `hash->alist`, `alist->hash`, `hash-for-each` |
-| Strings | `str`, `join`, `split`, `format`, `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` |
+| Strings | `str`, `join`, `split`, `format`, `string-length`, `string-ref`, `substring`, `string-append`, `string-search`, `string-split`, `char->string`, `number->string`, `string->number`, `symbol->string`, `string->symbol` |
 | String toolkit | `char-upcase`, `char-downcase`, `string-upcase`, `string-downcase`, `pad-left`, `pad-right`, `string-repeat`, `string-prefix?`, `string-suffix?`, `string-contains?` |
 | Bitwise | `bit-and`, `bit-or`, `bit-xor`, `bit-not`, `bit-shl`, `bit-shr` |
 | RNG | `set-seed!`, `rand`, `rand-int` |
