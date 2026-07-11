@@ -21,8 +21,21 @@
   (check (is (substring "hello" 1 3) "el"))
   (check (is (substring "hello" -5 99) "hello")) ; integer clamping preserved
   (check (is (substring "hello" 4 2) ""))        ; end < start clamps empty
+  ;; A start past the end must clamp to empty, exactly like end < start. The
+  ;; unclamped start used to index the heap buffer out of bounds (GWP-700).
+  (check (is (substring "hello" 9 12) ""))
+  (check (is (substring "hello" 99 3) ""))
+  (check (is (substring "hello" 5 5) ""))        ; start == length stays exact
   (check-err (substring "hello" 0.5 3))
   (check-err (substring "hello" 0 (/ 0 0))))
+
+(deftest "validate/string->number-overflow"
+  ;; A magnitude beyond single-precision float range parses to the infinity of
+  ;; its sign — computed explicitly, not via the undefined out-of-range
+  ;; double->float narrowing (GWP-700). Infinity is (/ 1 0) here.
+  (check (is (string->number "1e39") (/ 1 0)))
+  (check (is (string->number "-1e39") (/ -1 0)))
+  (check (is (string->number "3e38") 3e38)))     ; in-range values stay exact
 
 (deftest "validate/string-split"
   (check (is (car (string-split "a,b" 44)) "a"))

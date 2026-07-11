@@ -283,3 +283,16 @@ add_test(NAME c/host-state COMMAND test_host_state)
 add_executable(test_error_leaks tests/c/test_error_leaks.c)
 target_link_libraries(test_error_leaks kec_core m)
 add_test(NAME c/error-leaks COMMAND test_error_leaks)
+
+add_executable(test_gc_roots tests/c/test_gc_roots.c)
+target_link_libraries(test_gc_roots kec_core m)
+add_test(NAME c/gc-roots COMMAND test_gc_roots)
+
+# The generated embed headers must compile under a strict pedantic C11
+# compiler: ISO C11 guarantees only 4095 chars per string literal, so mkembed
+# emits char-array initializers, never literals (GWP-700). A syntax-only
+# compile of the probe TU is the whole test.
+add_test(NAME c/embed-portability
+  COMMAND ${CMAKE_C_COMPILER} -std=c11 -Wall -Wextra -Wpedantic
+          -Woverlength-strings -Werror -fsyntax-only
+          -I ${GEN_DIR} ${CMAKE_SOURCE_DIR}/tests/c/embed_portability.c)

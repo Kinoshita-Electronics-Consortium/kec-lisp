@@ -13,6 +13,7 @@
 #include "host.h"
 
 #include <dirent.h>
+#include <float.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -443,22 +444,28 @@ static fe_Object *h_substring(fe_Context *ctx, fe_Object *args) {
     fe_Object *s = fe_nextarg(ctx, &args);
     int a = (int)kec_checked_int(ctx, &args, "substring");
     int b = (int)kec_checked_int(ctx, &args, "substring");
-    size_t len;
+    size_t len, lo, hi;
     char *buf, save;
     fe_Object *res;
     buf = host_strdup_obj(ctx, s, &len);
     if (!buf) { fe_error(ctx, "substring: out of memory"); }
-    if (a < 0) { a = 0; }
-    if (b > (int)len) { b = (int)len; }
-    if (b < a) { b = a; }
-    /* fe_string copies up to the NUL; clip in place at b, slice from a.
+    /* Clamp BOTH indices into [0, len] before touching the buffer: a start
+    ** past the end used to survive unclamped and index buf out of bounds —
+    ** a heap write through buf[b] (GWP-700). Clamping in size_t also drops
+    ** the (int)len narrowing. */
+    lo = a < 0 ? 0u : (size_t)a;
+    hi = b < 0 ? 0u : (size_t)b;
+    if (lo > len) { lo = len; }
+    if (hi > len) { hi = len; }
+    if (hi < lo) { hi = lo; }
+    /* fe_string copies up to the NUL; clip in place at hi, slice from lo.
     ** The buffer is registered while fe_string can raise out-of-memory. */
-    save = buf[b];
-    buf[b] = '\0';
+    save = buf[hi];
+    buf[hi] = '\0';
     kec_pending_push(ctx, buf);
-    res = fe_string(ctx, buf + a);
+    res = fe_string(ctx, buf + lo);
     kec_pending_pop(ctx, buf);
-    buf[b] = save;
+    buf[hi] = save;
     free(buf);
     return res;
 }
@@ -617,6 +624,11 @@ static fe_Object *h_string_to_number(fe_Context *ctx, fe_Object *args) {
     arg_str_bounded(ctx, &args, buf, sizeof buf, "string->number", "argument");
     v = strtod(buf, &end);
     if (end == buf) { return fe_bool(ctx, 0); } /* unparseable -> nil */
+    /* Overflow to the float infinity of the sign BEFORE narrowing: converting
+    ** a finite double beyond FLT_MAX to float is undefined in ISO C11
+    ** (6.3.1.5) outside Annex F. The observable result stays inf (GWP-700). */
+    if (v > (double)FLT_MAX) { v = (double)INFINITY; }
+    else if (v < -(double)FLT_MAX) { v = -(double)INFINITY; }
     return fe_number(ctx, (fe_Number)v);
 }
 
