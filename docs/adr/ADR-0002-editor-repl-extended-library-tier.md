@@ -3,10 +3,16 @@ title: "ADR-0002: Editor/REPL Extended-Library Tier (knEmacs core in KEC Lisp)"
 description: The host-agnostic structural editor + REPL engine — tree buffer, cursor, keymap-as-data, dispatch, token ranker, REPL loop, serialize/load, lifecycle — lives in KEC Lisp as a provide-gated extended-library tier above Core. Only device concerns stay in the KN-86 firmware, bound through an abstract host seam.
 ---
 
-- **Status:** Accepted
+- **Status:** Accepted (amended — see below)
 - **Date:** 2026-06-21
 - **Deciders:** KEC Lisp maintainers
 - **Supersedes / superseded by:** Amends ADR-0001's container deferral (see Decision §4 → ADR-0003).
+- **Amended (#56):** knEmacs's editing surface is now a real **text buffer**
+  (`editor/32-text.lsp` — lines of characters with a point), not the s-expr
+  tree/zipper described below. The zipper (`editor/10-zipper.lsp`) is retained
+  as the backing for the `kec repl` structural prompt, and the "buffer is a
+  tree, unbalanced parens cannot exist" invariant no longer applies to knEmacs.
+  The tier partition (LIB/SEAM/DEVICE) and everything else here still stands.
 
 ## Context
 

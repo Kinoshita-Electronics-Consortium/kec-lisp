@@ -43,7 +43,7 @@ two-key sequence (`C-x` then `C-s`).
 | `C-k` | kill to end of line (the newline if at end of line) |
 | `C-y` | yank (paste the most recent kill) |
 | `C-s` | incremental search forward (`C-s` again: next match) |
-| `C-/` / `C-x u` | undo (redo: `M-/`) |
+| `C-/` / `C-x u` | undo (redo: `C-M-_`, alias `C-?` — not yet reachable from the `kec` TTY) |
 | `C-x C-s` | save the buffer to its file |
 | `C-x C-c` | quit |
 | `C-h k` *key* | describe what *key* does (help) |
@@ -139,7 +139,9 @@ intentionally small, and some familiar Emacs features are not built yet:
   the buffer itself.
 - **Undo/redo** is built — command-based (it stores the inverse of each edit, not
   whole-buffer snapshots), so it stays cheap on large files. `C-/` (or `C-x u`)
-  undoes; `M-/` redoes; consecutive typing coalesces into one step.
+  undoes; `C-M-_` (or `C-?`) redoes, though neither notation is producible from
+  the `kec` CLI TTY yet; consecutive typing coalesces into one step. `M-/` stays
+  reserved for dabbrev-expand.
 - **Mark, region, kill & yank** are built — `C-Space` sets the mark; `C-w`/`M-w`
   kill/copy the region; `C-k` kills to end of line; `C-y` yanks. There is a
   bounded kill ring; `M-y` (yank-pop) is not built yet, and the mark is a plain

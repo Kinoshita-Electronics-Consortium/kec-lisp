@@ -91,8 +91,8 @@ variadic arithmetic forms fold left.
 
 | Built-in | Semantics |
 |---|---|
-| `(+ a b …)` | Sum. `(+)` → 0. |
-| `(- a b …)` | Subtract. Unary negates: `(- 5)` → -5. |
+| `(+ a b …)` | Sum; folds left. Needs at least one argument — `(+)` raises "too few arguments". |
+| `(- a b …)` | Subtract; folds left from the first argument. No unary negation: `(- 5)` → 5. Negate with `(- 0 5)`. |
 | `(* a b …)` | Product. |
 | `(/ a b …)` | Float division — `(/ 7 2)` → 3.5. |
 | `(< a b)` | Strict less-than. |

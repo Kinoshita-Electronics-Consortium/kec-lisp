@@ -28,6 +28,7 @@ cmake --install build            # install kec → ~/.local/bin (no sudo; prefix
 ./build/kec eval "EXPR"          # evaluate one expression, print result
 ./build/kec build FILE [-o OUT]  # inline top-level loads, parse-check, write one .kec
 ./build/kec test [FILE...]       # run the harness over FILE(s), or the whole embedded suite if none; exit 0 = all green
+./build/kec nemacs [FILE]        # knEmacs text editor in the terminal (alias: edit)
 ```
 
 Run a single conformance file directly (faster than ctest for one file):
@@ -95,12 +96,13 @@ CLI re-loads those `.lsp` files (name order = the `NN-` dependency order) on top
 of the embedded Core at startup, so Core edits take effect with no rebuild. It
 *layers over* the baked-in prelude — adding/changing definitions works live; a
 definition you *delete* lingers from the embedded copy until you rebuild. Dev
-convenience only (CLI subcommands repl/run/eval/test); the embedded Core is what
-ships and what the firmware vendors.
+convenience only (CLI subcommands repl/run/eval/test/nemacs — everything but
+build); the embedded Core is what ships and what the firmware vendors.
 
 **`core/` load order is dependency order** and is hardcoded in `CMakeLists.txt`
-(`CORE_SRCS`): `00-def → 10-list → 20-cmp → 25-alist → 26-plist → 30-pred →
-35-error → 40-ctrl → 45-quasiquote → 50-hof → 60-str → 70-sort`. A new Core module must
+(`CORE_SRCS`): `00-def → 10-list → 15-math → 20-cmp → 25-alist → 26-plist →
+30-pred → 35-error → 36-recover → 40-ctrl → 45-quasiquote → 50-hof →
+52-container → 55-util → 60-str → 65-strtool → 70-sort`. A new Core module must
 be slotted into that list at the right position. The list/sequence functions
 are written **iteratively** on purpose so a library call won't exhaust the GC
 stack on a long list.

@@ -42,9 +42,11 @@ The game will be split into a small reusable library and a runner:
 - `tests/examples/black-ice-trace.lsp` exercises deterministic helpers and a
   short scripted victory/loss path.
 
-The library uses alists as records because KEC Lisp has no vectors, structs, or
-hash tables. Lists are short enough that linear lookup is fine and keeps the
-example idiomatic for the current Core.
+The library uses alists as records because, at the time of this plan, KEC Lisp
+had no vectors, structs, or hash tables. (Vectors and hash tables landed six
+days later in ADR-0003; the example intentionally stays on alists.) Lists are
+short enough that linear lookup is fine and keeps the example idiomatic for
+Core-only code.
 
 ## Expected Language Friction
 

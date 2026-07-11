@@ -58,8 +58,8 @@ Two invariants protect the existing editor:
 
 - **No-timer path is byte-identical.** With nothing armed the registry returns a
   poll timeout of **`-1`** (block forever), so the loop behaves exactly as it did
-  before timers existed. `cli/nemacs-smoke` (the full keystroke→saved-file
-  sequence) passes unchanged.
+  before timers existed. `tests/cli/nemacs-smoke.sh` (the full
+  keystroke→saved-file sequence) passes unchanged.
 - **Modal sub-loops stay blocking.** `confirm_quit` and `isearch` run their own
   reads; timers pause during a prompt, matching Emacs. Only the one main-loop
   read gained the poll wrapper.

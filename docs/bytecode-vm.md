@@ -8,9 +8,10 @@ interpreter is retained.** This document is kept as the implementation-ready pla
 for if/when a revisit trigger fires (§0).
 **Scope:** Replace the Fe tree-walking evaluator with a compile-then-run bytecode
 virtual machine, in-process, no serialized artifact.
-**Relates to:** ADR-0004 (Fe VM selection) — whose title says "Bytecode VM" but
-whose selected option (Fe) is a tree-walker. See the ADR-0004 clarification
-amendment.
+**Relates to:** the KN-86 monorepo's ADR-0004 (`kn-86/docs/adr/ADR-0004-vm-selection.md`,
+the Fe runtime selection) — whose selected option (Fe) is a tree-walker; its
+2026-06-14 amendment defers the bytecode VM. Not this repo's ADR-0004, which is
+about major modes and the minibuffer.
 
 ---
 
@@ -65,7 +66,7 @@ Until one fires, every hour on the VM is an hour not spent on the game.
   cons-cell AST exactly as today, then *compiled* to bytecode and *executed* by a
   stack VM. The tree-walker is removed once the conformance suite passes.
 - **G2 — Eliminate per-reference environment search.** The current
-  `getbound()` ([kernel/fe.c:448](../kernel/fe.c)) walks an association list on
+  `getbound()` ([kernel/fe.c:578](../kernel/fe.c)) walks an association list on
   every variable reference. The compiler resolves every reference to a frame
   slot, an upvalue index, or a global symbol cell. This is the primary speedup.
 - **G3 — Proper tail calls.** Tail-position calls reuse the current frame; deep
@@ -114,7 +115,7 @@ correctness or portability regression.
   laid out within it.
 - **I2 — GC.** Mark-sweep over a fixed object slab; the only roots are
   `ctx->gcstack[]` and `ctx->symlist`
-  ([kernel/fe.c:186](../kernel/fe.c)). Anything the VM holds live — operand
+  ([kernel/fe.c:225](../kernel/fe.c)). Anything the VM holds live — operand
   stack, call frames, in-flight code objects, closures, boxes — **must** be
   reachable from a root or it will be swept mid-run. This is the single largest
   source of risk in this project.
@@ -137,7 +138,7 @@ correctness or portability regression.
   `fe_set` writes `cdr(getbound(sym,&nil))`). Global access is therefore O(1)
   through the interned symbol — the VM keeps this.
 - **I7 — Macros expand before execution.** In the tree-walker a macro rewrites
-  the call site and re-evaluates ([kernel/fe.c:786](../kernel/fe.c)). In the VM,
+  the call site and re-evaluates ([kernel/fe.c:991](../kernel/fe.c)). In the VM,
   macros are expanded at **compile time** (§7.4).
 - **I8 — Embedding API stability.** `fe_eval(ctx, obj)`, `kec_eval_string`, and
   `kec_bind_fe` keep their signatures. `fe_eval` is reimplemented as
@@ -321,7 +322,7 @@ Per function being compiled:
 - **`do`** (and any body) → compile each form; `POP` between them; the last
   form's value is the body's value.
 - **`if`** — Fe's `if` is multi-armed: `(if c1 e1 c2 e2 … [else])`
-  ([kernel/fe.c:673](../kernel/fe.c)). Lower as a `cond`-style chain of
+  ([kernel/fe.c:874](../kernel/fe.c)). Lower as a `cond`-style chain of
   `JMPIFNIL`/`JMP`. An odd trailing arm is the else; a missing else yields `NIL`.
 - **`and` / `or`** → short-circuit chains using `ANDJMP`/`ORJMP`; the surviving
   operand is the result (Fe returns the value, not a boolean).
@@ -443,7 +444,7 @@ tail-call is just "call cfunc, then `RET` its result." This gives proper TCO
 `fe_mark` and `collectgarbage` must learn the new object kinds, and the VM's
 working memory must be rooted.
 
-- **New roots.** `collectgarbage` ([kernel/fe.c:186](../kernel/fe.c)) marks
+- **New roots.** `collectgarbage` ([kernel/fe.c:225](../kernel/fe.c)) marks
   `gcstack` and `symlist` today; it must additionally mark the **operand stack**
   (`stack[0..sp)`) and each active **frame** (its `closure`).
 - **New tracing in `fe_mark`:**

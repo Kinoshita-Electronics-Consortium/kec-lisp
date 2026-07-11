@@ -1195,7 +1195,7 @@ temp — so `rest` can't accidentally shadow or clobber the return value.
 (prog1 1 2 3)  ; => 1
 
 (let x 0)
-(prog1 (set x (+ x 1)) (set x (+ x 100)))  ; => 1
+(prog1 (set x (+ x 1)) (set x (+ x 100)))  ; => nil  (set returns nil, so that is first's value)
 x  ; => 101
 ```
 
