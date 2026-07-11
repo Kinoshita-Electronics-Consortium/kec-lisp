@@ -573,7 +573,7 @@ Appendix C diagnoses how a system implemented in terms of itself (CLOS-in-CLOS) 
 ### Build-time baking trades live-editability for a single relocatable artifact
 - **Where:** pp. 277–278 (App D intro / load `newcl.lisp` then `closette.lisp`)
 - **Insight:** Closette ships as source files loaded in a *fixed sequence* (shims first, then the main file) to establish the environment before user code runs — the prelude is a committed, ordered artifact, not discovered dynamically at use-time.
-- **Why it matters for KEC Lisp:** Direct parallel to `tools/mkembed.c` baking `core/*.lsp` into C string literals so the shipped `kec` binary needs no runtime file lookup. The tradeoff Closette accepts (fixed load order, edit-then-reload) is the one KEC accepts: editing a `core/*.lsp` requires a rebuild for the shipped binary — and KEC's `KEC_CORE_DIR` fast path is the dev-time escape hatch Closette lacked. Keep the baked, ordered prelude as the *shipping* contract; the live-layer is convenience only.
+- **Why it matters for KEC Lisp:** Direct parallel to `tools/mkembed.c` baking `core/*.lsp` into C char arrays so the shipped `kec` binary needs no runtime file lookup. The tradeoff Closette accepts (fixed load order, edit-then-reload) is the one KEC accepts: editing a `core/*.lsp` requires a rebuild for the shipped binary — and KEC's `KEC_CORE_DIR` fast path is the dev-time escape hatch Closette lacked. Keep the baked, ordered prelude as the *shipping* contract; the live-layer is convenience only.
 - **Applicability:** Direct
 
 ### Bootstrap is all-or-nothing → fail cleanly

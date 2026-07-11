@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Fixed (runtime defect hardening, GWP-700)
+
+A fresh repository review pass after the 2026-07-05 backlog closed (#66–#70).
+
+- **`substring` no longer writes out of bounds when the start index is past
+  the end.** The start was clamped low but never against the string length,
+  so `(substring "hello" 9 12)` read a byte past the heap materialization and
+  wrote `'\0'` through it — heap corruption (ASan-confirmed). Both indices now
+  clamp into `[0, length]`; in-range calls keep their exact prior results, and
+  a start past the end yields `""` like every other crossed-range case.
+  (`tests/core/validate.lsp`.)
+- **`string->number` overflow is a defined conversion.** A magnitude beyond
+  single-precision range (`"1e39"`) was narrowed double→float while still
+  finite — undefined in ISO C11 (6.3.1.5) outside Annex F. Overflow now maps
+  explicitly to the float infinity of its sign; the observable result is
+  unchanged. (`tests/core/validate.lsp`.)
+- **Public evaluation no longer accumulates GC roots across calls.**
+  `kec_eval_string` / `kec_eval_file` each left at least one object pinned on
+  the Fe root stack, so an embedder that evaluates per event or tick marched
+  the stack to its cap — 256 slots on the device — and every later eval died
+  with "gc stack overflow" (the desktop's 8192-slot stack masked it). Each
+  top-level call now resets to the state's post-open root floor and re-pins
+  only its result. **Embedding contract, now documented in `kec.h`:** the
+  `out` object stays rooted until the *next* `kec_eval_*` call on the same
+  state — use it, or re-root it with `fe_pushgc`, before evaluating again.
+  Signatures and valid-input semantics are unchanged. (`tests/c/test_gc_roots.c`,
+  ctest `c/gc-roots`.)
+- **The generated embed headers compile under strict C11.** `mkembed` emitted
+  each embed as one concatenated string literal; ISO C11 only requires 4095
+  characters per literal (5.2.4.1) — a pedantic compiler rejects the 32 KB
+  Core embed — and MSVC hard-caps literals at 65535 bytes (the editor embed
+  is 105 KB). Embeds are now char-array initializers (byte-identical content,
+  explicit trailing `0`, `(char)` casts for bytes past 0x7F so signed- and
+  unsigned-`char` platforms both compile warning-free). A new ctest
+  (`c/embed-portability`) compiles the generated headers with
+  `-std=c11 -Wall -Wextra -Wpedantic -Woverlength-strings -Werror` so a
+  regression fails in-tree, not downstream.
+
 ### Fixed (CLI-host & portability — review sweep, final pass)
 
 Closes the remaining CLI-host and portability defects from the 2026-07-05

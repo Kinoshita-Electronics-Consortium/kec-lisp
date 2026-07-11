@@ -147,6 +147,11 @@ whose one implementation is correct everywhere (`sin`, `now`, string ops, …).
 
 - Nothing arena-allocated survives `fe_close`+`fe_open`. Primitives compute
   against live state and return; they don't cache Fe objects across boundaries.
+- An eval result (`out` from `kec_eval_string` / `kec_eval_file`) stays
+  GC-rooted only until the **next** `kec_eval_*` call on the same state, which
+  drops it so repeated calls cannot accumulate GC roots (the device root stack
+  has 256 slots). Use the result — or re-root it with `fe_pushgc` — before
+  evaluating again.
 - Integrity-critical state (save data, ledgers, timing-critical cadence) stays
   C-side and is reached *through* primitives — carts never get a raw pointer
   into it.

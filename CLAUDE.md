@@ -86,8 +86,10 @@ Strict bottom-up layering — each layer only depends on the ones below it:
 ### Core is baked into the binary at build time
 
 `tools/mkembed.c` is compiled to a `mkembed` host tool that converts the `core/*.lsp`
-files (and `tests/harness.lsp`) into C string literals (`build/generated/kec_core_embed.h`,
-`kec_harness_embed.h`). The `kec` binary is a single relocatable artifact with
+files (and `tests/harness.lsp`) into C char-array initializers — not string
+literals, which ISO C11 only guarantees to 4095 chars (ctest
+`c/embed-portability` guards this) — in `build/generated/kec_core_embed.h`,
+`kec_harness_embed.h`. The `kec` binary is a single relocatable artifact with
 no runtime file lookup for the prelude. **Consequence:** editing a `core/*.lsp`
 file requires a rebuild for the change to take effect in the shipped binary.
 
