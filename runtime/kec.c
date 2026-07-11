@@ -28,6 +28,11 @@ struct kec_State {
     kec_Profile profile;
     char errmsg[256];
     int had_error;
+    /* Root-stack top right after setup. Every top-level public eval resets to
+    ** it on entry, so repeated calls pin at most one result object (the
+    ** previous call's `out`) instead of accumulating one root per call —
+    ** which overflowed the device's 256-slot GC stack (GWP-700). */
+    int gc_base;
     jmp_buf recover[KEC_GUARD_MAX];
     int depth; /* number of active guards */
     /* Directory stack of the files currently being evaluated: a relative
@@ -86,8 +91,17 @@ static char file_readfn(fe_Context *ctx, void *udata) {
 static int run_forms(kec_State *S, fe_ReadFn rfn, void *ud, fe_Object **out) {
     fe_Context *ctx = S->ctx;
     int slot = S->depth;
-    int base = fe_savegc(ctx);
-    fe_Object *last = fe_bool(ctx, 0); /* nil */
+    int base;
+    fe_Object *last;
+
+    /* Top-level entry: drop the root pinned for the PREVIOUS public call's
+    ** result, so repeated calls stay bounded (see gc_base). The previous
+    ** `out` object becomes collectible here — its documented lifetime ends
+    ** at the next public call (kec.h). Never fires mid-setup or reentrantly
+    ** (depth > 0), where live roots sit above gc_base. */
+    if (slot == 0) { fe_restoregc(ctx, S->gc_base); }
+    base = fe_savegc(ctx);
+    last = fe_bool(ctx, 0); /* nil */
 
     S->errmsg[0] = '\0';
     S->had_error = 0;
@@ -111,7 +125,14 @@ static int run_forms(kec_State *S, fe_ReadFn rfn, void *ud, fe_Object **out) {
         last = fe_eval(ctx, form);
     }
     S->depth = slot;
-    if (out) { *out = last; }
+    /* Restore to the entry save point (the leak: this was missing, so every
+    ** call left `last` + reader residue pinned), then re-pin only the result
+    ** the caller asked for. */
+    fe_restoregc(ctx, base);
+    if (out) {
+        *out = last;
+        fe_pushgc(ctx, last); /* rooted until the next public call */
+    }
     return 0;
 }
 
@@ -587,6 +608,8 @@ kec_State *kec_open_with_arena(void *buf, size_t size, kec_Profile profile) {
     }
     kec_protect_standard_globals(S);
     S->depth = 0; /* setup complete — drop the setup guard */
+    S->gc_base = fe_savegc(S->ctx); /* the steady-state root-stack floor every
+                                    ** top-level public eval resets to */
     return S;
 }
 

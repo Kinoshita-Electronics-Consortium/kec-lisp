@@ -283,3 +283,7 @@ add_test(NAME c/host-state COMMAND test_host_state)
 add_executable(test_error_leaks tests/c/test_error_leaks.c)
 target_link_libraries(test_error_leaks kec_core m)
 add_test(NAME c/error-leaks COMMAND test_error_leaks)
+
+add_executable(test_gc_roots tests/c/test_gc_roots.c)
+target_link_libraries(test_gc_roots kec_core m)
+add_test(NAME c/gc-roots COMMAND test_gc_roots)

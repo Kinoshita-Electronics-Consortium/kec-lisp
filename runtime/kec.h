@@ -51,7 +51,11 @@ void kec_protect_standard_globals(kec_State *S);
 fe_Context *kec_fe(kec_State *S);
 
 /* Evaluate every top-level form. Returns 0 on success, 1 on error (message
-** in kec_error). `out` (optional) receives the value of the last form. */
+** in kec_error). `out` (optional) receives the value of the last form; it
+** stays GC-rooted only until the NEXT kec_eval_* call on this state, which
+** drops it so repeated calls cannot accumulate GC roots (the device root
+** stack has 256 slots). Use the result — or re-root it with fe_pushgc —
+** before evaluating again. */
 int kec_eval_string(kec_State *S, const char *src, fe_Object **out);
 int kec_eval_file(kec_State *S, const char *path, fe_Object **out);
 
