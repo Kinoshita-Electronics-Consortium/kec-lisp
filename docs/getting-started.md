@@ -20,14 +20,38 @@ cd kec-lisp
 You need CMake and a C compiler.
 
 ```sh
+make                      # configure + build → build/kec
+```
+
+`make` is a thin wrapper over CMake (the real build system). To drive CMake
+yourself instead:
+
+```sh
 cmake -S . -B build       # configure (Release by default)
 cmake --build build       # build → build/kec
 ```
 
-That produces `build/kec`. Run the test suite to confirm everything works:
+Either way you get `build/kec`. Run the test suite to confirm everything works:
 
 ```sh
-ctest --test-dir build --output-on-failure
+make test                 # or: ctest --test-dir build --output-on-failure
+```
+
+## Install
+
+To run `kec` from anywhere instead of typing `./build/kec`, put it on your
+`PATH`:
+
+```sh
+make install              # → ~/.local/bin/kec (no sudo)
+```
+
+`~/.local/bin` is on `PATH` in most shells; if it isn't, add
+`export PATH="$HOME/.local/bin:$PATH"` to your shell profile. Install elsewhere
+with `PREFIX`, and `kec` lands in `<prefix>/bin`:
+
+```sh
+make install PREFIX=/usr/local     # system-wide (needs sudo)
 ```
 
 ## The `kec` CLI
@@ -57,15 +81,10 @@ $ kec eval '(map (fn (x) (* x x)) (range 1 6))'
 Put this in `hello.lsp`:
 
 ```lisp
-(defn fizzbuzz (n)
-  (dotimes (i n)
-    (let k (+ i 1))
-    (princ (cond ((is (mod k 15) 0) "FizzBuzz")
-                 ((is (mod k 3)  0) "Fizz")
-                 ((is (mod k 5)  0) "Buzz")
-                 (else (number->string k))))
-    (newline)))
-(fizzbuzz 15)
+(defn factorial (n)
+  (if (< n 2) 1 (* n (factorial (- n 1)))))
+
+(print (factorial 5))   ; => 120
 ```
 
 …and run it:
