@@ -23,15 +23,10 @@ hero:
 ---
 
 ```lisp
-(defn fizzbuzz (n)
-  (dotimes (i n)
-    (let k (+ i 1))
-    (princ (cond ((is (mod k 15) 0) "FizzBuzz")
-                 ((is (mod k 3)  0) "Fizz")
-                 ((is (mod k 5)  0) "Buzz")
-                 (else (number->string k))))
-    (newline)))
-(fizzbuzz 15)
+(defn factorial (n)
+  (if (< n 2) 1 (* n (factorial (- n 1)))))
+
+(print (factorial 5))   ; => 120
 ```
 
 ## What it is
