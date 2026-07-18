@@ -32,34 +32,44 @@ language.
 Needs CMake and a C compiler.
 
 ```sh
+make
+```
+
+That gives you `build/kec`. `make` is a thin wrapper over CMake (the real build
+system); if you'd rather drive CMake yourself:
+
+```sh
 cmake -S . -B build
 cmake --build build
 ```
 
-That gives you `build/kec`.
+Run `make test` for the suite, `make help` for the full target list.
 
 ## Install
 
-To run `kec` from anywhere instead of typing `./build/kec`, install it:
+Put `kec` on your `PATH` so you can run it from anywhere instead of typing
+`./build/kec`:
 
 ```sh
-cmake --install build
+make install
 ```
 
-By default this installs to `~/.local/bin/kec` — no `sudo`, and `~/.local/bin`
-is already on `PATH` in most shells. (If it isn't, add
+That builds (if needed) and installs to `~/.local/bin/kec`. No `sudo`, and
+`~/.local/bin` is on `PATH` in most shells. (If it isn't, add
 `export PATH="$HOME/.local/bin:$PATH"` to your shell profile.)
 
-To build and install in one step:
+Install elsewhere with `PREFIX`, and `kec` lands in `<prefix>/bin`:
 
 ```sh
-cmake --build build --target install-local
+make install PREFIX=/usr/local     # system-wide (needs sudo)
 ```
 
-Install somewhere else with a prefix — `kec` lands in `<prefix>/bin`:
+The CMake equivalents, if you're driving CMake directly:
 
 ```sh
-cmake --install build --prefix /usr/local     # system-wide (needs sudo)
+cmake --install build                       # install what's built (to ~/.local)
+cmake --build build --target install-local  # build + install in one step
+cmake --install build --prefix /usr/local   # install elsewhere
 ```
 
 ## Use

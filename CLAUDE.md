@@ -17,6 +17,10 @@ monorepo CLAUDE.md ("Repository Topology") and `kn86-docs` ADR-0039.
 
 ## Commands
 
+A `Makefile` wraps the CMake flow below (`make` / `make install` / `make test` /
+`make clean`, plus `PREFIX=`, `BUILD_TYPE=`, `JOBS=`). It just drives `cmake` —
+CMake stays the source of truth (CI and the firmware build the sources directly).
+
 ```sh
 cmake -S . -B build              # configure (Release by default)
 cmake --build build              # build → build/kec
