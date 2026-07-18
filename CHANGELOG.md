@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added (binary file I/O)
+
+- **`write-file` / `append-file` now write a blob's raw bytes verbatim, and a
+  new `read-blob` reads a file back into a blob.** Previously every value went
+  through the string path (`fe_write`), so a blob wrote its printed pointer
+  form and any `NUL` byte truncated the output — binary data (images, audio,
+  save blobs) could not be written from Lisp even though blobs are documented
+  as binary-safe storage. Blobs now bypass the stringifier on write and
+  round-trip byte-exact through `read-blob`; non-blob values keep their exact
+  prior stringifying behavior. New internal accessors `kec_blob_bytes` /
+  `kec_blob_from_bytes` (`host.h`) expose the blob byte buffer to the file
+  primitives without duplicating the container layout. (`tests/core/fileio.lsp`.)
+
 ### Fixed (runtime defect hardening, GWP-700)
 
 A fresh repository review pass after the 2026-07-05 backlog closed (#66–#70).

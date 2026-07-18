@@ -779,21 +779,44 @@ static fe_Object *h_read_file(fe_Context *ctx, fe_Object *args) {
     return res;
 }
 
-/* (write-file path value) / (append-file path value) — write value to a file.
-** The value is stringified the writer's way (raw, like princ / str), so any
-** value works, not just strings. Length-aware so writes past the old 4 KB
-** ceiling are byte-exact (GWP-528/529). Failures route through fe_error
-** (catchable by try); never exit(). FULL profile only. */
+/* (write-file path value) / (append-file path value): write value to a file.
+** A blob is written verbatim as raw bytes (binary-safe); any other value is
+** stringified the writer's way (raw, like princ / str), so any value works,
+** not just strings. Length-aware so writes past the old 4 KB ceiling are
+** byte-exact (GWP-528/529). Failures route through fe_error (catchable by
+** try); never exit(). FULL profile only. */
 static fe_Object *h_write_file_mode(fe_Context *ctx, fe_Object *args, const char *mode,
                                     const char *name) {
     char path[KEC_STRBUF];
     fe_Object *val;
     size_t len;
+    const unsigned char *blob;
     char *body;
     FILE *fp;
     size_t wrote;
     arg_str_bounded(ctx, &args, path, sizeof path, name, "path");
     val = fe_nextarg(ctx, &args);
+
+    /* A blob writes its raw bytes verbatim: binary-safe (NUL and high bytes
+    ** survive), with no stringify or malloc since the bytes are the blob's own
+    ** storage. Every other value type keeps the writer's raw stringification. */
+    if (kec_blob_bytes(ctx, val, &blob, &len)) {
+        fp = fopen(path, mode);
+        if (!fp) {
+            char msg[96];
+            snprintf(msg, sizeof msg, "%s: cannot open file for writing", name);
+            fe_error(ctx, msg);
+        }
+        wrote = fwrite(blob, 1, len, fp);
+        fclose(fp);
+        if (wrote != len) {
+            char msg[64];
+            snprintf(msg, sizeof msg, "%s: short write", name);
+            fe_error(ctx, msg);
+        }
+        return fe_bool(ctx, 1);
+    }
+
     body = host_strdup_obj(ctx, val, &len);
     if (!body) {
         char msg[64];
@@ -824,6 +847,34 @@ static fe_Object *h_write_file(fe_Context *ctx, fe_Object *args) {
 
 static fe_Object *h_append_file(fe_Context *ctx, fe_Object *args) {
     return h_write_file_mode(ctx, args, "ab", "append-file");
+}
+
+/* (read-blob path) -- read a file's raw bytes into a blob. Binary-safe: NUL and
+** high bytes survive, unlike read-file, which returns a NUL-terminated string.
+** Mirrors read-file's seekable-file and error handling. FULL profile only. */
+static fe_Object *h_read_blob(fe_Context *ctx, fe_Object *args) {
+    char path[KEC_STRBUF];
+    FILE *fp;
+    long len = 0; /* see h_read_file: defined for the || short-circuit path */
+    unsigned char *body;
+    fe_Object *res;
+    arg_str_bounded(ctx, &args, path, sizeof path, "read-blob", "path");
+    fp = fopen(path, "rb");
+    if (!fp) { fe_error(ctx, "read-blob: cannot open file"); }
+    if (fseek(fp, 0, SEEK_END) != 0 || (len = ftell(fp)) < 0
+        || fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        fe_error(ctx, "read-blob: not a seekable file");
+    }
+    body = malloc((size_t)len > 0 ? (size_t)len : 1); /* never malloc(0) */
+    if (!body) { fclose(fp); fe_error(ctx, "read-blob: out of memory"); }
+    if (fread(body, 1, (size_t)len, fp) != (size_t)len) { /* short read tolerated */ }
+    fclose(fp);
+    kec_pending_push(ctx, body); /* kec_blob_from_bytes may raise (OOM/oversize) */
+    res = kec_blob_from_bytes(ctx, body, (size_t)len);
+    kec_pending_pop(ctx, body);
+    free(body);
+    return res;
 }
 
 /* (file-exists? path) -> truthy if path exists (any type), else nil. */
@@ -936,6 +987,7 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     if (profile == KEC_PROFILE_FULL) {
         kec_bind_fe(ctx, "args", h_args);
         kec_bind_fe(ctx, "read-file", h_read_file);
+        kec_bind_fe(ctx, "read-blob", h_read_blob);
         kec_bind_fe(ctx, "write-file", h_write_file);
         kec_bind_fe(ctx, "append-file", h_append_file);
         kec_bind_fe(ctx, "file-exists?", h_file_exists);

@@ -114,6 +114,22 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile);
 ** lifecycle. Called by kec_host_register; safe in any profile. */
 void kec_containers_register(fe_Context *ctx);
 
+/* Blob raw-byte access for the file primitives, exposed here so host.c stays
+** binary-safe without duplicating the Blob layout owned by containers.c.
+**
+** kec_blob_bytes: if obj is a blob, point *out at its bytes and set *len_out to
+** its length, returning 1; otherwise return 0 and leave both outputs untouched.
+** The bytes are borrowed (owned by the blob's GC backing, valid until obj is
+** collected); *out is NULL for a zero-length blob. Lets write-file emit a blob
+** verbatim instead of stringifying it.
+**
+** kec_blob_from_bytes: allocate a fresh blob of `len` bytes copied from `src`
+** (src may be NULL only when len == 0). Raises through fe_error on oversize/OOM,
+** so callers must guard any malloc'd buffer they hold (kec_pending_push). */
+int kec_blob_bytes(fe_Context *ctx, fe_Object *obj,
+                   const unsigned char **out, size_t *len_out);
+fe_Object *kec_blob_from_bytes(fe_Context *ctx, const unsigned char *src, size_t len);
+
 /* Set the process default used by subsequently initialized host states. Kept
 ** for source compatibility; prefer kec_set_container_allocator_for(kec_State*)
 ** so independent contexts can use independent allocation domains. */

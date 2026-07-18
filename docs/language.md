@@ -431,7 +431,7 @@ The `kec` CLI uses `FULL`.
 | I/O | `princ`, `newline`, `repr` | both |
 | System | `set-seed!`, `rand`, `rand-int`, `clock`, `now` | both |
 | Control | `try`, `raise`, `apply`, `read-string`, `read-all`, `macroexpand-1`, `provide`, `provided?` | both |
-| File/System | `load`, `require`, `eval`, `read-file`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` | `FULL` only |
+| File/System | `load`, `require`, `eval`, `read-file`, `read-blob`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` | `FULL` only |
 
 Common host forms:
 
@@ -458,8 +458,9 @@ Common host forms:
 | `(load path)` | Read and evaluate a file. A **relative** path resolves against the **loading file's directory** (the same dependency graph `kec build` bundles), falling back to the CWD when no file exists at the file-relative candidate; at the top level (REPL, `kec eval`) relative paths are CWD-relative. Absolute paths pass through. `FULL` only. |
 | `(provide feature)` / `(provided? feature)` | Mark and query loaded features. |
 | `(require key [path])` | Load a feature once. The path resolves like `load`'s. `FULL` only. |
-| `(read-file path)` | Return file contents as a string. `FULL` only. |
-| `(write-file path value)` / `(append-file path value)` | Write or append a stringified value. Both raise a catchable error on I/O failure. `FULL` only. |
+| `(read-file path)` | Return file contents as a string (terminates at the first `NUL`; for binary use `read-blob`). `FULL` only. |
+| `(read-blob path)` | Return file contents as a blob (binary-safe: `NUL` and high bytes preserved). `FULL` only. |
+| `(write-file path value)` / `(append-file path value)` | Write or append a value. A blob is written verbatim as raw bytes (binary-safe); any other value is stringified. Both raise a catchable error on I/O failure. `FULL` only. |
 | `(file-exists? path)` | Truthy if a path exists. `FULL` only. |
 | `(list-dir path)` | Return directory entry names, excluding `.` and `..`; order is unspecified. `FULL` only. |
 | `(getenv name)` | Return an environment value or `nil`. `FULL` only. |
@@ -495,6 +496,7 @@ grids, binary assets, rings, and keyed tables. Because they are foreign objects,
 | `(make-blob length [init-byte])` | A binary-safe byte buffer of integer length, filled with `init-byte` (default `0`). The byte must be an exact integer in `0..255`. |
 | `(blob-ref b i)` / `(blob-set! b i byte)` | 0-based byte read / write. Indices must be exact integers; bytes must be exact integers in `0..255`. `blob-set!` returns the byte. |
 | `(blob-length b)` / `(blob? x)` | Byte length / type test. |
+| Blob file I/O | A blob round-trips to disk byte-exact: `(write-file path b)` / `(append-file path b)` write its raw bytes, and `(read-blob path)` reads a file back into a blob (`FULL` profile). This is the binary path that `read-file`/string values cannot take, since Fe strings terminate at the first `NUL`. |
 | `(make-hash-table)` | An empty hash table. Keys may be **numbers** (by value), **symbols** (by identity), or **strings** (by content); any other key type raises. |
 | `(hash-set! h k v)` / `(hash-ref h k [default])` | Associate `k`→`v` (returns `v`) / look `k` up, returning `default` (or `nil`) when absent. |
 | `(hash-has? h k)` / `(hash-del! h k)` | Membership test / delete (returns `t` if present, else `nil`). |
@@ -561,4 +563,4 @@ and [Memory Model](/kec-lisp/memory-model/).
 | Bitwise | `bit-and`, `bit-or`, `bit-xor`, `bit-not`, `bit-shl`, `bit-shr` |
 | RNG | `set-seed!`, `rand`, `rand-int` |
 | Errors/recovery/loading | `try`, `raise`, `unwind-protect`, `ignore-errors`, `condition-case`, `macroexpand-1`, `macroexpand`, `error`, `error?`, `error-message`, `provide`, `provided?`, `require`, `load` |
-| Full-profile file/system | `read-file`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` |
+| Full-profile file/system | `read-file`, `read-blob`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit` |

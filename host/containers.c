@@ -434,6 +434,30 @@ static fe_Object *h_blob_p(fe_Context *ctx, fe_Object *args) {
     return fe_bool(ctx, c && c->kind == KEC_KIND_BLOB);
 }
 
+/* Public blob accessors (declared in host.h) that let the file primitives in
+** host.c move raw bytes in and out of a blob without the string path, so
+** binary data with NUL/high bytes round-trips. */
+int kec_blob_bytes(fe_Context *ctx, fe_Object *obj,
+                   const unsigned char **out, size_t *len_out) {
+    CHeader *c = backing(ctx, obj);
+    Blob *b;
+    if (!c || c->kind != KEC_KIND_BLOB) { return 0; }
+    b = (Blob *)c;
+    if (out) { *out = b->bytes; }        /* NULL for a zero-length blob */
+    if (len_out) { *len_out = (size_t)b->len; }
+    return 1;
+}
+
+fe_Object *kec_blob_from_bytes(fe_Context *ctx, const unsigned char *src, size_t len) {
+    /* Two-phase like h_make_blob: FE_TPTR first (NULL backing), then alloc the
+    ** backing, then attach, so a raise between steps leaves nothing to leak. */
+    fe_Object *blob = fe_ptr_typed(ctx, NULL, &g_container_tag);
+    Blob *b = alloc_blob(ctx, (int)len, 0);
+    fe_set_ptr(ctx, blob, b);
+    if (src && len > 0) { memcpy(b->bytes, src, len); }
+    return blob;
+}
+
 /* ------------------------------------------------------------------ */
 /* Hash tables (open addressing, linear probe, grow on load).         */
 /* ------------------------------------------------------------------ */

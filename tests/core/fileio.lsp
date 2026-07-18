@@ -63,6 +63,56 @@
   (write-file path "Z")
   (check (is (read-file path) "Z")))
 
+(deftest "write-file/blob-binary-safe"
+  ;; A blob is written verbatim: NUL and high (>127) bytes must survive, which
+  ;; the string path cannot do. read-blob reads them back byte-exact.
+  (let path "kec-write-file-blob.tmp")
+  (let b (make-blob 4))
+  (blob-set! b 0 71)               ; 'G'
+  (blob-set! b 1 0)                ; NUL — truncates a string, not a blob
+  (blob-set! b 2 255)              ; high byte
+  (blob-set! b 3 70)               ; 'F'
+  (write-file path b)
+  (let back (read-blob path))
+  (check (is (blob-length back) 4))
+  (check (is (blob-ref back 0) 71))
+  (check (is (blob-ref back 1) 0))
+  (check (is (blob-ref back 2) 255))
+  (check (is (blob-ref back 3) 70)))
+
+(deftest "write-file/blob-append"
+  ;; append-file also takes the blob path; bytes concatenate byte-exact.
+  (let path "kec-append-file-blob.tmp")
+  (let a (make-blob 2 1))          ; 0x01 0x01
+  (let b (make-blob 2 2))          ; 0x02 0x02
+  (write-file path a)
+  (append-file path b)
+  (let back (read-blob path))
+  (check (is (blob-length back) 4))
+  (check (is (blob-ref back 0) 1))
+  (check (is (blob-ref back 3) 2)))
+
+(deftest "write-file/blob-empty"
+  ;; A zero-length blob writes an empty file and round-trips to an empty blob.
+  (let path "kec-write-file-blob-empty.tmp")
+  (let e (make-blob 0))
+  (write-file path e)
+  (let back (read-blob path))
+  (check (is (blob-length back) 0)))
+
+(deftest "write-file/non-blob-unchanged"
+  ;; The string/number stringify path is untouched by the blob branch.
+  (let path "kec-write-file-nonblob.tmp")
+  (write-file path "plain")
+  (check (is (read-file path) "plain"))
+  (write-file path 42)
+  (check (is (read-file path) "42")))
+
+(deftest "read-blob/errors"
+  (let r (try (fn nil (read-blob "kec-no-such-file-xyzzy.tmp"))))
+  (check (error? r))
+  (check (is (error-message r) "read-blob: cannot open file")))
+
 (deftest "file/preferred-name-errors"
   (let r (try (fn nil (read-file "kec-no-such-file-xyzzy.tmp"))))
   (check (error? r))
