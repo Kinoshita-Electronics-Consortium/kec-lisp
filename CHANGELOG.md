@@ -15,6 +15,28 @@
   `kec_blob_from_bytes` (`host.h`) expose the blob byte buffer to the file
   primitives without duplicating the container layout. (`tests/core/fileio.lsp`.)
 
+### Fixed (arena alignment, GWP-728)
+
+- **`fe_open` now aligns the caller-supplied buffer before carving it into the
+  context header and object array.** It previously cast the raw buffer straight
+  to `fe_Context*` and then `fe_Object*` with no alignment of its own, so it
+  silently required every `kec_open_with_arena` caller to hand it a base that
+  happened to be `fe_Object`-aligned. Embedders declare raw `char[]` /
+  `uint8_t[]` arenas that land aligned only by BSS/stack-layout luck; when an
+  unrelated static shifted the arena to a misaligned address, every `fe_Object`
+  access became an unaligned load/store. That is undefined behavior that
+  ASan/UBSan trap and that crashed the nOSh Release build on the device (root cause of
+  kn-86 GWP-728; a bigger arena did not help because it was alignment, not
+  size). `fe_open` now rounds the base up to `max_align_t` and rounds the header
+  offset up to `alignof(fe_Object)`, so both the context and the object array
+  are always correctly aligned regardless of the buffer's incoming address.
+  `fe_min_arena_bytes()` grows by one `max_align_t` to reserve for the skip, so
+  `kec_open_with_arena`'s size floor keeps its "just-big-enough buffer still
+  opens" contract even on a misaligned base. A C-level test opens a context on
+  a deliberately misaligned base (offsets 1..15) and evaluates a Core form;
+  under UBSan it traps before the fix and is clean after. (`tests/c/test_arena.c`,
+  ctest `c/arena`.)
+
 ### Fixed (runtime defect hardening, GWP-700)
 
 A fresh repository review pass after the 2026-07-05 backlog closed (#66–#70).

@@ -206,12 +206,55 @@ static void test_profile_gating(void) {
     }
 }
 
+/* A caller-supplied buffer whose base is NOT aligned for fe_Object must still
+** open and run. fe_open historically cast the buffer straight to fe_Context*
+** and fe_Object* with no alignment of its own, so it depended on the caller's
+** raw char[] happening to land on an aligned address (kn-86 GWP-728: an
+** unrelated static shifted the arena to a misaligned address and crashed the
+** Release build). Deliberately offset the base by 1..15 bytes so it is
+** guaranteed misaligned, and assert the interpreter still evaluates a Core
+** form. Before the fix this is undefined behavior (an ASan/UBSan build traps,
+** strict-alignment targets fault); after it, every offset opens cleanly. */
+static void test_misaligned_arena_runs(void) {
+    /* +16 headroom so offsetting the base never runs the tail past the array. */
+    static unsigned char pool[(2u * 1024u * 1024u) + 16u];
+    size_t off;
+
+    for (off = 1u; off <= 15u; off++) {
+        void *base = pool + off;
+        size_t size = sizeof pool - off;
+        kec_State *S;
+        fe_Object *out = NULL;
+        char buf[64];
+
+        /* Sanity: the base really is misaligned for fe_Object. */
+        CHECK(((uintptr_t)base % (uintptr_t)fe_object_size()) != 0u,
+              "test bug: chosen base was already fe_Object-aligned");
+
+        S = kec_open_with_arena(base, size, KEC_PROFILE_FULL);
+        CHECK(S != NULL, "kec_open_with_arena returned NULL on a misaligned base");
+        if (!S) { continue; }
+
+        CHECK(kec_eval_string(S, "(map (fn (x) (* x x)) (range 1 4))", &out) == 0,
+              "eval on misaligned arena errored");
+        if (out) {
+            fe_tostring(kec_fe(S), out, buf, (int)sizeof buf);
+            CHECK(strcmp(buf, "(1 4 9)") == 0,
+                  "misaligned-arena eval did not produce (1 4 9)");
+        } else {
+            CHECK(0, "misaligned-arena eval produced no value");
+        }
+        kec_close(S);
+    }
+}
+
 int main(void) {
     test_open_with_arena_runs_core();
     test_too_small_returns_null();
     test_tiny_buffer_returns_null();
     test_oversize_arena_returns_null();
     test_undersized_never_exits();
+    test_misaligned_arena_runs();
     test_close_does_not_free_caller_arena();
     test_profile_gating();
 

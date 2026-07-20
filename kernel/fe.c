@@ -20,6 +20,9 @@
 ** IN THE SOFTWARE.
 */
 
+#include <stdalign.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 #include "fe.h"
 
@@ -1057,12 +1060,38 @@ void fe_reset_instr_count(fe_Context *ctx) {
 fe_Context* fe_open(void *ptr, int size) {
   int i, save;
   fe_Context *ctx;
+  uintptr_t base, aligned;
+  size_t skip, header;
+
+  /* Align the caller's arena before carving it up. fe_open casts the buffer
+  ** straight to fe_Context* and then to fe_Object* with no alignment of its
+  ** own, so it silently required the caller to hand it a base already aligned
+  ** for both. Embedders pass raw char[]/uint8_t[] arenas whose address is
+  ** aligned only by BSS/stack-layout luck; when an unrelated static shifts the
+  ** buffer to a misaligned address, every fe_Object access becomes an
+  ** unaligned load/store. That is undefined behavior: ASan traps it and
+  ** optimized builds crash on strict-alignment targets (kn-86 GWP-728). Round
+  ** the base up to max_align_t, which covers the alignment of every member of
+  ** both fe_Context and fe_Object. */
+  base = (uintptr_t) ptr;
+  aligned = (base + (alignof(max_align_t) - 1u)) &
+            ~(uintptr_t) (alignof(max_align_t) - 1u);
+  skip = (size_t) (aligned - base);
+  size -= (int) skip; /* whatever the alignment cost; embedders reserve for it
+                      ** in fe_min_arena_bytes()'s consumers */
+  ptr = (void*) aligned;
 
   /* init context struct */
   ctx = ptr;
   memset(ctx, 0, sizeof(fe_Context));
-  ptr = (char*) ptr + sizeof(fe_Context);
-  size -= sizeof(fe_Context);
+
+  /* Advance past the header to the object array, rounding the header size up to
+  ** fe_Object alignment so the array base is aligned even if sizeof(fe_Context)
+  ** is not itself a whole multiple of alignof(fe_Object). */
+  header = (sizeof(fe_Context) + (alignof(fe_Object) - 1u)) &
+           ~(size_t) (alignof(fe_Object) - 1u);
+  ptr = (char*) ptr + header;
+  size -= (int) header;
 
   /* init objects memory region */
   ctx->objects = (fe_Object*) ptr;
@@ -1187,8 +1216,12 @@ int fe_min_arena_bytes(void) {
    * header (the original bug) left the floor below fe_open's real need, so
    * fe_open exhausted the arena while registering primitives and exited before
    * any handler existed. P_MAX*6 + 32 objects is a generous cover for the ~110
-   * objects fe_open actually uses. */
-  return (int)(sizeof(fe_Context) + (size_t)(P_MAX * 6 + 32) * sizeof(fe_Object));
+   * objects fe_open actually uses. The extra alignof(max_align_t) covers the
+   * bytes fe_open now skips at the front to align the base plus the header
+   * padding to fe_Object alignment, so a caller-supplied buffer of exactly this
+   * many bytes still survives fe_open even when its base is misaligned. */
+  return (int)(alignof(max_align_t) + sizeof(fe_Context) +
+               (size_t)(P_MAX * 6 + 32) * sizeof(fe_Object));
 }
 
 
