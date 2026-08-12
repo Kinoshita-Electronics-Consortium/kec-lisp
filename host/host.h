@@ -114,6 +114,13 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile);
 ** lifecycle. Called by kec_host_register; safe in any profile. */
 void kec_containers_register(fe_Context *ctx);
 
+/* Bind the TCP socket primitives (tcp-connect / tcp-send / tcp-recv /
+** tcp-close / tcp-listen / tcp-accept) and register their typed FE_TPTR
+** lifecycle. Called by kec_host_register; binds nothing outside
+** KEC_PROFILE_FULL, and nothing at all on a platform without POSIX sockets
+** (see host/net.c). No TLS: terminate it out of process (docs/networking.md). */
+void kec_net_register(fe_Context *ctx, kec_Profile profile);
+
 /* Blob raw-byte access for the file primitives, exposed here so host.c stays
 ** binary-safe without duplicating the Blob layout owned by containers.c.
 **

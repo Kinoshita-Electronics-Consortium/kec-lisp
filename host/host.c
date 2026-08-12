@@ -13,6 +13,7 @@
 #include "host.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <float.h>
 #include <math.h>
 #include <stdint.h>
@@ -733,6 +734,28 @@ static fe_Object *h_now(fe_Context *ctx, fe_Object *args) {
 
 /* ------------------ FULL-profile only (file / sys) ----------------- */
 
+/* (sleep seconds) -> nil. Suspends for `seconds`, which may be fractional:
+** nanosleep gives sub-second resolution where (clock)-spinning would burn a
+** core. A signal cutting the sleep short is resumed from the remaining time,
+** so the full interval always elapses. The motivating case is waiting out a
+** server-supplied cooldown between HTTP requests: a busy-wait there is the
+** difference between a working client and a hot CPU. FULL profile only, since
+** stalling the interpreter is a system capability, like `exit`. */
+static fe_Object *h_sleep(fe_Context *ctx, fe_Object *args) {
+    double secs = (double)arg_num(ctx, &args);
+    struct timespec req, rem;
+    if (!isfinite(secs)) { fe_error(ctx, "sleep: seconds must be finite"); }
+    if (secs < 0) { fe_error(ctx, "sleep: seconds must not be negative"); }
+    req.tv_sec = (time_t)floor(secs);
+    req.tv_nsec = (long)((secs - floor(secs)) * 1e9);
+    if (req.tv_nsec > 999999999L) { req.tv_nsec = 999999999L; }
+    while (nanosleep(&req, &rem) != 0) {
+        if (errno != EINTR) { fe_error(ctx, "sleep: interrupted"); }
+        req = rem; /* resume the remainder rather than returning early */
+    }
+    return fe_bool(ctx, 0);
+}
+
 static fe_Object *h_args(fe_Context *ctx, fe_Object *args) {
     kec_HostState *state = kec_host_state(ctx);
     fe_Object *res = fe_bool(ctx, 0); /* nil */
@@ -984,7 +1007,12 @@ void kec_host_register(fe_Context *ctx, kec_Profile profile) {
     ** Registers a composable typed-FE_TPTR lifecycle (see containers.c). */
     kec_containers_register(ctx);
 
+    /* TCP sockets — FULL profile only, and only where POSIX sockets exist.
+    ** Registers its own typed-FE_TPTR lifecycle (see net.c). */
+    kec_net_register(ctx, profile);
+
     if (profile == KEC_PROFILE_FULL) {
+        kec_bind_fe(ctx, "sleep", h_sleep);
         kec_bind_fe(ctx, "args", h_args);
         kec_bind_fe(ctx, "read-file", h_read_file);
         kec_bind_fe(ctx, "read-blob", h_read_blob);
