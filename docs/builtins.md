@@ -116,9 +116,34 @@ text and `read-all` parses every form, both in any profile; `macroexpand-1`
 expands one quoted macro call for inspection. `bound?` (including bindings whose
 value is `nil`), `globals`, and `fn-params` are read-only reflection over the live
 environment (safe in any profile).
-`eval` evaluates an already-read data form in the live image — the editor/REPL
-keystone — but is a **`FULL`-tier capability**, deliberately not bound into
-`SANDBOX` contexts. There is no socket I/O at the kernel level.
+`eval` evaluates an already-read data form in the live image (the editor/REPL
+keystone) but is a **`FULL`-tier capability**, deliberately not bound into
+`SANDBOX` contexts.
+
+### Networking is a host primitive, `FULL` only
+
+The kernel has no socket I/O. The portable host layer adds six TCP primitives
+plus a sleep call, all gated to `KEC_PROFILE_FULL` exactly as the file and
+system primitives are, and all absent on a platform without POSIX sockets. A
+context can test for them the same way it tests any gate:
+`(bound? 'tcp-connect)`.
+
+| Primitive | Semantics |
+|---|---|
+| `(tcp-connect host port [timeout-ms])` | Resolve and connect; returns a socket handle. Raises on failure, naming host, port, and the OS reason. |
+| `(tcp-send handle value)` | Write the whole payload, looping on partial writes; returns the byte count. Blobs go verbatim. |
+| `(tcp-recv handle max-bytes)` | Read up to `max-bytes`; returns a string, or `nil` at clean EOF. |
+| `(tcp-close handle)` | Close. Idempotent, and a dropped handle is closed by its finalizer. |
+| `(tcp-listen port [backlog])` | Bind and listen on 127.0.0.1; returns a listener handle. |
+| `(tcp-accept handle [timeout-ms])` | Accept one connection; returns a socket handle, or `nil` on timeout. |
+| `(sleep seconds)` | Suspend for a fractional number of seconds, resuming across signals. |
+
+That is the entire C surface. HTTP/1.1 framing, chunked transfer decoding, URL
+encoding, and JSON all live in Lisp above it: `json-parse` / `json-stringify`
+in [Core](/kec-lisp/core-library/), and the client in `examples/http/`. TLS is
+absent by design and terminates outside the process; see
+[Networking](/kec-lisp/networking/) and
+[ADR-0007](https://github.com/Kinoshita-Electronics-Consortium/kec-lisp/blob/main/docs/adr/ADR-0007-network-primitives-and-json.md).
 
 Foreign containers are host primitives, not kernel built-ins. The current
 portable set includes vectors, flat row-major matrices, hash tables, and

@@ -1472,6 +1472,113 @@ Tests whether `needle` occurs anywhere in `s`. Built on the host
 ; => (t t nil)
 ```
 
+#### `(string-concat xs)`
+
+Concatenates a list of pieces into one string. Elements are stringified the way
+`str` renders them.
+
+Reach for this instead of a fold whenever the piece count is large or unknown.
+Folding with `str` is quadratic, since every step copies the whole accumulator.
+A single `(apply str xs)` has the opposite problem: it pushes one GC root per
+argument (`evallist` conses each evaluated argument), so a few hundred pieces
+overflow the device's 256-slot root stack. `string-concat` collapses the list in
+batches of 8, giving O(n log n) copying with at most 8 roots live at a time. The
+JSON writer and the HTTP request builder are both built on it.
+
+- **Parameters:** `xs` — a list of values (possibly `nil`).
+- **Returns:** the concatenation, or `""` for an empty list.
+
+```lisp
+(string-concat (list "GET " "/items" " HTTP/1.1"))  ; => GET /items HTTP/1.1
+(list (string-concat nil) (string-concat (list "a")) (string-concat (list 1 "-" 2)))
+; => ("" "a" "1-2")
+(string-length (string-concat (map (fn (i) "x") (range 0 500))))  ; => 500
+```
+
+---
+
+### `core/68-json.lsp` — a JSON reader and writer
+
+Two public functions, both written in KEC Lisp over the string primitives. See
+[ADR-0007](adr/ADR-0007-network-primitives-and-json.md) for why JSON is Core
+rather than C, and [Networking](networking.md) for the HTTP client that feeds
+it.
+
+**Type mapping.** This is the whole contract:
+
+| JSON | KEC Lisp |
+|---|---|
+| object | hash table, string keys |
+| array | list |
+| string | string |
+| number | number |
+| `true` | `t` |
+| `false` | `nil` |
+| `null` | `nil` |
+
+**`false` and `null` both decode to `nil`,** because `nil` is the only false
+value in the language. A caller that must tell an absent key from a null one
+asks the hash table rather than the value: `(hash-has? obj "key")`. The same
+conflation runs the other way. `nil` is also the empty list, so
+`(json-stringify nil)` is `"null"`, never `"[]"`. A list of elements
+round-trips; an empty array does not.
+
+**Numbers are single-precision.** `fe_Number` is a C `float`, so integers are
+exact only to ±2²⁴ (16777216). A larger JSON integer (a 64-bit id, an
+epoch-millisecond timestamp) decodes to the nearest representable float and is
+silently wrong: `16777217` and `16777216` decode to the same value. Two rules
+follow. Never do arithmetic on epoch seconds from an API. Keep ISO 8601
+timestamps as strings and compare them lexically, which for a fixed-width UTC
+stamp is chronological order and never touches a float.
+
+**A JSON string is never coerced to a number.** Only a number token becomes a
+number, so an identifier like `"6a75cffcf2928a45b1993f68"` stays the string it
+is. (Running that through `string->number` would silently yield `6`.)
+
+Both directions are iterative over an explicit vector stack, so nesting depth
+costs heap rather than GC roots. 400 levels parse fine where recursive descent
+would exhaust the device's root stack.
+
+#### `(json-parse s)`
+
+Decodes one JSON document. Handles the full escape set: `\" \\ \/ \b \f \n \r
+\t` and `\uXXXX`, including surrogate pairs, emitting UTF-8.
+
+Anything malformed raises (catchable with `try`, message readable with
+`error-message`), and every message names the byte offset: a silent partial
+parse is worse than a failure. `\u0000` also raises, because KEC strings are
+NUL-terminated: a literal NUL would truncate the value rather than appear in
+it.
+
+- **Parameters:** `s` — a JSON document as a string.
+- **Returns:** the decoded value.
+
+```lisp
+(json-parse "[1, \"two\", true, null]")  ; => (1 "two" t nil)
+(hash-ref (json-parse "{\"id\":\"6a75cffcf2928a45b1993f68\"}") "id")
+; => 6a75cffcf2928a45b1993f68
+(json-parse "\"\\u20ac\"")  ; => €
+(error-message (try (fn () (json-parse "[1,2,x]"))))
+; => json-parse: unexpected character at byte 5
+```
+
+#### `(json-stringify v)`
+
+Encodes a value as JSON. Raises on anything with no JSON spelling (a symbol, a
+function, a vector, an infinity) and on a non-string object key. Object key
+order follows `hash-keys`, which is unspecified, so compare decoded values
+rather than rendered text.
+
+- **Parameters:** `v` — a number, string, `t`, `nil`, list, or hash table.
+- **Returns:** a JSON string.
+
+```lisp
+(json-stringify (list 1 "a\"b" t nil))  ; => [1,"a\"b",true,null]
+(json-stringify nil)                    ; => null
+(do (let h (make-hash-table)) (hash-set! h "k" 7) (json-stringify h))
+; => {"k":7}
+```
+
 ---
 
 ### `core/70-sort.lsp` — stable, iterative merge sort
