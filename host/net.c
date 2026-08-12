@@ -1,13 +1,18 @@
 /*
 ** net.c — KEC Lisp's TCP socket primitives.
 **
-** Seven primitives (tcp-connect / tcp-send / tcp-recv / tcp-close / tcp-listen /
-** tcp-accept / tcp-port), FULL profile only, POSIX sockets only, no link
-** dependency beyond libc. Everything above the byte stream (HTTP framing,
-** JSON, URL encoding) is written in KEC Lisp (core/68-json.lsp,
-** examples/http/http.lsp). TLS is NOT
-** here and is not planned: terminate it out of process with stunnel or socat
-** and speak cleartext to the local listener (see docs/networking.md, ADR-0007).
+** Eight primitives (tcp-connect / tls-connect / tcp-send / tcp-recv /
+** tcp-close / tcp-listen / tcp-accept / tcp-port), FULL profile only, POSIX
+** sockets. Everything above the byte stream (HTTP framing, JSON, URL encoding)
+** is written in KEC Lisp (core/68-json.lsp, examples/http/http.lsp).
+**
+** TLS is IN PROCESS, over OpenSSL (ADR-0007). tls-connect performs the
+** handshake and returns the same kind of handle tcp-connect does, so
+** tcp-send / tcp-recv / tcp-close drive an encrypted connection and a
+** cleartext one identically. Certificates are ALWAYS verified: chain to a
+** trusted root, plus a hostname (or IP) match. There is no way to turn that
+** off from Lisp, because a silent downgrade is the failure mode that makes
+** TLS worthless.
 **
 ** PORTABILITY. The whole implementation is gated on <sys/socket.h> being
 ** present. A platform without it (a bare-metal or Windows build of the
@@ -51,6 +56,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <arpa/inet.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#include <openssl/x509v3.h>
+
 /* SIGPIPE suppression is per-socket, never process-wide: installing a global
 ** SIG_IGN would change the behavior of the whole embedding program (the KN-86
 ** firmware, or any host linking libkec). BSD/macOS take it as a socket option
@@ -69,9 +79,23 @@ static const char g_net_tag;
 
 /* The handle's backing. `fd` is -1 once closed, which is what makes tcp-close
 ** idempotent and keeps the finalizer from double-closing (or worse, closing a
-** descriptor number the process has since reused). */
+** descriptor number the process has since reused).
+**
+** `ssl` is NULL on a plaintext socket and non-NULL once tls-connect has
+** completed a handshake; every read and write below branches on it, which is
+** what lets one set of send/recv/close primitives serve both. `ctx` is the
+** SSL_CTX that produced `ssl`, kept here so the two are freed together.
+**
+** One SSL_CTX per connection is deliberate. A shared one would have to live
+** somewhere with a lifetime tied to the interpreter, and the only correct
+** places are a process global (which this tree avoids: independent contexts
+** must not share mutable state) or new teardown plumbing through kec_close.
+** The cost is re-reading the CA bundle per connect, a few milliseconds, which
+** is invisible next to the handshake itself. */
 typedef struct {
     int fd;
+    SSL *ssl;
+    SSL_CTX *ctx;
 } NetSock;
 
 /* ------------------------------------------------------------------ */
@@ -83,7 +107,9 @@ static void net_gc(fe_Context *ctx, void *ptr) {
     NetSock *s = ptr;
     (void)ctx;
     if (s) {
-        if (s->fd >= 0) { close(s->fd); } /* dropped handle: no fd leak */
+        if (s->ssl) { SSL_free(s->ssl); }        /* dropped handle: no leak */
+        if (s->ctx) { SSL_CTX_free(s->ctx); }
+        if (s->fd >= 0) { close(s->fd); }
         free(s);
     }
 }
@@ -141,6 +167,8 @@ static void net_attach(fe_Context *ctx, fe_Object *obj, int fd, const char *who)
         fe_error(ctx, msg);
     }
     s->fd = fd;
+    s->ssl = NULL;
+    s->ctx = NULL;
     fe_set_ptr(ctx, obj, s);
 }
 
@@ -249,34 +277,154 @@ static int net_connect(int fd, const struct sockaddr *sa, socklen_t len, int tim
 }
 
 /* ------------------------------------------------------------------ */
+/* TLS.                                                                */
+/* ------------------------------------------------------------------ */
+
+/* Most recent OpenSSL error as a human string, for an fe_error message.
+** Falls back to the SSL_get_error code when the error queue is empty (a
+** syscall-level failure leaves nothing queued). */
+static void net_ssl_reason(SSL *ssl, int rc, char *out, size_t outlen) {
+    unsigned long e = ERR_get_error();
+    if (e) {
+        ERR_error_string_n(e, out, outlen);
+        return;
+    }
+    switch (ssl ? SSL_get_error(ssl, rc) : SSL_ERROR_SYSCALL) {
+        case SSL_ERROR_ZERO_RETURN:
+            snprintf(out, outlen, "connection closed by peer");
+            break;
+        case SSL_ERROR_WANT_READ:
+        case SSL_ERROR_WANT_WRITE:
+            snprintf(out, outlen, "timed out");
+            break;
+        default:
+            snprintf(out, outlen, "%s", errno ? strerror(errno) : "protocol error");
+            break;
+    }
+}
+
+/* True when `host` is a numeric address rather than a name. A certificate is
+** matched against an IP SAN in that case, and SNI is omitted: RFC 6066 forbids
+** a literal address in server_name, and a server may reject the handshake for
+** it. */
+static int net_is_ip_literal(const char *host) {
+    unsigned char buf[16];
+    return inet_pton(AF_INET, host, buf) == 1 || inet_pton(AF_INET6, host, buf) == 1;
+}
+
+/* Run the TLS handshake on an already-connected descriptor and attach the
+** session to `s`. Verification is mandatory and configured BEFORE the
+** handshake, so a failure aborts SSL_connect rather than being something the
+** caller could forget to check afterwards:
+**
+**   SSL_CTX_set_verify(SSL_VERIFY_PEER)  chain must reach a trusted root
+**   SSL_set1_host / SSL_set1_ip_asc      the name on the certificate must match
+**
+** Trust roots come from OpenSSL's compiled-in default paths, which the
+** SSL_CERT_FILE and SSL_CERT_DIR environment variables override.
+**
+** On any failure this closes nothing: the caller owns the descriptor until
+** net_attach runs, and s->ssl / s->ctx are freed here before raising. */
+static void net_tls_start(fe_Context *ctx, NetSock *s, const char *host, int port) {
+    char reason[192];
+    char msg[KEC_NET_HOSTMAX + 320];
+    SSL_CTX *sc;
+    SSL *ssl;
+    int rc;
+
+    sc = SSL_CTX_new(TLS_client_method());
+    if (!sc) { fe_error(ctx, "tls-connect: cannot create a TLS context"); }
+    /* TLS 1.0/1.1 are withdrawn; refusing them here means a downgrade cannot
+    ** be negotiated by the peer. */
+    SSL_CTX_set_min_proto_version(sc, TLS1_2_VERSION);
+    SSL_CTX_set_verify(sc, SSL_VERIFY_PEER, NULL);
+    if (!SSL_CTX_set_default_verify_paths(sc)) {
+        SSL_CTX_free(sc);
+        fe_error(ctx, "tls-connect: no trusted CA store (set SSL_CERT_FILE)");
+    }
+
+    ssl = SSL_new(sc);
+    if (!ssl) {
+        SSL_CTX_free(sc);
+        fe_error(ctx, "tls-connect: cannot create a TLS session");
+    }
+    SSL_set_fd(ssl, s->fd);
+
+    {
+        /* Name checking goes through the verification parameters, so a
+        ** mismatch fails the handshake itself. Partial wildcards ("w*.a.com")
+        ** are refused; a leading "*." label is still accepted, as everyone
+        ** issues those. */
+        X509_VERIFY_PARAM *vp = SSL_get0_param(ssl);
+        int ok;
+        /* NEVER_CHECK_SUBJECT is the important one. Without it OpenSSL falls
+        ** back to matching the certificate's CN whenever the certificate has
+        ** no dNSName SAN, which is the pre-RFC-6125 behavior browsers dropped:
+        ** a CN is free-form text, so the fallback lets a certificate issued
+        ** for one purpose satisfy a name it was never meant to cover. Every
+        ** publicly-issued certificate has carried DNS SANs for years, so this
+        ** costs nothing in practice; a hand-rolled internal certificate with
+        ** only a CN will be refused, and should be reissued with a SAN.
+        ** NO_PARTIAL_WILDCARDS refuses "w*.example.com" while still accepting
+        ** an ordinary leading "*." label. */
+        X509_VERIFY_PARAM_set_hostflags(vp, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS
+                                            | X509_CHECK_FLAG_NEVER_CHECK_SUBJECT);
+        if (net_is_ip_literal(host)) {
+            ok = X509_VERIFY_PARAM_set1_ip_asc(vp, host);
+        } else {
+            SSL_set_tlsext_host_name(ssl, host); /* SNI, names only */
+            ok = X509_VERIFY_PARAM_set1_host(vp, host, 0);
+        }
+        if (!ok) {
+            SSL_free(ssl);
+            SSL_CTX_free(sc);
+            fe_error(ctx, "tls-connect: cannot pin the peer identity");
+        }
+    }
+
+    ERR_clear_error();
+    rc = SSL_connect(ssl);
+    if (rc != 1) {
+        long v = SSL_get_verify_result(ssl);
+        if (v != X509_V_OK) {
+            /* A rejected certificate is the interesting failure, so name it
+            ** instead of the generic handshake error it also produces. */
+            snprintf(msg, sizeof msg, "tls-connect: %s:%d: certificate rejected: %s",
+                     host, port, X509_verify_cert_error_string(v));
+        } else {
+            net_ssl_reason(ssl, rc, reason, sizeof reason);
+            snprintf(msg, sizeof msg, "tls-connect: %s:%d: %s", host, port, reason);
+        }
+        SSL_free(ssl);
+        SSL_CTX_free(sc);
+        fe_error(ctx, msg);
+    }
+
+    s->ssl = ssl;
+    s->ctx = sc;
+}
+
+/* ------------------------------------------------------------------ */
 /* Primitives.                                                         */
 /* ------------------------------------------------------------------ */
 
-/* (tcp-connect host port [timeout-ms]) -> socket handle.
-** Resolves host (IPv4 or IPv6) and connects to the first address that answers.
-** With timeout-ms the handshake is bounded AND the handle carries the same
-** value as its read/write deadline. Failure raises a catchable error naming the
-** host, the port, and strerror of the last attempt. */
-static fe_Object *h_tcp_connect(fe_Context *ctx, fe_Object *args) {
-    char host[KEC_NET_HOSTMAX];
+/* Resolve `host` and connect, returning a connected descriptor or raising.
+** Shared by tcp-connect and tls-connect so the two cannot drift on address
+** family handling, timeouts, or error wording. */
+static int net_dial(fe_Context *ctx, const char *host, int port, int timeout_ms,
+                    const char *who) {
     char service[8];
     char msg[KEC_NET_HOSTMAX + 128];
     struct addrinfo hints, *res = NULL, *ai;
-    int port, timeout_ms, rc, fd = -1, last = 0;
-    fe_Object *handle;
+    int rc, fd = -1, last = 0;
 
-    net_arg_str(ctx, &args, host, sizeof host, "tcp-connect", "host");
-    port = net_arg_port(ctx, &args, "tcp-connect", 0);
-    timeout_ms = net_arg_timeout(ctx, &args, "tcp-connect");
     snprintf(service, sizeof service, "%d", port);
-    handle = net_handle(ctx); /* phase 1, before a descriptor exists */
-
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     rc = getaddrinfo(host, service, &hints, &res);
     if (rc != 0) {
-        snprintf(msg, sizeof msg, "tcp-connect: %s:%d: %s", host, port, gai_strerror(rc));
+        snprintf(msg, sizeof msg, "%s: %s:%d: %s", who, host, port, gai_strerror(rc));
         fe_error(ctx, msg);
     }
 
@@ -292,12 +440,60 @@ static fe_Object *h_tcp_connect(fe_Context *ctx, fe_Object *args) {
     freeaddrinfo(res);
 
     if (fd < 0) {
-        snprintf(msg, sizeof msg, "tcp-connect: %s:%d: %s", host, port,
+        snprintf(msg, sizeof msg, "%s: %s:%d: %s", who, host, port,
                  strerror(last ? last : ECONNREFUSED));
         fe_error(ctx, msg);
     }
     net_set_timeouts(fd, timeout_ms);
+    return fd;
+}
+
+/* (tcp-connect host port [timeout-ms]) -> socket handle.
+** Resolves host (IPv4 or IPv6) and connects to the first address that answers.
+** With timeout-ms the handshake is bounded AND the handle carries the same
+** value as its read/write deadline. Failure raises a catchable error naming the
+** host, the port, and strerror of the last attempt. Cleartext: for an HTTPS
+** endpoint use tls-connect. */
+static fe_Object *h_tcp_connect(fe_Context *ctx, fe_Object *args) {
+    char host[KEC_NET_HOSTMAX];
+    int port, timeout_ms, fd;
+    fe_Object *handle;
+
+    net_arg_str(ctx, &args, host, sizeof host, "tcp-connect", "host");
+    port = net_arg_port(ctx, &args, "tcp-connect", 0);
+    timeout_ms = net_arg_timeout(ctx, &args, "tcp-connect");
+
+    handle = net_handle(ctx); /* phase 1, before a descriptor exists */
+    fd = net_dial(ctx, host, port, timeout_ms, "tcp-connect");
     net_attach(ctx, handle, fd, "tcp-connect");
+    return handle;
+}
+
+/* (tls-connect host port [timeout-ms]) -> socket handle.
+** As tcp-connect, then a TLS handshake. The result is an ordinary socket
+** handle: tcp-send, tcp-recv, and tcp-close all work on it unchanged, so
+** protocol code written for cleartext runs over TLS with no edit.
+**
+** The peer certificate is ALWAYS verified, both chain and host name, and a
+** failure raises with the reason (an expired certificate and a name mismatch
+** report differently). There is no flag to skip it.
+**
+** The descriptor is attached to the handle BEFORE the handshake runs, so a
+** handshake failure still leaves the fd owned by the handle's finalizer rather
+** than stranded. */
+static fe_Object *h_tls_connect(fe_Context *ctx, fe_Object *args) {
+    char host[KEC_NET_HOSTMAX];
+    int port, timeout_ms, fd;
+    fe_Object *handle;
+
+    net_arg_str(ctx, &args, host, sizeof host, "tls-connect", "host");
+    port = net_arg_port(ctx, &args, "tls-connect", 0);
+    timeout_ms = net_arg_timeout(ctx, &args, "tls-connect");
+
+    handle = net_handle(ctx);
+    fd = net_dial(ctx, host, port, timeout_ms, "tls-connect");
+    net_attach(ctx, handle, fd, "tls-connect");
+    net_tls_start(ctx, fe_toptr(ctx, handle), host, port);
     return handle;
 }
 
@@ -326,11 +522,28 @@ static fe_Object *h_tcp_send(fe_Context *ctx, fe_Object *args) {
     }
 
     while (sent < len) {
-        ssize_t w = send(s->fd, p + sent, len - sent, KEC_SEND_FLAGS);
-        if (w < 0) {
-            if (errno == EINTR) { continue; }
-            snprintf(msg, sizeof msg, "tcp-send: %s", strerror(errno));
-            fe_error(ctx, msg); /* body (if any) is freed by the error handler */
+        ssize_t w;
+        if (s->ssl) {
+            int n;
+            ERR_clear_error();
+            n = SSL_write(s->ssl, p + sent, (int)(len - sent));
+            if (n <= 0) {
+                char reason[192];
+                if (SSL_get_error(s->ssl, n) == SSL_ERROR_SYSCALL && errno == EINTR) {
+                    continue;
+                }
+                net_ssl_reason(s->ssl, n, reason, sizeof reason);
+                snprintf(msg, sizeof msg, "tcp-send: %s", reason);
+                fe_error(ctx, msg); /* body (if any) is freed by the handler */
+            }
+            w = (ssize_t)n;
+        } else {
+            w = send(s->fd, p + sent, len - sent, KEC_SEND_FLAGS);
+            if (w < 0) {
+                if (errno == EINTR) { continue; }
+                snprintf(msg, sizeof msg, "tcp-send: %s", strerror(errno));
+                fe_error(ctx, msg); /* body (if any) is freed by the handler */
+            }
         }
         sent += (size_t)w;
     }
@@ -365,13 +578,41 @@ static fe_Object *h_tcp_recv(fe_Context *ctx, fe_Object *args) {
     if (!buf) { fe_error(ctx, "tcp-recv: out of memory"); }
     kec_pending_push(ctx, buf); /* fe_string below may raise out-of-memory */
 
-    do { n = recv(s->fd, buf, (size_t)max, 0); } while (n < 0 && errno == EINTR);
-    if (n < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            fe_error(ctx, "tcp-recv: timed out");
+    if (s->ssl) {
+        int r;
+        do {
+            ERR_clear_error();
+            r = SSL_read(s->ssl, buf, max);
+        } while (r <= 0 && SSL_get_error(s->ssl, r) == SSL_ERROR_SYSCALL
+                 && errno == EINTR);
+        if (r <= 0) {
+            int e = SSL_get_error(s->ssl, r);
+            /* A close_notify is the TLS spelling of a clean EOF. So is a
+            ** connection the peer dropped after shutting down the session. */
+            if (e == SSL_ERROR_ZERO_RETURN
+                || (e == SSL_ERROR_SYSCALL && ERR_peek_error() == 0 && errno == 0)) {
+                n = 0;
+            } else {
+                char reason[192];
+                net_ssl_reason(s->ssl, r, reason, sizeof reason);
+                kec_pending_pop(ctx, buf);
+                free(buf);
+                snprintf(msg, sizeof msg, "tcp-recv: %s", reason);
+                fe_error(ctx, msg);
+                n = 0; /* unreachable */
+            }
+        } else {
+            n = (ssize_t)r;
         }
-        snprintf(msg, sizeof msg, "tcp-recv: %s", strerror(errno));
-        fe_error(ctx, msg);
+    } else {
+        do { n = recv(s->fd, buf, (size_t)max, 0); } while (n < 0 && errno == EINTR);
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                fe_error(ctx, "tcp-recv: timed out");
+            }
+            snprintf(msg, sizeof msg, "tcp-recv: %s", strerror(errno));
+            fe_error(ctx, msg);
+        }
     }
     if (n == 0) { /* orderly shutdown by the peer */
         kec_pending_pop(ctx, buf);
@@ -389,6 +630,18 @@ static fe_Object *h_tcp_recv(fe_Context *ctx, fe_Object *args) {
 ** not an error, and the finalizer skips a descriptor closed here. */
 static fe_Object *h_tcp_close(fe_Context *ctx, fe_Object *args) {
     NetSock *s = as_sock(ctx, fe_nextarg(ctx, &args), "tcp-close");
+    if (s->ssl) {
+        /* Send close_notify so the peer sees an orderly shutdown rather than a
+        ** truncation. One try only: a peer that has already gone does not get
+        ** to block a close. */
+        SSL_shutdown(s->ssl);
+        SSL_free(s->ssl);
+        s->ssl = NULL;
+    }
+    if (s->ctx) {
+        SSL_CTX_free(s->ctx);
+        s->ctx = NULL;
+    }
     if (s->fd >= 0) {
         close(s->fd);
         s->fd = -1;
@@ -509,6 +762,7 @@ void kec_net_register(fe_Context *ctx, kec_Profile profile) {
         fe_error(ctx, "socket foreign pointer type registration failed");
     }
     kec_bind_fe(ctx, "tcp-connect", h_tcp_connect);
+    kec_bind_fe(ctx, "tls-connect", h_tls_connect);
     kec_bind_fe(ctx, "tcp-send", h_tcp_send);
     kec_bind_fe(ctx, "tcp-recv", h_tcp_recv);
     kec_bind_fe(ctx, "tcp-close", h_tcp_close);

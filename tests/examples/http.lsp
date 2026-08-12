@@ -81,12 +81,22 @@
   (let s (url-parse "http://example.com/"))
   (check (is (plist-get s ':path) "/")))
 
+(deftest "http/url-parse-https"
+  ;; https parses, defaults to 443, and flags the transport
+  (let u (url-parse "https://api.artifactsmmo.com/my/characters"))
+  (check (is (plist-get u ':scheme) "https"))
+  (check (is (plist-get u ':host) "api.artifactsmmo.com"))
+  (check (is (plist-get u ':port) 443))
+  (check (is (plist-get u ':path) "/my/characters"))
+  (check (plist-get u ':tls))
+  ;; an explicit port still wins
+  (check (is (plist-get (url-parse "https://example.com:8443/x") ':port) 8443))
+  ;; and http stays cleartext on 80
+  (let h (url-parse "http://example.com/x"))
+  (check (is (plist-get h ':port) 80))
+  (check (nil? (plist-get h ':tls))))
+
 (deftest "http/url-parse-rejects"
-  ;; https raises with a pointer at the out-of-process TLS pattern rather than
-  ;; pretending to support it
-  (let r (try (fn () (url-parse "https://api.artifactsmmo.com/"))))
-  (check (error? r))
-  (check (string-contains? (error-message r) "TLS"))
   (check-err (url-parse "ftp://example.com/"))
   (check-err (url-parse "example.com/path"))     ; no scheme
   (check-err (url-parse "http:///path"))         ; no host

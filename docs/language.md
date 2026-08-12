@@ -432,7 +432,7 @@ sockets, and `sleep`. The `kec` CLI uses `FULL`.
 | System | `set-seed!`, `rand`, `rand-int`, `clock`, `now` | both |
 | Control | `try`, `raise`, `apply`, `read-string`, `read-all`, `macroexpand-1`, `provide`, `provided?` | both |
 | File/System | `load`, `require`, `eval`, `read-file`, `read-blob`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit`, `sleep` | `FULL` only |
-| Network | `tcp-connect`, `tcp-send`, `tcp-recv`, `tcp-close`, `tcp-listen`, `tcp-accept`, `tcp-port` | `FULL` only |
+| Network | `tcp-connect`, `tls-connect`, `tcp-send`, `tcp-recv`, `tcp-close`, `tcp-listen`, `tcp-accept`, `tcp-port` | `FULL` only |
 
 Common host forms:
 
@@ -467,6 +467,7 @@ Common host forms:
 | `(getenv name)` | Return an environment value or `nil`. `FULL` only. |
 | `(sleep seconds)` | Suspend for `seconds`, fractions included (`nanosleep` resolution). A signal cutting the sleep short resumes the remainder, so the full interval always elapses. `FULL` only. |
 | `(tcp-connect host port [timeout-ms])` | Resolve `host` (IPv4 or IPv6) and open a TCP connection, returning a socket handle. With `timeout-ms` the handshake is bounded and the handle carries the same value as its read/write deadline. Failure raises, naming host, port, and the OS reason. `FULL` only. |
+| `(tls-connect host port [timeout-ms])` | As `tcp-connect`, then a TLS handshake (OpenSSL). The peer certificate is **always** verified: chain to a trusted root, plus a host-name or IP match, with OpenSSL's CN fallback disabled. A failure raises and names the reason. Returns the same kind of handle `tcp-connect` does, so the send/recv/close primitives are unchanged. `SSL_CERT_FILE` / `SSL_CERT_DIR` override the trust store. `FULL` only. |
 | `(tcp-send handle value)` | Write the whole payload, looping on partial writes; returns the byte count. A blob is sent verbatim (binary-safe); any other value is stringified the way `princ` renders it. `FULL` only. |
 | `(tcp-recv handle max-bytes)` | Read up to `max-bytes` (ceiling 1 MiB) and return them as a string, or `nil` at clean EOF. One call returns whatever one read yields, so callers loop. High bytes survive; an embedded `NUL` truncates the returned string, which caps the contract at text. A timeout expiring raises, so a stall is never mistaken for end-of-stream. `FULL` only. |
 | `(tcp-close handle)` | Close the socket and return `nil`. Idempotent: a second close is not an error. A handle dropped without closing is closed by its finalizer. `FULL` only. |
@@ -574,4 +575,4 @@ and [Memory Model](/kec-lisp/memory-model/).
 | RNG | `set-seed!`, `rand`, `rand-int` |
 | Errors/recovery/loading | `try`, `raise`, `unwind-protect`, `ignore-errors`, `condition-case`, `macroexpand-1`, `macroexpand`, `error`, `error?`, `error-message`, `provide`, `provided?`, `require`, `load` |
 | Full-profile file/system | `read-file`, `read-blob`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit`, `sleep` |
-| Full-profile network | `tcp-connect`, `tcp-send`, `tcp-recv`, `tcp-close`, `tcp-listen`, `tcp-accept`, `tcp-port` |
+| Full-profile network | `tcp-connect`, `tls-connect`, `tcp-send`, `tcp-recv`, `tcp-close`, `tcp-listen`, `tcp-accept`, `tcp-port` |

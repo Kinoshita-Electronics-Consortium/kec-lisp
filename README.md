@@ -24,9 +24,12 @@ language.
 
 ## Build
 
-Needs CMake and a C compiler.
+Needs CMake, a C compiler, and OpenSSL development headers (TLS runs in
+process, so `https://` works with no proxy).
 
 ```sh
+# Debian/Ubuntu:  sudo apt-get install libssl-dev
+# macOS:          brew install openssl@3
 make
 ```
 

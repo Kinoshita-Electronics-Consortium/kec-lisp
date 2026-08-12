@@ -3,8 +3,8 @@ title: "ADR-0007: Network Primitives and JSON"
 description: Accepted addition of six FULL-profile TCP socket primitives plus sleep, with HTTP/1.1, chunked transfer decoding, URL encoding, and JSON written in KEC Lisp above them. TLS terminates outside the process. No new link dependency.
 ---
 
-- **Status:** Accepted
-- **Date:** 2026-08-11
+- **Status:** Accepted (decision 3 revised 2026-08-12: TLS moved in process)
+- **Date:** 2026-08-11, revised 2026-08-12
 - **Deciders:** KEC Lisp maintainers
 - **Supersedes / superseded by:** —
 - **Builds on:** [ADR-0003](ADR-0003-container-types-vectors-hash-tables.md) (hash tables and vectors, which JSON decodes into and stacks on), [ADR-0006](ADR-0006-host-input-and-idle-timer-seam.md) (the host-seam precedent)
@@ -21,11 +21,15 @@ a server-supplied cooldown, repeat. Every response is JSON. That is a realistic
 exercise of the language as a general scripting tool, and none of it was
 possible.
 
-The constraint pulling the other way is the dependency-free property, which
-outranks any single feature. `kec` builds from a clean checkout with CMake and a
-C11 compiler on Linux and macOS, and the KN-86 firmware vendors the
-same sources into a device build. Adding libcurl or OpenSSL would end that for
-every consumer, including the ones that never make a network call.
+The first version of this ADR treated a dependency-free build as the constraint
+that outranked everything, and terminated TLS in an external `stunnel` or
+`socat` proxy to preserve it. **That was revised on 2026-08-12** once the owner
+of the repo said plainly that a link dependency costs him nothing. The
+dependency-free property was never a requirement anyone had; it was inherited
+from the task framing and then defended as though the design rested on it.
+
+What remains true is that the C surface should stay small and that a protocol
+belongs in Lisp. Neither of those is affected by linking OpenSSL.
 
 ## Decision
 
@@ -67,38 +71,37 @@ Against that: HTTP/1.1 request-response framing is a few hundred lines of Lisp,
 and the parts a client actually needs are the status line, headers,
 `Content-Length`, and chunked transfer decoding.
 
-### 3. TLS terminates outside the process
+### 3. TLS runs in process, over OpenSSL
 
-TLS is not implemented. A local `stunnel` or `socat` listener holds the TLS
-session with the origin; KEC Lisp speaks cleartext HTTP to `127.0.0.1`. Either
-proxy works; `docs/networking.md` carries the configuration for both, including
-the macOS CA-path trap.
+**Revised 2026-08-12.** The original decision terminated TLS in an external
+proxy. It now runs in process: `find_package(OpenSSL REQUIRED)`, and
+`tls-connect` performs the handshake.
 
-```
-[artifacts]
-client = yes
-accept = 127.0.0.1:8080
-connect = api.artifactsmmo.com:443
-verifyChain = yes
-CAfile = /etc/ssl/cert.pem
-checkHost = api.artifactsmmo.com
-```
+`tls-connect` returns the same handle type `tcp-connect` does, so `tcp-send`,
+`tcp-recv`, and `tcp-close` serve both transports and every protocol layer above
+them is unchanged. Adding `https://` to the HTTP client was one line.
 
-The alternatives were worse. Linking OpenSSL or mbedTLS breaks the
-dependency-free build for everyone. Vendoring a TLS stack makes this repo
-responsible for tracking CVEs in cryptographic code, which is the one category
-of dependency where being slow to patch is dangerous. Writing TLS in Lisp is not
-serious.
+Verification is mandatory and unconditional. There is no flag to disable it,
+because an escape hatch is the thing that gets reached for under deadline and
+then never removed. Both halves are checked before the handshake completes:
+the chain to a trusted root, and the identity (`set1_host` for a name,
+`set1_ip_asc` for a literal address). `NEVER_CHECK_SUBJECT` suppresses OpenSSL's
+CN fallback, which would otherwise let a certificate with no `dNSName` SAN
+satisfy a name it was never issued for. TLS 1.0 and 1.1 are refused.
 
-What the proxy pattern costs: an extra process to run, and a cleartext leg on
-the loopback interface that another sufficiently privileged process on the same
-machine could read. What it buys: a verified certificate chain (`verify=1`),
-using a TLS implementation that is somebody else's job to patch.
+**What the revision bought.** No second process to run or supervise, no config
+file, no cleartext leg on the loopback interface for another local process to
+read, no macOS CA-path trap, and no way to get the `Host` header wrong. The
+proxy pattern's failure mode was that every one of those is a place to make a
+mistake that leaves the connection working but unverified.
 
-`url-parse` raises on an `https://` URL rather than silently downgrading, and
-the message names the pattern. Through the proxy the `Host` header must carry
-the origin rather than `127.0.0.1`, or the upstream server routes to the wrong
-site; the client takes it as a parameter.
+**What it cost.** OpenSSL is now a build requirement, and this repo inherits the
+job of tracking its CVEs the way any consumer of a TLS library does. That is a
+real cost and it was the honest argument for the original decision. It was
+outweighed by the owner's judgment that the dependency is free to him.
+
+The proxy path still works and is still documented, for a build without OpenSSL
+or an environment where TLS policy belongs to a supervised process.
 
 ### 4. JSON is Core, in Lisp
 
@@ -167,7 +170,9 @@ drive both ends of an exchange without touching the outside network.
 
 ## Deferred / out of scope
 
-- TLS in process, in any form.
+- Server-side TLS. `tcp-listen` and `tcp-accept` are cleartext.
+- Client certificates, ALPN, session resumption, certificate pinning, and a
+  reusable `SSL_CTX` (one is built per connection today).
 - HTTP/2, keep-alive, connection pooling, redirects (a 3xx is returned as data),
   cookies, multipart, compression.
 - Asynchronous I/O and non-blocking sockets as a Lisp-visible concept. The
@@ -179,10 +184,9 @@ drive both ends of an exchange without touching the outside network.
 
 ## Consequences
 
-- `kec` still links only `libm`. `target_link_libraries(kec kec_core m)` is
-  unchanged.
-- A KEC Lisp script can talk to any HTTP API, and to an HTTPS one with a proxy
-  in front.
+- `kec` links OpenSSL (`libssl`, `libcrypto`) in addition to `libm`. A build
+  now needs OpenSSL development headers present.
+- A KEC Lisp script can talk to any HTTP or HTTPS API directly.
 - The KN-86 firmware inherits `json-parse` / `json-stringify` in Core with no
   action, and inherits the socket primitives only if it binds a `FULL` context.
 - Anything the protocol layers get wrong is fixed by editing Lisp.
@@ -192,8 +196,11 @@ drive both ends of an exchange without touching the outside network.
 
 ## Acceptance criteria
 
-- `cmake -S . -B build && cmake --build build` succeeds with no new dependency.
+- `cmake -S . -B build && cmake --build build` succeeds with OpenSSL present.
 - `ctest --test-dir build` is green with no network access and no proxy running.
+- `tests/cli/tls-verify.sh` proves the certificate contract on loopback against
+  a throwaway self-signed certificate: refused untrusted, accepted once trusted,
+  refused for a name it does not cover.
 - `tests/core/json.lsp` covers the type mapping, every escape form including
   surrogate pairs, the `false`/`null` conflation, malformed input with byte
   offsets, nesting deep enough to break a recursive parser, and the

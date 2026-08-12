@@ -242,3 +242,43 @@
   (let srv (tcp-listen 0))
   (tcp-close srv)
   (check-err (tcp-port srv)))          ; closed handle
+
+;; --- TLS ----------------------------------------------------------------
+;;
+;; The handshake itself needs a peer with a certificate, so the parts that can
+;; run with no network at all live here and the certificate-verification
+;; contract lives in tests/cli/tls-verify.sh (a self-signed cert on loopback:
+;; refused untrusted, accepted once trusted, refused for a name it lacks).
+
+(deftest "tls/primitive-bound"
+  (check (bound? 'tls-connect)))
+
+(deftest "tls/rejects-bad-arguments"
+  (check-err (tls-connect "127.0.0.1" 0))
+  (check-err (tls-connect "127.0.0.1" 70000))
+  (check-err (tls-connect "127.0.0.1" 443 -1)))
+
+(deftest "tls/refused-connection-raises"
+  ;; Same transport failure as tcp-connect, named for the primitive that
+  ;; produced it, so a connect failure is never mistaken for a TLS failure.
+  (let lp (%net-listen))
+  (let port (cdr lp))
+  (tcp-close (car lp))
+  (let r (try (fn () (tls-connect "127.0.0.1" port 1000))))
+  (check (error? r))
+  (check (string-prefix? (error-message r) "tls-connect:"))
+  (check (string-contains? (error-message r) (number->string port))))
+
+;; A plaintext peer must NOT be tolerated. If tls-connect quietly fell back to
+;; cleartext when the handshake failed, every guarantee above would be void and
+;; nothing else in the suite would notice.
+(deftest "tls/will-not-talk-to-a-plaintext-peer"
+  (let lp (%net-listen))
+  (let srv (car lp))
+  (let r (try (fn ()
+    (do
+      (let c (tls-connect "127.0.0.1" (cdr lp) 1000))
+      (tcp-close c)))))
+  (check (error? r))
+  (check (string-prefix? (error-message r) "tls-connect:"))
+  (tcp-close srv))

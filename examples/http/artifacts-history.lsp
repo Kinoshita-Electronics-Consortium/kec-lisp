@@ -1,42 +1,29 @@
 ;; examples/http/artifacts-history.lsp — read live trade history from the
 ;; Artifacts MMO grand exchange, through a local TLS proxy.
 ;;
-;; The endpoint is public: no token, no account. Start a TLS proxy in one
-;; terminal, either stunnel (config file, see docs/networking.md) or socat:
-;;
-;;   stunnel artifacts.conf
-;;   socat TCP4-LISTEN:8080,reuseaddr,fork OPENSSL:api.artifactsmmo.com:443,verify=1
-;;
-;; then run this in another:
+;; The endpoint is public: no token, no account, and no proxy. TLS runs in
+;; process and the certificate is verified on every connection.
 ;;
 ;;   kec run examples/http/artifacts-history.lsp            # copper_ore, 3 rows
 ;;   kec run examples/http/artifacts-history.lsp iron_ore 5
-;;   KEC_HTTP_PROXY_PORT=9443 kec run examples/http/artifacts-history.lsp
-;;
-;; The socket goes to 127.0.0.1; the Host header names api.artifactsmmo.com, so
-;; the proxy's TLS handshake and the upstream server's routing both land on the
-;; real origin. Getting that backwards is the classic failure of this pattern:
-;; the request reaches the server and is routed to the wrong site.
 
 (load "examples/http/http.lsp")
 
 (let argv (cdr (args)))                     ; (args) starts with the script path
 (let item (if argv (car argv) "copper_ore"))
 (let size (if (cdr argv) (car (cdr argv)) "3"))
-(let port (or (getenv "KEC_HTTP_PROXY_PORT") "8080"))
-(let origin "api.artifactsmmo.com")
 
-(let url (str "http://127.0.0.1:" port
+(let url (str "https://api.artifactsmmo.com"
               "/grandexchange/history/" (url-encode item)
               "?size=" (url-encode size)))
 
-(let res (try (fn () (http-get url (list (cons "Host" origin))))))
+(let res (try (fn () (http-get url nil))))
 
+;; A transport failure raises: no route, a refused connection, or a certificate
+;; that does not verify. An HTTP status never does.
 (if (error? res)
     (do
       (princ "request failed: ") (princ (error-message res)) (newline)
-      (princ "is a TLS proxy listening on 127.0.0.1:") (princ port)
-      (princ "?  See docs/networking.md (stunnel or socat).") (newline)
       (exit 1))
     nil)
 

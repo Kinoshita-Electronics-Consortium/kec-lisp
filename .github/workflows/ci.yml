@@ -13,6 +13,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # TLS is in-process (ADR-0007), so the build needs OpenSSL headers.
+      # ubuntu-latest ships libssl-dev; macOS needs the Homebrew one, and CMake
+      # needs pointing at it since Apple ships only LibreSSL.
+      - name: OpenSSL (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install openssl@3
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+      - name: OpenSSL (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build
@@ -28,6 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: OpenSSL
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Build kec (for the Flymake integration tests)
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
       - name: Install Emacs

@@ -122,7 +122,7 @@ keystone) but is a **`FULL`-tier capability**, deliberately not bound into
 
 ### Networking is a host primitive, `FULL` only
 
-The kernel has no socket I/O. The portable host layer adds seven TCP primitives
+The kernel has no socket I/O. The portable host layer adds eight TCP primitives
 plus a sleep call, all gated to `KEC_PROFILE_FULL` exactly as the file and
 system primitives are, and all absent on a platform without POSIX sockets. A
 context can test for them the same way it tests any gate:
@@ -130,7 +130,8 @@ context can test for them the same way it tests any gate:
 
 | Primitive | Semantics |
 |---|---|
-| `(tcp-connect host port [timeout-ms])` | Resolve and connect; returns a socket handle. Raises on failure, naming host, port, and the OS reason. |
+| `(tcp-connect host port [timeout-ms])` | Resolve and connect in cleartext; returns a socket handle. Raises on failure, naming host, port, and the OS reason. |
+| `(tls-connect host port [timeout-ms])` | As `tcp-connect`, then a TLS handshake. The peer certificate is always verified (chain and identity); there is no way to skip it. Returns the same kind of handle, so `tcp-send` / `tcp-recv` / `tcp-close` work on it. |
 | `(tcp-send handle value)` | Write the whole payload, looping on partial writes; returns the byte count. Blobs go verbatim. |
 | `(tcp-recv handle max-bytes)` | Read up to `max-bytes`; returns a string, or `nil` at clean EOF. |
 | `(tcp-close handle)` | Close. Idempotent, and a dropped handle is closed by its finalizer. |
@@ -142,7 +143,7 @@ context can test for them the same way it tests any gate:
 That is the entire C surface. HTTP/1.1 framing, chunked transfer decoding, URL
 encoding, and JSON all live in Lisp above it: `json-parse` / `json-stringify`
 in [Core](/kec-lisp/core-library/), and the client in `examples/http/`. TLS is
-absent by design and terminates outside the process; see
+the one exception, since it cannot be written in Lisp; see
 [Networking](/kec-lisp/networking/) and
 [ADR-0007](https://github.com/Kinoshita-Electronics-Consortium/kec-lisp/blob/main/docs/adr/ADR-0007-network-primitives-and-json.md).
 

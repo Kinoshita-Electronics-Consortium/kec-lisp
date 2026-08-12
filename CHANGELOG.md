@@ -52,11 +52,21 @@
   `examples/http/artifacts-history.lsp` is a runnable script against the public
   Artifacts MMO grand exchange endpoint. (`tests/examples/http.lsp`,
   `tests/cli/http-e2e.sh`.)
-- **TLS terminates outside the process:** a local `stunnel` or `socat` listener
-  holds the TLS session and KEC Lisp speaks cleartext to `127.0.0.1`. Either
-  proxy works, and `docs/networking.md` carries both configurations plus the
-  macOS CA-path trap (`/etc/ssl/certs` is empty there, so `CApath` verifies
-  against nothing; the bundle is `/etc/ssl/cert.pem`). `url-parse` raises on an `https://` URL rather than
+- **TLS runs in process: `(tls-connect host port [timeout-ms])`.** It performs
+  the handshake with OpenSSL and returns the same handle `tcp-connect` does, so
+  `tcp-send` / `tcp-recv` / `tcp-close` drive an encrypted connection and a
+  cleartext one identically, and protocol code needs no edit. `url-parse` now
+  accepts `https://` (default port 443) and `http-request` opens the matching
+  transport, so the HTTP client speaks HTTPS directly with no proxy.
+  **The peer certificate is always verified and there is no flag to skip it:**
+  chain to a trusted root, plus a host-name or IP match, with OpenSSL's CN
+  fallback disabled (`NEVER_CHECK_SUBJECT`), partial wildcards refused, and TLS
+  1.0/1.1 rejected. Failures raise with the reason
+  (`certificate rejected: hostname mismatch`). `SSL_CERT_FILE` / `SSL_CERT_DIR`
+  override the trust store. **This adds a build dependency:** `kec` now links
+  `libssl` and `libcrypto`, and CMake requires OpenSSL. The out-of-process
+  `stunnel` / `socat` proxy pattern still works and is still documented, for a
+  build without OpenSSL. (`tests/cli/tls-verify.sh`, `tests/core/net.lsp`.) `url-parse` raises on an `https://` URL rather than
   downgrading silently. Through a proxy the `Host` header must name the origin
   rather than the loopback address, so the client takes it as a parameter. See
   `docs/networking.md` and `docs/adr/ADR-0007-network-primitives-and-json.md`.

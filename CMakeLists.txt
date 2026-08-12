@@ -160,6 +160,10 @@ add_custom_target(kec_generated
 # ---------------------------------------------------------------------------
 # Library + CLI.
 # ---------------------------------------------------------------------------
+# TLS is in-process (ADR-0007): host/net.c performs the handshake with OpenSSL
+# and verifies the peer certificate, so `https://` needs no external proxy.
+find_package(OpenSSL REQUIRED)
+
 add_library(kec_core STATIC
   kernel/fe.c
   host/host.c
@@ -172,6 +176,7 @@ target_include_directories(kec_core PUBLIC
   ${CMAKE_SOURCE_DIR}/runtime
   ${GEN_DIR})
 target_compile_definitions(kec_core PUBLIC KEC_VERSION="${KEC_VERSION}")
+target_link_libraries(kec_core PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 # Desktop has memory to spare — raise Fe's recursion ceiling well past the
 # 256-root device default so naive recursive user code doesn't hit the wall.
 target_compile_definitions(kec_core PRIVATE GCSTACKSIZE=8192)
@@ -282,6 +287,13 @@ add_test(NAME cli/http-e2e
           ${CMAKE_SOURCE_DIR})
 set_tests_properties(cli/http-e2e PROPERTIES
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+# tls-connect's certificate verification, against a throwaway self-signed
+# certificate on loopback: refused when untrusted, accepted once trusted, and
+# refused again for a name the certificate does not cover. Skips itself if no
+# openssl command is available to act as the peer.
+add_test(NAME cli/tls-verify
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/tls-verify.sh $<TARGET_FILE:kec>)
 
 # The read-key / poll-key host input primitives (pipe bytes through `kec run`).
 add_test(NAME cli/readkey-smoke

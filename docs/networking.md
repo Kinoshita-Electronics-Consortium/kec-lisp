@@ -3,27 +3,27 @@ title: Networking
 description: TCP sockets, the HTTP/1.1 client written in KEC Lisp, and the out-of-process TLS proxy pattern that lets a dependency-free interpreter talk to an HTTPS API.
 ---
 
-KEC Lisp links nothing but `libm`, and that stays true. Networking is seven POSIX
-socket primitives in C (`host/net.c`) with every protocol above them written in
-Lisp: HTTP/1.1 framing and chunked
+Networking is eight socket primitives in C (`host/net.c`), one of which does a
+TLS handshake, with every protocol above them written in Lisp: HTTP/1.1 framing and chunked
 transfer decoding in `examples/http/http.lsp`, JSON in
 [`core/68-json.lsp`](/kec-lisp/core-library/#core68-jsonlsp--a-json-reader-and-writer),
 URL encoding alongside the client.
 
-TLS is the one piece that cannot be written in Lisp, and it is also the one
-piece that would drag in a link dependency. So it runs outside the process. See
+TLS is the one piece that cannot be written in Lisp, so it is OpenSSL, linked in
+and driven by `tls-connect`. See
 [ADR-0007](https://github.com/Kinoshita-Electronics-Consortium/kec-lisp/blob/main/docs/adr/ADR-0007-network-primitives-and-json.md)
-for the reasoning.
+for the reasoning and for what the out-of-process alternative cost.
 
 ## The primitives
 
-All seven are `KEC_PROFILE_FULL` only, alongside the file and system
-primitives, and all seven are absent on a platform without POSIX sockets. Test for them the
+All eight are `KEC_PROFILE_FULL` only, alongside the file and system
+primitives, and all eight are absent on a platform without POSIX sockets. Test for them the
 way any gate is tested: `(bound? 'tcp-connect)`.
 
 | Primitive | Behavior |
 |---|---|
-| `(tcp-connect host port [timeout-ms])` | Resolve `host` (IPv4 or IPv6) and connect. Returns a socket handle. Raises on failure, naming host, port, and the OS reason. |
+| `(tcp-connect host port [timeout-ms])` | Resolve `host` (IPv4 or IPv6) and connect in cleartext. Returns a socket handle. Raises on failure, naming host, port, and the OS reason. |
+| `(tls-connect host port [timeout-ms])` | As `tcp-connect`, then a TLS handshake with mandatory certificate verification. Returns the same kind of handle. |
 | `(tcp-send handle value)` | Write the whole payload, looping on partial writes. Returns the byte count. A blob goes verbatim; anything else is stringified. |
 | `(tcp-recv handle max-bytes)` | Read up to `max-bytes`. Returns a string, or `nil` at clean EOF. |
 | `(tcp-close handle)` | Close. Idempotent. |
@@ -67,86 +67,125 @@ For a protocol whose payload may be binary, frame with the protocol's own
 length header (`Content-Length`, chunk sizes) rather than reading to EOF, and
 treat a `NUL` in the payload as out of scope for the string type.
 
-## TLS terminates outside the process
+## TLS runs in process
 
-The interpreter speaks cleartext HTTP to `127.0.0.1`. A local proxy holds the
-TLS session with the origin server.
+`https://` works with no proxy and no configuration:
 
-**Pick one proxy.** `stunnel` and `socat` are alternatives that do the identical
-job: each listens on a loopback port, opens a verified TLS connection to the
-origin, and pipes bytes between the two. Running both would just chain two
-proxies for no reason.
+```lisp
+(load "examples/http/http.lsp")
+(let res (http-get "https://api.artifactsmmo.com/grandexchange/history/copper_ore?size=3" nil))
+(json-parse (http-body res))
+```
 
-### stunnel
+`tls-connect` does the handshake and returns an ordinary socket handle, so
+`tcp-send`, `tcp-recv`, and `tcp-close` drive an encrypted connection and a
+cleartext one identically. Protocol code written against the plaintext
+primitives runs over TLS with no edit, which is why the HTTP client needed one
+line changed to gain `https://` support.
 
-Configured from a file, which is what makes it the better fit for a setup that
-runs for a while or sits under a supervisor.
+```lisp
+(let c (tls-connect "api.artifactsmmo.com" 443 8000))
+(tcp-send c "GET / HTTP/1.1\r\nHost: api.artifactsmmo.com\r\nConnection: close\r\n\r\n")
+(tcp-recv c 4096)
+(tcp-close c)
+```
+
+### Verification is mandatory
+
+Every `tls-connect` verifies the peer certificate before the handshake
+completes, and there is no flag to skip it. Two checks run:
+
+1. **Chain.** The certificate must chain to a trusted root
+   (`SSL_VERIFY_PEER`).
+2. **Identity.** The name (or IP) being connected to must appear in the
+   certificate. A name goes through `X509_VERIFY_PARAM_set1_host`, a literal
+   address through `X509_VERIFY_PARAM_set1_ip_asc`.
+
+A failure raises, and names the reason:
 
 ```
-foreground = yes
-
-[artifacts]
-client = yes
-accept = 127.0.0.1:8080
-connect = api.artifactsmmo.com:443
-verifyChain = yes
-CAfile = /etc/ssl/cert.pem
-checkHost = api.artifactsmmo.com
+tls-connect: wrong.host.example:443: certificate rejected: hostname mismatch
+tls-connect: 127.0.0.1:57077: certificate rejected: self-signed certificate
 ```
+
+Two hardening flags are set on the identity check:
+
+- **`NEVER_CHECK_SUBJECT`.** Without it, OpenSSL falls back to matching the
+  certificate's CN whenever the certificate carries no `dNSName` SAN. A CN is
+  free-form text, so that fallback lets a certificate satisfy a name it was
+  never issued for. Browsers dropped it years ago. Every publicly-issued
+  certificate has carried DNS SANs for a long time, so the strictness costs
+  nothing in practice. A hand-rolled internal certificate with only a CN will
+  be refused, and the fix is to reissue it with a SAN.
+- **`NO_PARTIAL_WILDCARDS`.** Refuses `w*.example.com` while still accepting an
+  ordinary leading `*.` label.
+
+TLS 1.0 and 1.1 are refused (`SSL_CTX_set_min_proto_version(TLS1_2_VERSION)`),
+so a peer cannot negotiate a withdrawn protocol version.
+
+### Trust roots
+
+Roots come from OpenSSL's compiled-in default paths. Two environment variables
+override them, which is how to point at a private CA or a test certificate:
+
+| Variable | Meaning |
+|---|---|
+| `SSL_CERT_FILE` | a single PEM bundle |
+| `SSL_CERT_DIR` | a hashed directory of certificates |
 
 ```sh
-stunnel artifacts.conf
+SSL_CERT_FILE=/path/to/private-ca.pem kec run my-script.lsp
 ```
 
-**The CA setting is platform-specific, and getting it wrong fails silently.**
+If OpenSSL has no usable store at all, `tls-connect` raises
+`no trusted CA store (set SSL_CERT_FILE)` rather than connecting unverified.
 
-| Platform | Line |
-|---|---|
-| macOS | `CAfile = /etc/ssl/cert.pem` |
-| Debian / Ubuntu | `CApath = /etc/ssl/certs` |
+### What this does not do
 
-On macOS `/etc/ssl/certs` exists but is **empty**, so a `CApath` pointing at it
-verifies against nothing while still appearing to work. The bundle lives at
-`/etc/ssl/cert.pem` instead.
+Client certificates, session resumption, ALPN, HTTP/2, and pinning are absent.
+Server-side TLS is absent too: `tcp-listen` and `tcp-accept` are cleartext, and
+their purpose is to let the suite drive both ends of an exchange.
 
-`verifyChain` and `checkHost` are what make the connection authenticated rather
-than merely encrypted. `verifyChain` walks the certificate to a trusted root;
-`checkHost` pins the name on it, which is what stops a valid certificate for
-some other host from being accepted. On a good connection the log says:
+One `SSL_CTX` is built per connection, so the CA bundle is re-read on each
+`tls-connect`. That is a few milliseconds against a handshake that costs more,
+and it keeps the context's lifetime tied to the handle rather than to a process
+global. A connection-heavy workload that cares would want a reusable context
+primitive, which does not exist yet.
 
-```
-LOG5[0]: Certificate accepted at depth=0: CN=api.artifactsmmo.com
-```
+### Terminating TLS out of process instead
 
-Point `checkHost` at the wrong name and the same connection is refused, which
-is how to confirm the setting is doing something:
-
-```
-LOG4[0]: Rejected by CERT at depth=0: CN=api.artifactsmmo.com
-LOG3[0]: SSL_connect: ... certificate verify failed
-```
-
-The client sees that as a transport failure and raises
-(`tcp-recv: Connection reset by peer`), so a proxy that cannot verify the origin
-never yields a response that looks like data.
-
-### socat
-
-One command, no config file, which suits a throwaway session:
+The earlier approach, kept here because it still works and needs no OpenSSL: run
+`stunnel` or `socat` (one or the other, never both) on loopback and speak
+cleartext to it.
 
 ```sh
 socat TCP4-LISTEN:8080,reuseaddr,fork OPENSSL:api.artifactsmmo.com:443,verify=1
 ```
 
-`verify=1` is the equivalent of stunnel's `verifyChain` plus `checkHost`.
-Dropping it leaves the connection encrypted but unauthenticated, which any
-machine on the path can impersonate.
+```
+[artifacts]
+client = yes
+accept = 127.0.0.1:8080
+connect = api.artifactsmmo.com:443
+verifyChain = yes
+CAfile = /etc/ssl/cert.pem      ; macOS. Debian/Ubuntu: CApath = /etc/ssl/certs
+checkHost = api.artifactsmmo.com
+```
 
-### The `Host` header is the part people get wrong
+On macOS `/etc/ssl/certs` exists but is **empty**, so a `CApath` pointing there
+verifies against nothing while looking configured; the bundle is
+`/etc/ssl/cert.pem`.
 
-The socket goes to `127.0.0.1`, but the request must still name the **origin**,
-or the upstream server routes it to the wrong site (and on a multi-tenant host,
-to somebody else's site entirely). Pass the origin explicitly:
+Going through a proxy puts weight on the `Host` header that direct TLS does not,
+which is the next section.
+
+### The `Host` header, when using a proxy
+
+Direct `https://` sets `Host` from the URL, so there is nothing to get wrong.
+Through a proxy the socket goes to `127.0.0.1` while the request must still name
+the **origin**, or the upstream server routes it to the wrong site (and on a
+multi-tenant host, to somebody else's site entirely). Pass the origin
+explicitly:
 
 ```lisp
 (load "examples/http/http.lsp")
@@ -165,8 +204,9 @@ to somebody else's site entirely). Pass the origin explicitly:
 A caller-supplied `Host` header always wins. Without one, the client derives it
 from the URL, which through a proxy would be `127.0.0.1`.
 
-`https://` URLs raise from `url-parse`, with a message pointing here. A silent
-downgrade to cleartext would be worse than a refusal.
+`https://` URLs no longer need any of this. The proxy path remains for a build
+without OpenSSL, or for an environment where the TLS policy belongs to a
+supervised process rather than to the script.
 
 ### The limits of the pattern
 
@@ -283,6 +323,11 @@ both peers of an exchange can live inside the test:
 - `tests/cli/http-e2e.sh` runs the fully-composed `http-request` path against a
   second `kec` process, which is the one thing a single thread cannot express
   (`http-request` blocks in the read).
+- `tests/cli/tls-verify.sh` proves the certificate contract against a throwaway
+  self-signed certificate on loopback: refused while untrusted, accepted once
+  `SSL_CERT_FILE` trusts it, and refused again for a name it does not cover.
+  Public bad-certificate services rate-limit, which makes them useless as a
+  gate.
 - `tests/c/test_net.c` covers the two seams Lisp cannot reach: that a
   `SANDBOX` context has no socket primitives at all, and that the finalizer
   closes a dropped handle's descriptor.

@@ -13,19 +13,15 @@
 ;; (tcp-connect / tcp-send / tcp-recv / tcp-close, plus tcp-listen /
 ;; tcp-accept / tcp-port for the tests) and Core. Framing, chunked transfer decoding, and URL encoding are all Lisp.
 ;;
-;; NO TLS. `https://` raises. Terminate TLS outside the process with stunnel or
-;; socat and speak cleartext to the local listener:
+;; `https://` works directly: tls-connect performs the handshake in process and
+;; always verifies the peer certificate (ADR-0007). No proxy, no config file.
 ;;
-;;   stunnel artifacts.conf     (see docs/networking.md for the config)
-;;   socat TCP4-LISTEN:8080,reuseaddr,fork OPENSSL:api.artifactsmmo.com:443,verify=1
+;;   (http-get "https://api.artifactsmmo.com/path" nil)
 ;;
-;; Then the URL names 127.0.0.1 while the `Host:` header names the ORIGIN, so
-;; the upstream server routes and certificates match:
-;;
-;;   (http-get "http://127.0.0.1:8080/path" '(("Host" . "api.artifactsmmo.com")))
-;;
-;; A caller-supplied Host header always wins; without one the host from the URL
-;; is used. See docs/networking.md and ADR-0007.
+;; A caller-supplied Host header still wins over the host in the URL, which
+;; matters when talking to a specific backend behind a shared address. Without
+;; one the URL's host is used, which is what you want almost always.
+;; See docs/networking.md and ADR-0007.
 ;;
 ;; SCOPE. GET/POST/PUT/DELETE-shaped requests with an optional string body,
 ;; `Content-Length` and `Transfer-Encoding: chunked` responses, and read-to-EOF
@@ -106,19 +102,16 @@
     (set i (+ i 1)))
   (string-concat (reverse out)))
 
-;; (url-parse url) -> (:scheme s :host h :port n :path p)
-;; http:// only, by design; see the TLS note at the top. An IPv6 literal in
-;; brackets is not parsed (the proxy pattern never needs one).
+;; (url-parse url) -> (:scheme s :host h :port n :path p :tls flag)
+;; Both http:// and https:// parse; the default port follows the scheme (80 or
+;; 443) and :tls says which transport http-request should open. An IPv6 literal
+;; in brackets is not parsed.
 (defn url-parse (url)
-  (if (string-prefix? url "https://")
-      (raise (str "url-parse: https is not supported. Terminate TLS out of "
-                  "process and request http://127.0.0.1:PORT with a Host header "
-                  "naming the origin (see docs/networking.md): " url))
-      nil)
-  (if (not (string-prefix? url "http://"))
-      (raise (str "url-parse: expected an http:// URL: " url))
-      nil)
-  (let rest (substring url 7 (string-length url)))
+  (let tls (string-prefix? url "https://"))
+  (if (or tls (string-prefix? url "http://"))
+      nil
+      (raise (str "url-parse: expected an http:// or https:// URL: " url)))
+  (let rest (substring url (if tls 8 7) (string-length url)))
   (let slash (string-search rest "/"))
   (let authority (if slash (substring rest 0 slash) rest))
   (let path (if slash (substring rest slash (string-length rest)) "/"))
@@ -126,12 +119,16 @@
   (let host (if colon (substring authority 0 colon) authority))
   (let port-text (if colon
                      (substring authority (+ colon 1) (string-length authority))
-                     "80"))
+                     (if tls "443" "80")))
   (if (is host "") (raise (str "url-parse: no host in URL: " url)) nil)
   (if (not (%http-digits? port-text))
       (raise (str "url-parse: bad port in URL: " url))
       nil)
-  (list ':scheme "http" ':host host ':port (string->number port-text) ':path path))
+  (list ':scheme (if tls "https" "http")
+        ':host host
+        ':port (string->number port-text)
+        ':path path
+        ':tls (if tls 1 nil)))
 
 ;; --- a buffered reader over one connection ------------------------------
 ;;
@@ -349,7 +346,9 @@
 (defn http-request (method url headers body)
   (let u (url-parse url))
   (let host (or (%http-header-value headers "Host") (plist-get u ':host)))
-  (let conn (tcp-connect (plist-get u ':host) (plist-get u ':port) http-timeout-ms))
+  (let conn (if (plist-get u ':tls)
+                (tls-connect (plist-get u ':host) (plist-get u ':port) http-timeout-ms)
+                (tcp-connect (plist-get u ':host) (plist-get u ':port) http-timeout-ms)))
   (unwind-protect
     (do
       (http-send-request conn method (plist-get u ':path) headers body host)
