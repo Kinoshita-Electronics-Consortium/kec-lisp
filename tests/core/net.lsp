@@ -1,8 +1,8 @@
 ;; KEC Lisp — TCP primitive conformance (host/net.c).
 ;;
 ;; HERMETIC. Every socket here is a loopback socket this file created; the
-;; suite never touches the outside network, never resolves a public name, and
-;; never needs a proxy running. Both peers live in this one process: a client
+;; suite never touches the outside network and never resolves a public name.
+;; Both peers live in this one process: a client
 ;; connect() completes as soon as the kernel queues it on the listener's
 ;; backlog, before accept() runs, so a single thread can drive both ends as
 ;; long as payloads stay well inside the socket buffers (they do; the largest

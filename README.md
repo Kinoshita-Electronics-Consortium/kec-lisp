@@ -25,7 +25,7 @@ language.
 ## Build
 
 Needs CMake, a C compiler, and OpenSSL development headers (TLS runs in
-process, so `https://` works with no proxy).
+process, so `https://` works out of the box).
 
 ```sh
 # Debian/Ubuntu:  sudo apt-get install libssl-dev

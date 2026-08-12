@@ -1,6 +1,6 @@
 ---
 title: Networking
-description: TCP sockets, the HTTP/1.1 client written in KEC Lisp, and the out-of-process TLS proxy pattern that lets a dependency-free interpreter talk to an HTTPS API.
+description: TCP sockets, in-process TLS with mandatory certificate verification, and the HTTP/1.1 client written in KEC Lisp on top of them.
 ---
 
 Networking is eight socket primitives in C (`host/net.c`), one of which does a
@@ -12,7 +12,7 @@ URL encoding alongside the client.
 TLS is the one piece that cannot be written in Lisp, so it is OpenSSL, linked in
 and driven by `tls-connect`. See
 [ADR-0007](https://github.com/Kinoshita-Electronics-Consortium/kec-lisp/blob/main/docs/adr/ADR-0007-network-primitives-and-json.md)
-for the reasoning and for what the out-of-process alternative cost.
+for the reasoning.
 
 ## The primitives
 
@@ -69,7 +69,7 @@ treat a `NUL` in the payload as out of scope for the string type.
 
 ## TLS runs in process
 
-`https://` works with no proxy and no configuration:
+`https://` needs no configuration:
 
 ```lisp
 (load "examples/http/http.lsp")
@@ -152,46 +152,14 @@ and it keeps the context's lifetime tied to the handle rather than to a process
 global. A connection-heavy workload that cares would want a reusable context
 primitive, which does not exist yet.
 
-### Terminating TLS out of process instead
+### The `Host` header
 
-The earlier approach, kept here because it still works and needs no OpenSSL: run
-`stunnel` or `socat` (one or the other, never both) on loopback and speak
-cleartext to it.
-
-```sh
-socat TCP4-LISTEN:8080,reuseaddr,fork OPENSSL:api.artifactsmmo.com:443,verify=1
-```
-
-```
-[artifacts]
-client = yes
-accept = 127.0.0.1:8080
-connect = api.artifactsmmo.com:443
-verifyChain = yes
-CAfile = /etc/ssl/cert.pem      ; macOS. Debian/Ubuntu: CApath = /etc/ssl/certs
-checkHost = api.artifactsmmo.com
-```
-
-On macOS `/etc/ssl/certs` exists but is **empty**, so a `CApath` pointing there
-verifies against nothing while looking configured; the bundle is
-`/etc/ssl/cert.pem`.
-
-Going through a proxy puts weight on the `Host` header that direct TLS does not,
-which is the next section.
-
-### The `Host` header, when using a proxy
-
-Direct `https://` sets `Host` from the URL, so there is nothing to get wrong.
-Through a proxy the socket goes to `127.0.0.1` while the request must still name
-the **origin**, or the upstream server routes it to the wrong site (and on a
-multi-tenant host, to somebody else's site entirely). Pass the origin
-explicitly:
+`http-request` sets `Host` from the URL, so the common case needs nothing:
 
 ```lisp
 (load "examples/http/http.lsp")
 
-(let res (http-get "http://127.0.0.1:8080/grandexchange/history/copper_ore?size=3"
-                   '(("Host" . "api.artifactsmmo.com"))))
+(let res (http-get "https://api.artifactsmmo.com/grandexchange/history/copper_ore?size=3" nil))
 (let doc (json-parse (http-body res)))
 (for-each
   (fn (row)
@@ -201,22 +169,17 @@ explicitly:
   (hash-ref doc "data"))
 ```
 
-A caller-supplied `Host` header always wins. Without one, the client derives it
-from the URL, which through a proxy would be `127.0.0.1`.
+A caller-supplied `Host` header overrides it, which is what a name-based virtual
+host routes on. That matters when addressing one backend among several behind a
+shared address:
 
-`https://` URLs no longer need any of this. The proxy path remains for a build
-without OpenSSL, or for an environment where the TLS policy belongs to a
-supervised process rather than to the script.
+```lisp
+(http-get "https://10.0.0.7/status" '(("Host" . "internal.example.com")))
+```
 
-### The limits of the pattern
-
-What it provides: a verified TLS session to the origin, with the cleartext leg
-confined to the loopback interface. What it leaves out: TLS inside the
-interpreter, per-request SNI, client certificates, and anything else that needs
-the handshake to be visible to Lisp. Anything on the loopback leg is readable by
-another process on the same machine with the right privileges. On the KN-86
-device, where the runtime vendors this repo, the same rule holds: TLS belongs to
-the system image.
+Note that the header does not change which certificate is demanded. TLS
+verification uses the host in the URL, so the example above requires a
+certificate valid for `10.0.0.7`.
 
 ## The HTTP client
 
@@ -281,20 +244,14 @@ bytes; the practical ceiling is just under 16 MiB.
 
 `examples/http/artifacts-history.lsp` reads live trade history from the
 Artifacts MMO grand exchange. The endpoint is public, so it needs no token and
-no account. Start the proxy in one terminal:
-
-```sh
-socat TCP4-LISTEN:8080,reuseaddr,fork OPENSSL:api.artifactsmmo.com:443,verify=1
-```
-
-and run it in another:
+no account:
 
 ```sh
 kec run examples/http/artifacts-history.lsp            # copper_ore, 3 rows
 kec run examples/http/artifacts-history.lsp iron_ore 5
 ```
 
-Real output, against the live API through `socat`:
+Real output, against the live API:
 
 ```
 grand exchange history: copper_ore

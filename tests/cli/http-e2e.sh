@@ -1,7 +1,7 @@
 #!/bin/sh
 # End-to-end for the fully-composed http-request path: connect, send, read a
 # chunked response, close. Both peers are `kec` processes speaking over
-# loopback: no outside network, no proxy, and no TLS.
+# loopback: no outside network and no TLS.
 #
 # tests/examples/http.lsp covers the two halves of an exchange inside one
 # process, which is all a single thread can express (http-request blocks in the
@@ -48,8 +48,7 @@ echo "$out" | grep -q '^status=200$' \
     || { echo "FAIL: status"; echo "$out"; exit 1; }
 echo "$out" | grep -q '^line=GET /grandexchange/history/copper_ore?size=3 HTTP/1.1$' \
     || { echo "FAIL: request line"; echo "$out"; exit 1; }
-# Through a TLS proxy the Host header must name the ORIGIN, not the loopback
-# address the socket actually goes to.
+# The Host header must name the host from the URL.
 echo "$out" | grep -q '^host=api.artifactsmmo.com$' \
     || { echo "FAIL: Host header"; echo "$out"; exit 1; }
 

@@ -1,8 +1,8 @@
 ;; examples/http/artifacts-history.lsp — read live trade history from the
-;; Artifacts MMO grand exchange, through a local TLS proxy.
+;; Artifacts MMO grand exchange over HTTPS.
 ;;
-;; The endpoint is public: no token, no account, and no proxy. TLS runs in
-;; process and the certificate is verified on every connection.
+;; The endpoint is public: no token and no account. TLS runs in process and the
+;; certificate is verified on every connection.
 ;;
 ;;   kec run examples/http/artifacts-history.lsp            # copper_ore, 3 rows
 ;;   kec run examples/http/artifacts-history.lsp iron_ore 5

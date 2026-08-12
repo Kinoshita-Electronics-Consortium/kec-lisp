@@ -14,13 +14,13 @@
 ;; tcp-accept / tcp-port for the tests) and Core. Framing, chunked transfer decoding, and URL encoding are all Lisp.
 ;;
 ;; `https://` works directly: tls-connect performs the handshake in process and
-;; always verifies the peer certificate (ADR-0007). No proxy, no config file.
+;; always verifies the peer certificate (ADR-0007).
 ;;
 ;;   (http-get "https://api.artifactsmmo.com/path" nil)
 ;;
 ;; A caller-supplied Host header still wins over the host in the URL, which
-;; matters when talking to a specific backend behind a shared address. Without
-;; one the URL's host is used, which is what you want almost always.
+;; matters when addressing a specific backend behind a shared address. Without
+;; one the URL's host is used, which is almost always the right thing.
 ;; See docs/networking.md and ADR-0007.
 ;;
 ;; SCOPE. GET/POST/PUT/DELETE-shaped requests with an optional string body,

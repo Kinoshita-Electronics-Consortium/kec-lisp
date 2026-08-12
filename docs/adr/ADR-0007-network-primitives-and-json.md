@@ -22,14 +22,19 @@ exercise of the language as a general scripting tool, and none of it was
 possible.
 
 The first version of this ADR treated a dependency-free build as the constraint
-that outranked everything, and terminated TLS in an external `stunnel` or
-`socat` proxy to preserve it. **That was revised on 2026-08-12** once the owner
-of the repo said plainly that a link dependency costs him nothing. The
-dependency-free property was never a requirement anyone had; it was inherited
-from the task framing and then defended as though the design rested on it.
+that outranked everything, and terminated TLS in an external proxy to preserve
+it. **That was revised on 2026-08-12.** The dependency-free property was never a
+requirement anyone had: it was inherited from the task framing and then defended
+as though the design rested on it.
+
+The revision does not claim that a dependency is costless. It is not, and the
+costs are listed under decision 3. What changed is that a blanket prohibition on
+dependencies stopped being treated as a rule the design had to obey, so the cost
+could be weighed against what it buys instead of ruling the option out in
+advance. Here it buys removing an entire class of misconfiguration, and it wins.
 
 What remains true is that the C surface should stay small and that a protocol
-belongs in Lisp. Neither of those is affected by linking OpenSSL.
+belongs in Lisp. Neither is affected by linking OpenSSL.
 
 ## Decision
 
@@ -74,8 +79,10 @@ and the parts a client actually needs are the status line, headers,
 ### 3. TLS runs in process, over OpenSSL
 
 **Revised 2026-08-12.** The original decision terminated TLS in an external
-proxy. It now runs in process: `find_package(OpenSSL REQUIRED)`, and
-`tls-connect` performs the handshake.
+proxy (`stunnel` or `socat` on loopback, with the interpreter speaking cleartext
+to it). It now runs in process: `find_package(OpenSSL REQUIRED)`, and
+`tls-connect` performs the handshake. The proxy path is gone from the
+documentation and the examples; nothing in the tree depends on it.
 
 `tls-connect` returns the same handle type `tcp-connect` does, so `tcp-send`,
 `tcp-recv`, and `tcp-close` serve both transports and every protocol layer above
@@ -91,17 +98,19 @@ satisfy a name it was never issued for. TLS 1.0 and 1.1 are refused.
 
 **What the revision bought.** No second process to run or supervise, no config
 file, no cleartext leg on the loopback interface for another local process to
-read, no macOS CA-path trap, and no way to get the `Host` header wrong. The
-proxy pattern's failure mode was that every one of those is a place to make a
-mistake that leaves the connection working but unverified.
+read, no per-platform CA-path trap, and no way to get the `Host` header wrong.
+Every one of those was a place to make a mistake that leaves the connection
+apparently working while unverified, which is the worst failure mode a transport
+can have. Verification is now a property of the code rather than of whatever
+config file happens to be deployed alongside it.
 
-**What it cost.** OpenSSL is now a build requirement, and this repo inherits the
-job of tracking its CVEs the way any consumer of a TLS library does. That is a
-real cost and it was the honest argument for the original decision. It was
-outweighed by the owner's judgment that the dependency is free to him.
-
-The proxy path still works and is still documented, for a build without OpenSSL
-or an environment where TLS policy belongs to a supervised process.
+**What it cost.** OpenSSL is a build requirement: `libssl` and `libcrypto` are
+linked, the headers must be present, and CI installs them on both runners. This
+repo inherits the job of tracking OpenSSL CVEs the way any consumer of a TLS
+library does. Downstream, the KN-86 firmware vendoring these sources takes on
+the same, on a device where updating is harder than on a desktop. Those costs
+are real; they were the honest argument for the original decision, and they are
+accepted rather than dismissed.
 
 ### 4. JSON is Core, in Lisp
 

@@ -63,10 +63,9 @@
   fallback disabled (`NEVER_CHECK_SUBJECT`), partial wildcards refused, and TLS
   1.0/1.1 rejected. Failures raise with the reason
   (`certificate rejected: hostname mismatch`). `SSL_CERT_FILE` / `SSL_CERT_DIR`
-  override the trust store. **This adds a build dependency:** `kec` now links
-  `libssl` and `libcrypto`, and CMake requires OpenSSL. The out-of-process
-  `stunnel` / `socat` proxy pattern still works and is still documented, for a
-  build without OpenSSL. (`tests/cli/tls-verify.sh`, `tests/core/net.lsp`.) `url-parse` raises on an `https://` URL rather than
+  override the trust store. **This adds a build dependency:** `kec` links
+  `libssl` and `libcrypto`, CMake requires OpenSSL, and CI installs it on both
+  runners. (`tests/cli/tls-verify.sh`, `tests/core/net.lsp`.) `url-parse` raises on an `https://` URL rather than
   downgrading silently. Through a proxy the `Host` header must name the origin
   rather than the loopback address, so the client takes it as a parameter. See
   `docs/networking.md` and `docs/adr/ADR-0007-network-primitives-and-json.md`.

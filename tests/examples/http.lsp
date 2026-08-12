@@ -132,8 +132,8 @@
            "api.artifactsmmo.com"))
   (let req (car x))
   (check (string-prefix? req "GET /items?page=2 HTTP/1.1\r\n"))
-  ;; through a TLS proxy the Host header must carry the ORIGIN, not 127.0.0.1,
-  ;; or the upstream server routes the request to the wrong site
+  ;; the Host header carries the origin the caller named, which is what a
+  ;; name-based virtual host routes on
   (check (string-contains? req "\r\nHost: api.artifactsmmo.com\r\n"))
   (check (string-contains? req "\r\nConnection: close\r\n"))
   (check (string-contains? req "\r\nAccept: application/json\r\n"))
