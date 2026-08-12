@@ -1,9 +1,10 @@
 ;; examples/http/artifacts-history.lsp — read live trade history from the
 ;; Artifacts MMO grand exchange, through a local TLS proxy.
 ;;
-;; The endpoint is public: no token, no account. Start the proxy in one
-;; terminal:
+;; The endpoint is public: no token, no account. Start a TLS proxy in one
+;; terminal, either stunnel (config file, see docs/networking.md) or socat:
 ;;
+;;   stunnel artifacts.conf
 ;;   socat TCP4-LISTEN:8080,reuseaddr,fork OPENSSL:api.artifactsmmo.com:443,verify=1
 ;;
 ;; then run this in another:
@@ -34,9 +35,8 @@
 (if (error? res)
     (do
       (princ "request failed: ") (princ (error-message res)) (newline)
-      (princ "is the proxy running?  socat TCP4-LISTEN:") (princ port)
-      (princ ",reuseaddr,fork OPENSSL:") (princ origin) (princ ":443,verify=1")
-      (newline)
+      (princ "is a TLS proxy listening on 127.0.0.1:") (princ port)
+      (princ "?  See docs/networking.md (stunnel or socat).") (newline)
       (exit 1))
     nil)
 

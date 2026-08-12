@@ -6,8 +6,8 @@
 ** dependency beyond libc. Everything above the byte stream (HTTP framing,
 ** JSON, URL encoding) is written in KEC Lisp (core/68-json.lsp,
 ** examples/http/http.lsp). TLS is NOT
-** here and is not planned: terminate it out of process with socat or stunnel and
-** speak cleartext to the local listener (see docs/networking.md, ADR-0007).
+** here and is not planned: terminate it out of process with stunnel or socat
+** and speak cleartext to the local listener (see docs/networking.md, ADR-0007).
 **
 ** PORTABILITY. The whole implementation is gated on <sys/socket.h> being
 ** present. A platform without it (a bare-metal or Windows build of the

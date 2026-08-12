@@ -69,12 +69,19 @@ and the parts a client actually needs are the status line, headers,
 
 ### 3. TLS terminates outside the process
 
-TLS is not implemented and will not be. A local `socat` or `stunnel` listener
-holds the TLS session with the origin; KEC Lisp speaks cleartext HTTP to
-`127.0.0.1`.
+TLS is not implemented. A local `stunnel` or `socat` listener holds the TLS
+session with the origin; KEC Lisp speaks cleartext HTTP to `127.0.0.1`. Either
+proxy works; `docs/networking.md` carries the configuration for both, including
+the macOS CA-path trap.
 
-```sh
-socat TCP4-LISTEN:8080,reuseaddr,fork OPENSSL:api.artifactsmmo.com:443,verify=1
+```
+[artifacts]
+client = yes
+accept = 127.0.0.1:8080
+connect = api.artifactsmmo.com:443
+verifyChain = yes
+CAfile = /etc/ssl/cert.pem
+checkHost = api.artifactsmmo.com
 ```
 
 The alternatives were worse. Linking OpenSSL or mbedTLS breaks the

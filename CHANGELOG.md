@@ -52,9 +52,11 @@
   `examples/http/artifacts-history.lsp` is a runnable script against the public
   Artifacts MMO grand exchange endpoint. (`tests/examples/http.lsp`,
   `tests/cli/http-e2e.sh`.)
-- **TLS terminates outside the process,** by design and permanently: a local
-  `socat` or `stunnel` listener holds the TLS session and KEC Lisp speaks
-  cleartext to `127.0.0.1`. `url-parse` raises on an `https://` URL rather than
+- **TLS terminates outside the process:** a local `stunnel` or `socat` listener
+  holds the TLS session and KEC Lisp speaks cleartext to `127.0.0.1`. Either
+  proxy works, and `docs/networking.md` carries both configurations plus the
+  macOS CA-path trap (`/etc/ssl/certs` is empty there, so `CApath` verifies
+  against nothing; the bundle is `/etc/ssl/cert.pem`). `url-parse` raises on an `https://` URL rather than
   downgrading silently. Through a proxy the `Host` header must name the origin
   rather than the loopback address, so the client takes it as a parameter. See
   `docs/networking.md` and `docs/adr/ADR-0007-network-primitives-and-json.md`.

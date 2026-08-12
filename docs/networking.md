@@ -72,34 +72,75 @@ treat a `NUL` in the payload as out of scope for the string type.
 The interpreter speaks cleartext HTTP to `127.0.0.1`. A local proxy holds the
 TLS session with the origin server.
 
-**Pick one proxy.** `socat` and `stunnel` are alternatives that do the identical
+**Pick one proxy.** `stunnel` and `socat` are alternatives that do the identical
 job: each listens on a loopback port, opens a verified TLS connection to the
 origin, and pipes bytes between the two. Running both would just chain two
-proxies for no reason. Use whichever is already installed. `socat` is the
-shorter one, a single command with no config file:
+proxies for no reason.
 
-```sh
-socat TCP4-LISTEN:8080,reuseaddr,fork OPENSSL:api.artifactsmmo.com:443,verify=1
-```
+### stunnel
 
-`verify=1` is not optional in spirit. It is what makes the proxy check the
-origin's certificate chain, which is most of what TLS is for. Without it the
-connection is encrypted but unauthenticated, which any machine on the path can
-impersonate.
-
-`stunnel` is the alternative, configured from a file rather than a command line,
-which suits a supervised or long-running setup. Its `verifyChain` and
-`checkHost` are the equivalent of `verify=1`:
+Configured from a file, which is what makes it the better fit for a setup that
+runs for a while or sits under a supervisor.
 
 ```
+foreground = yes
+
 [artifacts]
 client = yes
 accept = 127.0.0.1:8080
 connect = api.artifactsmmo.com:443
 verifyChain = yes
-CApath = /etc/ssl/certs
+CAfile = /etc/ssl/cert.pem
 checkHost = api.artifactsmmo.com
 ```
+
+```sh
+stunnel artifacts.conf
+```
+
+**The CA setting is platform-specific, and getting it wrong fails silently.**
+
+| Platform | Line |
+|---|---|
+| macOS | `CAfile = /etc/ssl/cert.pem` |
+| Debian / Ubuntu | `CApath = /etc/ssl/certs` |
+
+On macOS `/etc/ssl/certs` exists but is **empty**, so a `CApath` pointing at it
+verifies against nothing while still appearing to work. The bundle lives at
+`/etc/ssl/cert.pem` instead.
+
+`verifyChain` and `checkHost` are what make the connection authenticated rather
+than merely encrypted. `verifyChain` walks the certificate to a trusted root;
+`checkHost` pins the name on it, which is what stops a valid certificate for
+some other host from being accepted. On a good connection the log says:
+
+```
+LOG5[0]: Certificate accepted at depth=0: CN=api.artifactsmmo.com
+```
+
+Point `checkHost` at the wrong name and the same connection is refused, which
+is how to confirm the setting is doing something:
+
+```
+LOG4[0]: Rejected by CERT at depth=0: CN=api.artifactsmmo.com
+LOG3[0]: SSL_connect: ... certificate verify failed
+```
+
+The client sees that as a transport failure and raises
+(`tcp-recv: Connection reset by peer`), so a proxy that cannot verify the origin
+never yields a response that looks like data.
+
+### socat
+
+One command, no config file, which suits a throwaway session:
+
+```sh
+socat TCP4-LISTEN:8080,reuseaddr,fork OPENSSL:api.artifactsmmo.com:443,verify=1
+```
+
+`verify=1` is the equivalent of stunnel's `verifyChain` plus `checkHost`.
+Dropping it leaves the connection encrypted but unauthenticated, which any
+machine on the path can impersonate.
 
 ### The `Host` header is the part people get wrong
 

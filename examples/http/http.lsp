@@ -13,9 +13,10 @@
 ;; (tcp-connect / tcp-send / tcp-recv / tcp-close, plus tcp-listen /
 ;; tcp-accept / tcp-port for the tests) and Core. Framing, chunked transfer decoding, and URL encoding are all Lisp.
 ;;
-;; NO TLS. `https://` raises. Terminate TLS outside the process and speak
-;; cleartext to the local listener:
+;; NO TLS. `https://` raises. Terminate TLS outside the process with stunnel or
+;; socat and speak cleartext to the local listener:
 ;;
+;;   stunnel artifacts.conf     (see docs/networking.md for the config)
 ;;   socat TCP4-LISTEN:8080,reuseaddr,fork OPENSSL:api.artifactsmmo.com:443,verify=1
 ;;
 ;; Then the URL names 127.0.0.1 while the `Host:` header names the ORIGIN, so
