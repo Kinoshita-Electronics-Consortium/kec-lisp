@@ -131,7 +131,7 @@ context can test for them the same way it tests any gate:
 | Primitive | Semantics |
 |---|---|
 | `(tcp-connect host port [timeout-ms])` | Resolve and connect in cleartext; returns a socket handle. Raises on failure, naming host, port, and the OS reason. |
-| `(tls-connect host port [timeout-ms])` | As `tcp-connect`, then a TLS handshake. The peer certificate is always verified (chain and identity); there is no way to skip it. Returns the same kind of handle, so `tcp-send` / `tcp-recv` / `tcp-close` work on it. |
+| `(tls-connect host port [timeout-ms [insecure]])` | As `tcp-connect`, then a TLS handshake. Verifies the peer certificate (chain and identity) unless a truthy 4th argument skips it. Returns the same kind of handle, so `tcp-send` / `tcp-recv` / `tcp-close` work on it. |
 | `(tcp-send handle value)` | Write the whole payload, looping on partial writes; returns the byte count. Blobs go verbatim. |
 | `(tcp-recv handle max-bytes)` | Read up to `max-bytes`; returns a string, or `nil` at clean EOF. |
 | `(tcp-close handle)` | Close. Idempotent, and a dropped handle is closed by its finalizer. |

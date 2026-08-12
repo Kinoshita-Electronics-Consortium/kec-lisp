@@ -88,9 +88,10 @@ documentation and the examples; nothing in the tree depends on it.
 `tcp-recv`, and `tcp-close` serve both transports and every protocol layer above
 them is unchanged. Adding `https://` to the HTTP client was one line.
 
-Verification is mandatory and unconditional. There is no flag to disable it,
-because an escape hatch is the thing that gets reached for under deadline and
-then never removed. Both halves are checked before the handshake completes:
+Verification is on by default, with a per-connection opt-out (a truthy fourth
+argument, conventionally `:insecure`). Defaulting to secure is what matters;
+refusing to provide the switch would just push people toward worse workarounds.
+Both halves are checked before the handshake completes:
 the chain to a trusted root, and the identity (`set1_host` for a name,
 `set1_ip_asc` for a literal address). `NEVER_CHECK_SUBJECT` suppresses OpenSSL's
 CN fallback, which would otherwise let a certificate with no `dNSName` SAN

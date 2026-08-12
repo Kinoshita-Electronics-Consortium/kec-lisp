@@ -282,3 +282,17 @@
   (check (error? r))
   (check (string-prefix? (error-message r) "tls-connect:"))
   (tcp-close srv))
+
+;; The verification opt-out. A plaintext peer still fails: :insecure skips
+;; certificate checking, it does not make tls-connect tolerate a peer that
+;; speaks no TLS at all.
+(deftest "tls/insecure-flag-still-requires-tls"
+  (let lp (%net-listen))
+  (let srv (car lp))
+  (let r (try (fn ()
+    (do
+      (let c (tls-connect "127.0.0.1" (cdr lp) 1000 ':insecure))
+      (tcp-close c)))))
+  (check (error? r))
+  (check (string-prefix? (error-message r) "tls-connect:"))
+  (tcp-close srv))

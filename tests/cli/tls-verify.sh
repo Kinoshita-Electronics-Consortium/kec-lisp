@@ -58,7 +58,7 @@ PORT=$("$KEC" eval '(do (let s (tcp-listen 0)) (let p (tcp-port s)) (tcp-close s
 PORT=$(printf '%s' "$PORT" | tr -dc '0-9')
 if [ -z "$PORT" ]; then echo "FAIL: could not obtain a free port"; exit 1; fi
 
-"$OSSL" s_server -accept "$PORT" -naccept 20 -cert "$WORK/cert.pem" \
+"$OSSL" s_server -accept "$PORT" -naccept 30 -cert "$WORK/cert.pem" \
     -key "$WORK/key.pem" -quiet >/dev/null 2>&1 &
 SERVER_PID=$!
 
@@ -105,6 +105,15 @@ out=$(SSL_CERT_FILE="$WORK/cert.pem" "$KEC" eval \
 case "$out" in
     ERR*certificate\ rejected*hostname\ mismatch*) ;;
     *) echo "FAIL: expected a hostname-mismatch rejection, got: $out"; exit 1 ;;
+esac
+
+# 4. The opt-out: the same untrusted certificate is accepted when the caller
+#    passes :insecure. Defaults matter, and so does the switch actually working.
+out=$("$KEC" eval "(let r (try (fn () (tls-connect \"127.0.0.1\" $PORT 5000 ':insecure))))
+                   (if (error? r) (str \"ERR \" (error-message r)) \"OK\")")
+case "$out" in
+    OK) ;;
+    *) echo "FAIL: :insecure did not skip verification: $out"; exit 1 ;;
 esac
 
 exit 0

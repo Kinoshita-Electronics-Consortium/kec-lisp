@@ -139,6 +139,11 @@
 
 (defvar http-recv-chunk 16384)   ; bytes requested per tcp-recv
 (defvar http-timeout-ms 15000)   ; connect + read/write deadline
+;; Set to nil to skip TLS certificate verification on https:// requests. The
+;; connection stays encrypted but stops being authenticated, so anything able to
+;; intercept the route can read and rewrite it. For a staging box with a
+;; self-signed certificate, or for working out why a chain will not validate.
+(defvar http-tls-verify 1)
 
 (defn %http-reader (conn)
   (vector conn "" nil))
@@ -347,7 +352,8 @@
   (let u (url-parse url))
   (let host (or (%http-header-value headers "Host") (plist-get u ':host)))
   (let conn (if (plist-get u ':tls)
-                (tls-connect (plist-get u ':host) (plist-get u ':port) http-timeout-ms)
+                (tls-connect (plist-get u ':host) (plist-get u ':port) http-timeout-ms
+                             (if http-tls-verify nil ':insecure))
                 (tcp-connect (plist-get u ':host) (plist-get u ':port) http-timeout-ms)))
   (unwind-protect
     (do

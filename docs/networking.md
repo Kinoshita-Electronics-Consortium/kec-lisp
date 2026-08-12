@@ -23,7 +23,7 @@ way any gate is tested: `(bound? 'tcp-connect)`.
 | Primitive | Behavior |
 |---|---|
 | `(tcp-connect host port [timeout-ms])` | Resolve `host` (IPv4 or IPv6) and connect in cleartext. Returns a socket handle. Raises on failure, naming host, port, and the OS reason. |
-| `(tls-connect host port [timeout-ms])` | As `tcp-connect`, then a TLS handshake with mandatory certificate verification. Returns the same kind of handle. |
+| `(tls-connect host port [timeout-ms [insecure]])` | As `tcp-connect`, then a TLS handshake. Verifies the certificate unless a truthy 4th argument says otherwise. Returns the same kind of handle. |
 | `(tcp-send handle value)` | Write the whole payload, looping on partial writes. Returns the byte count. A blob goes verbatim; anything else is stringified. |
 | `(tcp-recv handle max-bytes)` | Read up to `max-bytes`. Returns a string, or `nil` at clean EOF. |
 | `(tcp-close handle)` | Close. Idempotent. |
@@ -90,10 +90,10 @@ line changed to gain `https://` support.
 (tcp-close c)
 ```
 
-### Verification is mandatory
+### Verification
 
-Every `tls-connect` verifies the peer certificate before the handshake
-completes, and there is no flag to skip it. Two checks run:
+`tls-connect` verifies the peer certificate before the handshake completes. Two
+checks run:
 
 1. **Chain.** The certificate must chain to a trusted root
    (`SSL_VERIFY_PEER`).
@@ -122,6 +122,33 @@ Two hardening flags are set on the identity check:
 
 TLS 1.0 and 1.1 are refused (`SSL_CTX_set_min_proto_version(TLS1_2_VERSION)`),
 so a peer cannot negotiate a withdrawn protocol version.
+
+### Turning verification off
+
+A truthy fourth argument skips it for that one connection. `:insecure` is the
+conventional spelling because it reads at the call site:
+
+```lisp
+(tls-connect "10.0.0.7" 443 5000 ':insecure)
+```
+
+The HTTP client has the same switch as a variable, since threading a parameter
+through `http-get` and `http-post` would change every signature:
+
+```lisp
+(set http-tls-verify nil)
+(http-get "https://staging.internal/status" nil)
+```
+
+The connection stays encrypted and stops being authenticated: any certificate is
+accepted, including one issued for a different host, so anything able to
+intercept the route can read and rewrite the traffic. The primitive's flag is
+per-connection, so switching it on for one call cannot leak into the rest of a
+program; `http-tls-verify` is a variable and does persist until reset.
+
+Reach for it against a staging box with a self-signed certificate, or while
+working out why a chain will not validate. `SSL_CERT_FILE` is the better answer
+whenever the certificate is one you can point at.
 
 ### Trust roots
 

@@ -9,10 +9,9 @@
 ** TLS is IN PROCESS, over OpenSSL (ADR-0007). tls-connect performs the
 ** handshake and returns the same kind of handle tcp-connect does, so
 ** tcp-send / tcp-recv / tcp-close drive an encrypted connection and a
-** cleartext one identically. Certificates are ALWAYS verified: chain to a
-** trusted root, plus a hostname (or IP) match. There is no way to turn that
-** off from Lisp, because a silent downgrade is the failure mode that makes
-** TLS worthless.
+** cleartext one identically. Certificates are verified by default (chain to a
+** trusted root, plus a hostname or IP match); a caller that passes :insecure
+** turns that off for that one connection.
 **
 ** PORTABILITY. The whole implementation is gated on <sys/socket.h> being
 ** present. A platform without it (a bare-metal or Windows build of the
@@ -313,19 +312,24 @@ static int net_is_ip_literal(const char *host) {
 }
 
 /* Run the TLS handshake on an already-connected descriptor and attach the
-** session to `s`. Verification is mandatory and configured BEFORE the
-** handshake, so a failure aborts SSL_connect rather than being something the
-** caller could forget to check afterwards:
+** session to `s`. With `verify` set (the default), checking is configured
+** BEFORE the handshake, so a bad certificate aborts SSL_connect rather than
+** being something the caller could forget to check afterwards:
 **
 **   SSL_CTX_set_verify(SSL_VERIFY_PEER)  chain must reach a trusted root
-**   SSL_set1_host / SSL_set1_ip_asc      the name on the certificate must match
+**   set1_host / set1_ip_asc              the name on the certificate must match
 **
 ** Trust roots come from OpenSSL's compiled-in default paths, which the
 ** SSL_CERT_FILE and SSL_CERT_DIR environment variables override.
 **
+** With `verify` clear the connection is encrypted but unauthenticated: any
+** certificate is accepted, including one issued for a different host. SNI is
+** still sent, since a server may need it to pick which site to serve.
+**
 ** On any failure this closes nothing: the caller owns the descriptor until
 ** net_attach runs, and s->ssl / s->ctx are freed here before raising. */
-static void net_tls_start(fe_Context *ctx, NetSock *s, const char *host, int port) {
+static void net_tls_start(fe_Context *ctx, NetSock *s, const char *host, int port,
+                          int verify) {
     char reason[192];
     char msg[KEC_NET_HOSTMAX + 320];
     SSL_CTX *sc;
@@ -337,10 +341,14 @@ static void net_tls_start(fe_Context *ctx, NetSock *s, const char *host, int por
     /* TLS 1.0/1.1 are withdrawn; refusing them here means a downgrade cannot
     ** be negotiated by the peer. */
     SSL_CTX_set_min_proto_version(sc, TLS1_2_VERSION);
-    SSL_CTX_set_verify(sc, SSL_VERIFY_PEER, NULL);
-    if (!SSL_CTX_set_default_verify_paths(sc)) {
-        SSL_CTX_free(sc);
-        fe_error(ctx, "tls-connect: no trusted CA store (set SSL_CERT_FILE)");
+    if (verify) {
+        SSL_CTX_set_verify(sc, SSL_VERIFY_PEER, NULL);
+        if (!SSL_CTX_set_default_verify_paths(sc)) {
+            SSL_CTX_free(sc);
+            fe_error(ctx, "tls-connect: no trusted CA store (set SSL_CERT_FILE)");
+        }
+    } else {
+        SSL_CTX_set_verify(sc, SSL_VERIFY_NONE, NULL);
     }
 
     ssl = SSL_new(sc);
@@ -350,7 +358,10 @@ static void net_tls_start(fe_Context *ctx, NetSock *s, const char *host, int por
     }
     SSL_set_fd(ssl, s->fd);
 
-    {
+    if (!verify) {
+        /* Unauthenticated: SNI only, no identity pinned. */
+        if (!net_is_ip_literal(host)) { SSL_set_tlsext_host_name(ssl, host); }
+    } else {
         /* Name checking goes through the verification parameters, so a
         ** mismatch fails the handshake itself. Partial wildcards ("w*.a.com")
         ** are refused; a leading "*." label is still accepted, as everyone
@@ -385,7 +396,7 @@ static void net_tls_start(fe_Context *ctx, NetSock *s, const char *host, int por
     ERR_clear_error();
     rc = SSL_connect(ssl);
     if (rc != 1) {
-        long v = SSL_get_verify_result(ssl);
+        long v = verify ? SSL_get_verify_result(ssl) : X509_V_OK;
         if (v != X509_V_OK) {
             /* A rejected certificate is the interesting failure, so name it
             ** instead of the generic handshake error it also produces. */
@@ -469,31 +480,45 @@ static fe_Object *h_tcp_connect(fe_Context *ctx, fe_Object *args) {
     return handle;
 }
 
-/* (tls-connect host port [timeout-ms]) -> socket handle.
+/* (tls-connect host port [timeout-ms [insecure]]) -> socket handle.
 ** As tcp-connect, then a TLS handshake. The result is an ordinary socket
 ** handle: tcp-send, tcp-recv, and tcp-close all work on it unchanged, so
 ** protocol code written for cleartext runs over TLS with no edit.
 **
-** The peer certificate is ALWAYS verified, both chain and host name, and a
+** The peer certificate is verified by default, both chain and host name, and a
 ** failure raises with the reason (an expired certificate and a name mismatch
-** report differently). There is no flag to skip it.
+** report differently).
+**
+** A truthy fourth argument skips verification for THAT connection. The
+** conventional spelling is the keyword :insecure, which reads at the call site:
+**
+**     (tls-connect "10.0.0.7" 443 5000 ':insecure)
+**
+** The connection is then encrypted but unauthenticated: any certificate is
+** accepted, so anything able to intercept the route can read and rewrite the
+** traffic. Useful against a staging box with a self-signed certificate, or
+** while working out why a chain will not validate. Per-connection by design,
+** so turning it on for one call cannot leak into the rest of a program.
 **
 ** The descriptor is attached to the handle BEFORE the handshake runs, so a
 ** handshake failure still leaves the fd owned by the handle's finalizer rather
 ** than stranded. */
 static fe_Object *h_tls_connect(fe_Context *ctx, fe_Object *args) {
     char host[KEC_NET_HOSTMAX];
-    int port, timeout_ms, fd;
+    int port, timeout_ms, fd, verify = 1;
     fe_Object *handle;
 
     net_arg_str(ctx, &args, host, sizeof host, "tls-connect", "host");
     port = net_arg_port(ctx, &args, "tls-connect", 0);
     timeout_ms = net_arg_timeout(ctx, &args, "tls-connect");
+    if (!fe_isnil(ctx, args)) {
+        verify = fe_isnil(ctx, fe_nextarg(ctx, &args));
+    }
 
     handle = net_handle(ctx);
     fd = net_dial(ctx, host, port, timeout_ms, "tls-connect");
     net_attach(ctx, handle, fd, "tls-connect");
-    net_tls_start(ctx, fe_toptr(ctx, handle), host, port);
+    net_tls_start(ctx, fe_toptr(ctx, handle), host, port, verify);
     return handle;
 }
 

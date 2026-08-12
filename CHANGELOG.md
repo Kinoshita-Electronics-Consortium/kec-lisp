@@ -58,10 +58,12 @@
   cleartext one identically, and protocol code needs no edit. `url-parse` now
   accepts `https://` (default port 443) and `http-request` opens the matching
   transport, so the HTTP client speaks HTTPS directly with no proxy.
-  **The peer certificate is always verified and there is no flag to skip it:**
-  chain to a trusted root, plus a host-name or IP match, with OpenSSL's CN
-  fallback disabled (`NEVER_CHECK_SUBJECT`), partial wildcards refused, and TLS
-  1.0/1.1 rejected. Failures raise with the reason
+  **The peer certificate is verified by default:** chain to a trusted root, plus
+  a host-name or IP match, with OpenSSL's CN fallback disabled
+  (`NEVER_CHECK_SUBJECT`), partial wildcards refused, and TLS 1.0/1.1 rejected.
+  A truthy fourth argument (conventionally `':insecure'`) skips verification for
+  that one connection, leaving it encrypted but unauthenticated; the HTTP client
+  exposes the same switch as `http-tls-verify`. Failures raise with the reason
   (`certificate rejected: hostname mismatch`). `SSL_CERT_FILE` / `SSL_CERT_DIR`
   override the trust store. **This adds a build dependency:** `kec` links
   `libssl` and `libcrypto`, CMake requires OpenSSL, and CI installs it on both
