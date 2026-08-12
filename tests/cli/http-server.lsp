@@ -3,15 +3,20 @@
 ;; http-request path, which a single process cannot: http-request blocks in the
 ;; read, so the peer has to be a different process.
 ;;
-;;   kec run tests/cli/http-server.lsp PORT
+;;   kec run tests/cli/http-server.lsp PORTFILE
 ;;
-;; Serves one request with a chunked body, then exits.
+;; Binds an ephemeral port and writes the number to PORTFILE, so the test never
+;; hard-codes a port. write-file closes the file, which is what makes the value
+;; visible to the shell: stdout would sit in a stdio buffer until exit. Serves
+;; one request with a chunked body, then exits.
 
-(let port (string->number (nth (args) 1)))
-(if (nil? port) (do (princ "usage: http-server.lsp PORT") (newline) (exit 2)) nil)
+(let portfile (nth (args) 1))
+(if (nil? portfile)
+    (do (princ "usage: http-server.lsp PORTFILE") (newline) (exit 2))
+    nil)
 
-(let srv (tcp-listen port))
-(princ "listening") (newline)
+(let srv (tcp-listen 0))
+(write-file portfile (str (tcp-port srv) "\n"))
 
 (let con (tcp-accept srv 10000))
 (if (nil? con) (do (princ "accept timed out") (newline) (exit 1)) nil)

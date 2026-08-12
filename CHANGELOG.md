@@ -4,11 +4,12 @@
 
 ### Added (network primitives and JSON, ADR-0007)
 
-- **Six TCP socket primitives and a `sleep` call, `FULL` profile only, with no
-  new link dependency.** `host/net.c` (new) registers `tcp-connect`,
-  `tcp-send`, `tcp-recv`, `tcp-close`, `tcp-listen`, and `tcp-accept` over
-  POSIX sockets; `host/host.c` gains `(sleep seconds)` on `nanosleep`, which
-  takes a fractional interval and resumes the remainder after `EINTR`.
+- **Seven TCP socket primitives and a `sleep` call, `FULL` profile only, with
+  no new link dependency.** `host/net.c` (new) registers `tcp-connect`,
+  `tcp-send`, `tcp-recv`, `tcp-close`, `tcp-listen`, `tcp-accept`, and
+  `tcp-port` over POSIX sockets; `host/host.c` gains `(sleep seconds)` on
+  `nanosleep`, which takes a fractional interval and resumes the remainder
+  after `EINTR`.
   `target_link_libraries(kec kec_core m)` is unchanged: still only `libm`.
   Handles are typed `FE_TPTR` objects with their own registered lifecycle and
   two-phase `fe_set_ptr` construction, so an out-of-memory unwind during handle
@@ -18,8 +19,9 @@
   the connect handshake and becomes the socket's read/write deadline, and an
   expired read deadline raises rather than returning `nil`, so a stall is never
   read as end-of-stream. `tcp-listen` binds 127.0.0.1 only, which is what lets
-  the suite drive both ends of an exchange with no outside network. The whole
-  file is gated on `<sys/socket.h>`: without it the registration function is
+  the suite drive both ends of an exchange with no outside network; with port 0
+  it takes an ephemeral port and `tcp-port` reads the number back, so no test
+  hard-codes one. The whole file is gated on `<sys/socket.h>`: without it the registration function is
   empty and the primitives are absent, discoverable from Lisp with
   `(bound? 'tcp-connect)`. A `SANDBOX` context never gets them.
   (`tests/core/net.lsp`, `tests/c/test_net.c`.)

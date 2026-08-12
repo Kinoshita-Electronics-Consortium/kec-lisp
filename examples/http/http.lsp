@@ -9,9 +9,9 @@
 ;;
 ;; This is NOT part of Core. Core is the language standard library and ships
 ;; into the KN-86 firmware; an HTTP client is an application, so it lives here
-;; as a loadable module. Everything below rides on six C primitives
-;; (tcp-connect / tcp-send / tcp-recv / tcp-close / tcp-listen / tcp-accept)
-;; and Core. Framing, chunked transfer decoding, and URL encoding are all Lisp.
+;; as a loadable module. Everything below rides on the TCP primitives
+;; (tcp-connect / tcp-send / tcp-recv / tcp-close, plus tcp-listen /
+;; tcp-accept / tcp-port for the tests) and Core. Framing, chunked transfer decoding, and URL encoding are all Lisp.
 ;;
 ;; NO TLS. `https://` raises. Terminate TLS outside the process and speak
 ;; cleartext to the local listener:

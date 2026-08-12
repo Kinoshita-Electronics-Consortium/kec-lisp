@@ -29,12 +29,17 @@ every consumer, including the ones that never make a network call.
 
 ## Decision
 
-### 1. Six TCP primitives in C. Everything above them in Lisp.
+### 1. TCP primitives in C. Everything above them in Lisp.
 
 `host/net.c` registers `tcp-connect`, `tcp-send`, `tcp-recv`, `tcp-close`,
-`tcp-listen`, and `tcp-accept`. `host/host.c` gains `(sleep seconds)`. That is
-the whole C surface: POSIX sockets and a `nanosleep`, roughly 400 lines
-including comments, readable in one sitting.
+`tcp-listen`, `tcp-accept`, and `tcp-port`. `host/host.c` gains
+`(sleep seconds)`. That is the whole C surface: POSIX sockets and a
+`nanosleep`.
+
+`tcp-port` is a `getsockname` readback. It earns its place because
+`(tcp-listen 0)` takes an ephemeral port, which is the only way to bind without
+guessing, and with no readback every caller (starting with this repo's own
+tests) would have to scan a range of fixed ports and hope.
 
 HTTP/1.1 request building, response framing (`Content-Length`, chunked transfer
 decoding, read-to-EOF), URL encoding, and JSON are written in KEC Lisp. The

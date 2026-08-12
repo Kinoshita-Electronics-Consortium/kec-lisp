@@ -1,7 +1,7 @@
 ;; KEC Lisp — HTTP/1.1 client conformance (examples/http/http.lsp).
 ;;
-;; HERMETIC. The "server" is a loopback listener built from the same six TCP
-;; primitives, serving canned bytes. Nothing leaves the machine.
+;; HERMETIC. The "server" is a loopback listener built from the same TCP
+;; primitives as the client, serving canned bytes. Nothing leaves the machine.
 ;;
 ;; Both peers share one thread, so the exchange is driven a half at a time:
 ;; http-send-request writes the request, the canned server reads it and writes
@@ -15,14 +15,11 @@
 
 (load "examples/http/http.lsp")
 
+;; An ephemeral loopback port, read back with tcp-port: no hard-coded number to
+;; collide with anything else on the machine.
 (defn %http-test-listen ()
-  (let port 34701)
-  (let srv nil)
-  (while (and (nil? srv) (< port 34760))
-    (let r (try (fn () (tcp-listen port))))
-    (if (error? r) (set port (+ port 1)) (set srv r)))
-  (if (nil? srv) (raise "http test: no free loopback port") nil)
-  (cons srv port))
+  (let srv (tcp-listen 0))
+  (cons srv (tcp-port srv)))
 
 ;; Read from `conn` until the request head is complete, so the assertion below
 ;; never races a request split across TCP segments.

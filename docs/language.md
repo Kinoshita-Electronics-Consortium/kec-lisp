@@ -432,7 +432,7 @@ sockets, and `sleep`. The `kec` CLI uses `FULL`.
 | System | `set-seed!`, `rand`, `rand-int`, `clock`, `now` | both |
 | Control | `try`, `raise`, `apply`, `read-string`, `read-all`, `macroexpand-1`, `provide`, `provided?` | both |
 | File/System | `load`, `require`, `eval`, `read-file`, `read-blob`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit`, `sleep` | `FULL` only |
-| Network | `tcp-connect`, `tcp-send`, `tcp-recv`, `tcp-close`, `tcp-listen`, `tcp-accept` | `FULL` only |
+| Network | `tcp-connect`, `tcp-send`, `tcp-recv`, `tcp-close`, `tcp-listen`, `tcp-accept`, `tcp-port` | `FULL` only |
 
 Common host forms:
 
@@ -470,8 +470,9 @@ Common host forms:
 | `(tcp-send handle value)` | Write the whole payload, looping on partial writes; returns the byte count. A blob is sent verbatim (binary-safe); any other value is stringified the way `princ` renders it. `FULL` only. |
 | `(tcp-recv handle max-bytes)` | Read up to `max-bytes` (ceiling 1 MiB) and return them as a string, or `nil` at clean EOF. One call returns whatever one read yields, so callers loop. High bytes survive; an embedded `NUL` truncates the returned string, which caps the contract at text. A timeout expiring raises, so a stall is never mistaken for end-of-stream. `FULL` only. |
 | `(tcp-close handle)` | Close the socket and return `nil`. Idempotent: a second close is not an error. A handle dropped without closing is closed by its finalizer. `FULL` only. |
-| `(tcp-listen port [backlog])` | Bind and listen on **127.0.0.1** only, returning a listener handle (`SO_REUSEADDR` is set; `backlog` defaults to 8). Port 0 binds an ephemeral port, which no primitive reports back. Present so tests can run hermetically. `FULL` only. |
+| `(tcp-listen port [backlog])` | Bind and listen on **127.0.0.1** only, returning a listener handle (`SO_REUSEADDR` is set; `backlog` defaults to 8). Port 0 takes an ephemeral port, which `tcp-port` reads back. Present so tests can run hermetically. `FULL` only. |
 | `(tcp-accept handle [timeout-ms])` | Accept one connection, returning a socket handle, or `nil` if `timeout-ms` expires (a timeout is not an error). The accepted socket inherits `timeout-ms` as its read/write deadline. `FULL` only. |
+| `(tcp-port handle)` | The local port this socket is bound to, via `getsockname`. Works on a listener or a connected socket, and is how `(tcp-listen 0)` reports the ephemeral port the kernel picked. `FULL` only. |
 
 Path and name arguments to the file/system primitives are bounded (4 KB): an
 over-long path raises a catchable "path too long" error instead of being
@@ -573,4 +574,4 @@ and [Memory Model](/kec-lisp/memory-model/).
 | RNG | `set-seed!`, `rand`, `rand-int` |
 | Errors/recovery/loading | `try`, `raise`, `unwind-protect`, `ignore-errors`, `condition-case`, `macroexpand-1`, `macroexpand`, `error`, `error?`, `error-message`, `provide`, `provided?`, `require`, `load` |
 | Full-profile file/system | `read-file`, `read-blob`, `write-file`, `append-file`, `file-exists?`, `list-dir`, `getenv`, `args`, `exit`, `sleep` |
-| Full-profile network | `tcp-connect`, `tcp-send`, `tcp-recv`, `tcp-close`, `tcp-listen`, `tcp-accept` |
+| Full-profile network | `tcp-connect`, `tcp-send`, `tcp-recv`, `tcp-close`, `tcp-listen`, `tcp-accept`, `tcp-port` |

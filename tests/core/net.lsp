@@ -12,17 +12,12 @@
 ;; that tcp-* and sleep are simply absent there, needs a second context, which
 ;; .lsp cannot open, so it lives in tests/c/test_net.c.
 
-;; Bind the first free loopback port in a private range. Hard-coding one port
-;; would fail whenever a stray process (or a previous run) holds it, and no
-;; primitive reports back an ephemeral port, so scanning is the portable answer.
+;; Bind an ephemeral loopback port and read back the number the kernel picked.
+;; No hard-coded port, so a stray process (or a previous run) holding one cannot
+;; make the suite flake.
 (defn %net-listen ()
-  (let port 34567)
-  (let srv nil)
-  (while (and (nil? srv) (< port 34620))
-    (let r (try (fn () (tcp-listen port))))
-    (if (error? r) (set port (+ port 1)) (set srv r)))
-  (if (nil? srv) (raise "net test: no free loopback port in 34567-34619") nil)
-  (cons srv port))
+  (let srv (tcp-listen 0))
+  (cons srv (tcp-port srv)))
 
 ;; A connected pair: (listener client server-side-connection port).
 (defn %net-pair ()
@@ -216,3 +211,34 @@
   (check (nil? (sleep 0)))        ; returns nil
   (check-err (sleep -1))
   (check-err (sleep (/ 1 0))))    ; non-finite
+
+;; --- tcp-port -----------------------------------------------------------
+
+(deftest "net/tcp-port-reads-back-the-bound-port"
+  ;; Port 0 asks the kernel for an ephemeral port; tcp-port is how a caller
+  ;; learns which one, so a test never has to guess at a free number.
+  (let srv (tcp-listen 0))
+  (let port (tcp-port srv))
+  (check (number? port))
+  (check (< 0 port))
+  (check (<= port 65535))
+  ;; the number is real: connecting to it reaches this listener
+  (let cli (tcp-connect "127.0.0.1" port 2000))
+  (let con (tcp-accept srv 2000))
+  (check (not (nil? con)))
+  ;; a connected socket reports its own local (ephemeral) port, which is a
+  ;; different one from the listener's
+  (let local (tcp-port cli))
+  (check (number? local))
+  (check (< 0 local))
+  (check (not (is local port)))
+  ;; and the accepted end shares the listener's port
+  (check (is (tcp-port con) port))
+  (tcp-close cli) (tcp-close con) (tcp-close srv))
+
+(deftest "net/tcp-port-rejects-bad-handles"
+  (check-err (tcp-port "not-a-socket"))
+  (check-err (tcp-port nil))
+  (let srv (tcp-listen 0))
+  (tcp-close srv)
+  (check-err (tcp-port srv)))          ; closed handle

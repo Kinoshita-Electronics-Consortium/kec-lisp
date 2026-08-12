@@ -7,26 +7,41 @@
 # process, which is all a single thread can express (http-request blocks in the
 # read). This is the missing piece: a real second process on the other end.
 #
+# The server binds an ephemeral port and writes the number to a file, so no
+# port is hard-coded and a busy machine cannot make this flake.
+#
 # Usage: http-e2e.sh <path-to-kec> <repo-root>
 set -e
 KEC="$1"
 ROOT="$2"
 if [ -z "$KEC" ] || [ -z "$ROOT" ]; then echo "usage: http-e2e.sh <kec> <root>"; exit 2; fi
 
-PORT=34811
+PORTFILE=$(mktemp "${TMPDIR:-/tmp}/kec-http-e2e.XXXXXX")
+rm -f "$PORTFILE"          # its existence is the signal that a port was written
 SERVER_PID=""
-# Always reap the server, including on an early exit, so no stray process is
-# left holding a port (or a CPU).
+# Always reap the server and the temp file, including on an early exit, so no
+# stray process is left holding a port.
 cleanup() {
     if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" 2>/dev/null || true; fi
+    rm -f "$PORTFILE"
 }
 trap cleanup EXIT INT TERM
 
-"$KEC" run "$ROOT/tests/cli/http-server.lsp" "$PORT" >/dev/null 2>&1 &
+"$KEC" run "$ROOT/tests/cli/http-server.lsp" "$PORTFILE" >/dev/null 2>&1 &
 SERVER_PID=$!
 
-# The client retries the connect while the server is still binding, which is
-# also an end-to-end exercise of (sleep 0.05).
+# Wait for the listener to report its port (bounded: ~5s).
+PORT=""
+i=0
+while [ -z "$PORT" ] && [ "$i" -lt 100 ]; do
+    if [ -s "$PORTFILE" ]; then
+        PORT=$(tr -dc '0-9' < "$PORTFILE")
+    fi
+    if [ -z "$PORT" ]; then sleep 0.05; fi
+    i=$((i + 1))
+done
+if [ -z "$PORT" ]; then echo "FAIL: server never reported a port"; exit 1; fi
+
 out=$("$KEC" run "$ROOT/tests/cli/http-client.lsp" "$PORT")
 
 echo "$out" | grep -q '^status=200$' \

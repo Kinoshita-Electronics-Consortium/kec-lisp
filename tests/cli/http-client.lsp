@@ -12,16 +12,9 @@
 (let url (str "http://127.0.0.1:" port "/grandexchange/history/copper_ore?size=3"))
 (let headers '(("Host" . "api.artifactsmmo.com")))
 
-;; The server may still be binding its port. Retry the whole request briefly:
-;; a refused connection raises, which is the contract being relied on here.
-(let res nil)
-(let tries 0)
-(while (and (nil? res) (< tries 60))
-  (let r (try (fn () (http-get url headers))))
-  (if (error? r) (sleep 0.05) (set res r))
-  (set tries (+ tries 1)))
-
-(if (nil? res) (do (princ "client: server never answered") (newline) (exit 1)) nil)
+;; The shell only launches this once the server has written its port, so the
+;; listener is already accepting and one request is enough.
+(let res (http-get url headers))
 
 ;; The body is the JSON array the server echoed: (request-line host).
 (let echoed (json-parse (http-body res)))

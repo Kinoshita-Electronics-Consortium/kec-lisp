@@ -3,9 +3,9 @@ title: Networking
 description: TCP sockets, the HTTP/1.1 client written in KEC Lisp, and the out-of-process TLS proxy pattern that lets a dependency-free interpreter talk to an HTTPS API.
 ---
 
-KEC Lisp links nothing but `libm`, and that stays true. Networking is six POSIX
-socket primitives in C (`host/net.c`, about 400 lines including comments) with
-every protocol above them written in Lisp: HTTP/1.1 framing and chunked
+KEC Lisp links nothing but `libm`, and that stays true. Networking is seven POSIX
+socket primitives in C (`host/net.c`) with every protocol above them written in
+Lisp: HTTP/1.1 framing and chunked
 transfer decoding in `examples/http/http.lsp`, JSON in
 [`core/68-json.lsp`](/kec-lisp/core-library/#core68-jsonlsp--a-json-reader-and-writer),
 URL encoding alongside the client.
@@ -17,8 +17,8 @@ for the reasoning.
 
 ## The primitives
 
-All six are `KEC_PROFILE_FULL` only, alongside the file and system primitives,
-and all six are absent on a platform without POSIX sockets. Test for them the
+All seven are `KEC_PROFILE_FULL` only, alongside the file and system
+primitives, and all seven are absent on a platform without POSIX sockets. Test for them the
 way any gate is tested: `(bound? 'tcp-connect)`.
 
 | Primitive | Behavior |
@@ -29,6 +29,7 @@ way any gate is tested: `(bound? 'tcp-connect)`.
 | `(tcp-close handle)` | Close. Idempotent. |
 | `(tcp-listen port [backlog])` | Bind and listen on 127.0.0.1. Returns a listener handle. |
 | `(tcp-accept handle [timeout-ms])` | Accept one connection. Returns a socket handle, or `nil` on timeout. |
+| `(tcp-port handle)` | The local port this socket is bound to. |
 
 Plus `(sleep seconds)`, which takes a fractional number of seconds and resumes
 correctly if a signal cuts it short. An action loop waiting out a
@@ -210,6 +211,8 @@ both peers of an exchange can live inside the test:
   client `connect` completes as soon as the kernel queues it on the listener's
   backlog, before `accept` runs, so a single thread can hold both ends as long
   as payloads stay inside the socket buffers.
+- No test hard-codes a port. `(tcp-listen 0)` takes an ephemeral one and
+  `tcp-port` reads it back, so a busy machine cannot make the suite flake.
 - `tests/examples/http.lsp` serves canned `Content-Length` and chunked
   responses to the real client.
 - `tests/cli/http-e2e.sh` runs the fully-composed `http-request` path against a

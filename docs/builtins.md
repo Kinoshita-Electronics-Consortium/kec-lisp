@@ -122,7 +122,7 @@ keystone) but is a **`FULL`-tier capability**, deliberately not bound into
 
 ### Networking is a host primitive, `FULL` only
 
-The kernel has no socket I/O. The portable host layer adds six TCP primitives
+The kernel has no socket I/O. The portable host layer adds seven TCP primitives
 plus a sleep call, all gated to `KEC_PROFILE_FULL` exactly as the file and
 system primitives are, and all absent on a platform without POSIX sockets. A
 context can test for them the same way it tests any gate:
@@ -136,6 +136,7 @@ context can test for them the same way it tests any gate:
 | `(tcp-close handle)` | Close. Idempotent, and a dropped handle is closed by its finalizer. |
 | `(tcp-listen port [backlog])` | Bind and listen on 127.0.0.1; returns a listener handle. |
 | `(tcp-accept handle [timeout-ms])` | Accept one connection; returns a socket handle, or `nil` on timeout. |
+| `(tcp-port handle)` | The local port this socket is bound to, which is how `(tcp-listen 0)` reports the ephemeral port it took. |
 | `(sleep seconds)` | Suspend for a fractional number of seconds, resuming across signals. |
 
 That is the entire C surface. HTTP/1.1 framing, chunked transfer decoding, URL

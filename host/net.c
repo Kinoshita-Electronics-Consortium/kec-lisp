@@ -1,10 +1,11 @@
 /*
 ** net.c — KEC Lisp's TCP socket primitives.
 **
-** Six primitives (tcp-connect / tcp-send / tcp-recv / tcp-close / tcp-listen /
-** tcp-accept), FULL profile only, POSIX sockets only, no link dependency beyond
-** libc. Everything above the byte stream (HTTP framing, JSON, URL encoding)
-** is written in KEC Lisp (core/68-json.lsp, examples/http/http.lsp). TLS is NOT
+** Seven primitives (tcp-connect / tcp-send / tcp-recv / tcp-close / tcp-listen /
+** tcp-accept / tcp-port), FULL profile only, POSIX sockets only, no link
+** dependency beyond libc. Everything above the byte stream (HTTP framing,
+** JSON, URL encoding) is written in KEC Lisp (core/68-json.lsp,
+** examples/http/http.lsp). TLS is NOT
 ** here and is not planned: terminate it out of process with socat or stunnel and
 ** speak cleartext to the local listener (see docs/networking.md, ADR-0007).
 **
@@ -397,10 +398,10 @@ static fe_Object *h_tcp_close(fe_Context *ctx, fe_Object *args) {
 
 /* (tcp-listen port [backlog]) -> listener handle.
 ** Binds 127.0.0.1 only. Its purpose is to let the conformance suite exercise
-** the primitives without touching the outside world. Port 0
-** binds an ephemeral port, which no primitive reports back, so a caller that
-** needs to connect must name the port. SO_REUSEADDR is set so a listener in
-** TIME_WAIT from a previous run does not block a rebind. */
+** the primitives without touching the outside world. Port 0 takes an ephemeral
+** port; read it back with tcp-port rather than guessing at a free one.
+** SO_REUSEADDR is set so a listener in TIME_WAIT from a previous run does not
+** block a rebind. */
 static fe_Object *h_tcp_listen(fe_Context *ctx, fe_Object *args) {
     int port = net_arg_port(ctx, &args, "tcp-listen", 1);
     int backlog = KEC_NET_BACKLOG_DEFAULT;
@@ -435,6 +436,33 @@ static fe_Object *h_tcp_listen(fe_Context *ctx, fe_Object *args) {
     }
     net_attach(ctx, handle, fd, "tcp-listen");
     return handle;
+}
+
+/* (tcp-port handle) -> the local port this socket is bound to.
+** The reason it exists: (tcp-listen 0) takes an ephemeral port, which is the
+** only way to bind without guessing, and without a readback a caller would have
+** to scan a fixed range and hope. Works on a listener or a connected socket. */
+static fe_Object *h_tcp_port(fe_Context *ctx, fe_Object *args) {
+    NetSock *s = as_open_sock(ctx, fe_nextarg(ctx, &args), "tcp-port");
+    struct sockaddr_storage ss;
+    socklen_t len = sizeof ss;
+    char msg[96];
+    int port;
+
+    memset(&ss, 0, sizeof ss);
+    if (getsockname(s->fd, (struct sockaddr *)&ss, &len) != 0) {
+        snprintf(msg, sizeof msg, "tcp-port: %s", strerror(errno));
+        fe_error(ctx, msg);
+    }
+    if (ss.ss_family == AF_INET) {
+        port = ntohs(((struct sockaddr_in *)(void *)&ss)->sin_port);
+    } else if (ss.ss_family == AF_INET6) {
+        port = ntohs(((struct sockaddr_in6 *)(void *)&ss)->sin6_port);
+    } else {
+        fe_error(ctx, "tcp-port: socket is not IPv4 or IPv6");
+        port = 0; /* unreachable: fe_error longjmps */
+    }
+    return fe_number(ctx, (fe_Number)port);
 }
 
 /* (tcp-accept handle [timeout-ms]) -> socket handle, or nil on timeout.
@@ -486,6 +514,7 @@ void kec_net_register(fe_Context *ctx, kec_Profile profile) {
     kec_bind_fe(ctx, "tcp-close", h_tcp_close);
     kec_bind_fe(ctx, "tcp-listen", h_tcp_listen);
     kec_bind_fe(ctx, "tcp-accept", h_tcp_accept);
+    kec_bind_fe(ctx, "tcp-port", h_tcp_port);
 }
 
 #else /* !KEC_NET_POSIX */
