@@ -106,6 +106,10 @@ export default defineConfig({
           items: [{ label: 'knEmacs (editor)', slug: 'knemacs' }],
         },
         {
+          label: 'Networking',
+          items: [{ label: 'Sockets, HTTP & TLS Proxy', slug: 'networking' }],
+        },
+        {
           label: 'Embedding',
           items: [{ label: 'FFI Bridge', slug: 'ffi-bridge' }],
         },

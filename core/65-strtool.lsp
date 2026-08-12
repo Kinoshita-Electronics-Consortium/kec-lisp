@@ -43,6 +43,35 @@
     (set i (+ i 1)))
   out)
 
+;; (string-concat xs) — concatenate a list of strings.
+;;
+;; The obvious spellings both break down on long lists: folding with `str` is
+;; quadratic (every step copies the whole accumulator), while one
+;; (apply str xs) pushes a GC root per argument (evallist conses each
+;; evaluated argument), and a few hundred of those overflow the device's
+;; 256-slot root stack. Collapsing in batches of 8 bounds both: O(n log n)
+;; copying, never more than 8 roots at a time. Any code assembling a string
+;; from many pieces (the JSON writer, an HTTP request line, a tokenizer) wants
+;; this rather than a fold.
+(defn string-concat (xs)
+  (if (nil? xs)
+      ""
+      (do
+        (while (cdr xs)
+          (let out nil)
+          (while xs
+            (let batch nil)
+            (let k 0)
+            (while (and xs (< k 8))
+              (set batch (cons (car xs) batch))
+              (set xs (cdr xs))
+              (set k (+ k 1)))
+            (set out (cons (apply str (reverse batch)) out)))
+          (set xs (reverse out)))
+        ;; `str` on the survivor as well, so a one-element list of a non-string
+        ;; still comes back stringified rather than passed through.
+        (str (car xs)))))
+
 ;; (pad-left s width [pad]) — prepend copies of pad (default " ") until s reaches
 ;; width. No truncation: an s already >= width is returned unchanged.
 (defn pad-left (s width . rest)

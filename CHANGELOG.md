@@ -2,6 +2,76 @@
 
 ## Unreleased
 
+### Added (network primitives and JSON, ADR-0007)
+
+- **Seven TCP socket primitives and a `sleep` call, `FULL` profile only, with
+  no new link dependency.** `host/net.c` (new) registers `tcp-connect`,
+  `tcp-send`, `tcp-recv`, `tcp-close`, `tcp-listen`, `tcp-accept`, and
+  `tcp-port` over POSIX sockets; `host/host.c` gains `(sleep seconds)` on
+  `nanosleep`, which takes a fractional interval and resumes the remainder
+  after `EINTR`.
+  `target_link_libraries(kec kec_core m)` is unchanged: still only `libm`.
+  Handles are typed `FE_TPTR` objects with their own registered lifecycle and
+  two-phase `fe_set_ptr` construction, so an out-of-memory unwind during handle
+  creation cannot strand a descriptor; the finalizer closes a dropped handle,
+  and `tcp-close` is idempotent. `SIGPIPE` is suppressed per socket
+  (`SO_NOSIGPIPE` / `MSG_NOSIGNAL`), never process-wide. A `timeout-ms` bounds
+  the connect handshake and becomes the socket's read/write deadline, and an
+  expired read deadline raises rather than returning `nil`, so a stall is never
+  read as end-of-stream. `tcp-listen` binds 127.0.0.1 only, which is what lets
+  the suite drive both ends of an exchange with no outside network; with port 0
+  it takes an ephemeral port and `tcp-port` reads the number back, so no test
+  hard-codes one. The whole file is gated on `<sys/socket.h>`: without it the registration function is
+  empty and the primitives are absent, discoverable from Lisp with
+  `(bound? 'tcp-connect)`. A `SANDBOX` context never gets them.
+  (`tests/core/net.lsp`, `tests/c/test_net.c`.)
+- **`json-parse` / `json-stringify` in Core (`core/68-json.lsp`), written in
+  KEC Lisp.** Objects map to hash tables with string keys, arrays to lists,
+  `true` to `t`, and both `false` and `null` to `nil` (the only false value the
+  language has; use `hash-has?` to tell an absent key from a null one). A JSON
+  string is never coerced to a number, so an API identifier such as
+  `"6a75cffcf2928a45b1993f68"` stays a string. The full escape set is handled,
+  including `\uXXXX` with surrogate pairs encoded as UTF-8. Malformed input
+  raises with the byte offset in the message. Both directions are iterative
+  over an explicit vector stack, so 400 levels of nesting cost heap rather than
+  the 256 GC roots the device build has. Numbers inherit the single-precision
+  limit: integers are exact only to ±2²⁴, which a test pins.
+  (`tests/core/json.lsp`.)
+- **`string-concat` in `core/65-strtool.lsp`.** Concatenates a list of pieces,
+  collapsing in batches of 8 so it is neither quadratic (as a `str` fold is)
+  nor GC-root hungry (as one `apply str` over hundreds of arguments is). The
+  JSON writer and the HTTP request builder both use it.
+  (`tests/core/strtool.lsp`.)
+- **An HTTP/1.1 client in KEC Lisp, `examples/http/http.lsp`.** Deliberately
+  outside Core, since Core is the language standard library and an HTTP client
+  is an application. `http-request` / `http-get` / `http-post` /
+  `url-encode` / `url-parse`, with responses read by `Content-Length`, by
+  `Transfer-Encoding: chunked`, or to EOF. The status comes back as a number so
+  a caller can branch on 499 without matching strings, and an HTTP error status
+  is an ordinary return value while a transport failure raises.
+  `examples/http/artifacts-history.lsp` is a runnable script against the public
+  Artifacts MMO grand exchange endpoint. (`tests/examples/http.lsp`,
+  `tests/cli/http-e2e.sh`.)
+- **TLS runs in process: `(tls-connect host port [timeout-ms])`.** It performs
+  the handshake with OpenSSL and returns the same handle `tcp-connect` does, so
+  `tcp-send` / `tcp-recv` / `tcp-close` drive an encrypted connection and a
+  cleartext one identically, and protocol code needs no edit. `url-parse` now
+  accepts `https://` (default port 443) and `http-request` opens the matching
+  transport, so the HTTP client speaks HTTPS directly with no proxy.
+  **The peer certificate is verified by default:** chain to a trusted root, plus
+  a host-name or IP match, with OpenSSL's CN fallback disabled
+  (`NEVER_CHECK_SUBJECT`), partial wildcards refused, and TLS 1.0/1.1 rejected.
+  A truthy fourth argument (conventionally `':insecure'`) skips verification for
+  that one connection, leaving it encrypted but unauthenticated; the HTTP client
+  exposes the same switch as `http-tls-verify`. Failures raise with the reason
+  (`certificate rejected: hostname mismatch`). `SSL_CERT_FILE` / `SSL_CERT_DIR`
+  override the trust store. **This adds a build dependency:** `kec` links
+  `libssl` and `libcrypto`, CMake requires OpenSSL, and CI installs it on both
+  runners. (`tests/cli/tls-verify.sh`, `tests/core/net.lsp`.) `url-parse` raises on an `https://` URL rather than
+  downgrading silently. Through a proxy the `Host` header must name the origin
+  rather than the loopback address, so the client takes it as a parameter. See
+  `docs/networking.md` and `docs/adr/ADR-0007-network-primitives-and-json.md`.
+
 ### Added (binary file I/O)
 
 - **`write-file` / `append-file` now write a blob's raw bytes verbatim, and a

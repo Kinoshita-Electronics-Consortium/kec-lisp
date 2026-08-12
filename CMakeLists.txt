@@ -59,6 +59,7 @@ set(CORE_SRCS
   ${CMAKE_SOURCE_DIR}/core/55-util.lsp
   ${CMAKE_SOURCE_DIR}/core/60-str.lsp
   ${CMAKE_SOURCE_DIR}/core/65-strtool.lsp
+  ${CMAKE_SOURCE_DIR}/core/68-json.lsp
   ${CMAKE_SOURCE_DIR}/core/70-sort.lsp)
 
 add_custom_command(
@@ -100,6 +101,7 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/util.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/str.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/strtool.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/json.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/bitwise.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/math.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/time.lsp
@@ -109,6 +111,7 @@ set(SUITE_SRCS
   ${CMAKE_SOURCE_DIR}/tests/core/bigstr.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fileio.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/fsenv.lsp
+  ${CMAKE_SOURCE_DIR}/tests/core/net.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/require.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/applyread.lsp
   ${CMAKE_SOURCE_DIR}/tests/core/eval.lsp
@@ -157,10 +160,15 @@ add_custom_target(kec_generated
 # ---------------------------------------------------------------------------
 # Library + CLI.
 # ---------------------------------------------------------------------------
+# TLS is in-process (ADR-0007): host/net.c performs the handshake with OpenSSL
+# and verifies the peer certificate, so `https://` needs no external proxy.
+find_package(OpenSSL REQUIRED)
+
 add_library(kec_core STATIC
   kernel/fe.c
   host/host.c
   host/containers.c
+  host/net.c
   runtime/kec.c)
 target_include_directories(kec_core PUBLIC
   ${CMAKE_SOURCE_DIR}/kernel
@@ -168,6 +176,7 @@ target_include_directories(kec_core PUBLIC
   ${CMAKE_SOURCE_DIR}/runtime
   ${GEN_DIR})
 target_compile_definitions(kec_core PUBLIC KEC_VERSION="${KEC_VERSION}")
+target_link_libraries(kec_core PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 # Desktop has memory to spare — raise Fe's recursion ceiling well past the
 # 256-root device default so naive recursive user code doesn't hit the wall.
 target_compile_definitions(kec_core PRIVATE GCSTACKSIZE=8192)
@@ -210,6 +219,15 @@ endforeach()
 add_test(NAME tests/examples/black-ice-trace.lsp
   COMMAND kec test ${CMAKE_SOURCE_DIR}/tests/examples/black-ice-trace.lsp)
 set_tests_properties(tests/examples/black-ice-trace.lsp PROPERTIES
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+# The HTTP client (examples/http/http.lsp). Like black-ice-trace it `load`s its
+# module from the source tree rather than the embedded prelude, so it runs from
+# the repo root and stays out of SUITE_SRCS (which is baked into the binary,
+# where no working directory is guaranteed).
+add_test(NAME tests/examples/http.lsp
+  COMMAND kec test ${CMAKE_SOURCE_DIR}/tests/examples/http.lsp)
+set_tests_properties(tests/examples/http.lsp PROPERTIES
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 # Editor tier (ADR-0002) — the knEmacs/REPL host-agnostic modules. Loaded on
@@ -261,6 +279,22 @@ add_test(NAME cli/nemacs-binary
 add_test(NAME cli/nemacs-smoke
   COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/nemacs-smoke.sh $<TARGET_FILE:kec>)
 
+# The HTTP client end-to-end over loopback: two `kec` processes, a chunked
+# canned response, and the full http-request path (connect / send / read /
+# close). No outside network — 127.0.0.1 only, no proxy, no TLS.
+add_test(NAME cli/http-e2e
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/http-e2e.sh $<TARGET_FILE:kec>
+          ${CMAKE_SOURCE_DIR})
+set_tests_properties(cli/http-e2e PROPERTIES
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+# tls-connect's certificate verification, against a throwaway self-signed
+# certificate on loopback: refused when untrusted, accepted once trusted, and
+# refused again for a name the certificate does not cover. Skips itself if no
+# openssl command is available to act as the peer.
+add_test(NAME cli/tls-verify
+  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/tls-verify.sh $<TARGET_FILE:kec>)
+
 # The read-key / poll-key host input primitives (pipe bytes through `kec run`).
 add_test(NAME cli/readkey-smoke
   COMMAND sh ${CMAKE_SOURCE_DIR}/tests/cli/readkey-smoke.sh $<TARGET_FILE:kec>)
@@ -287,6 +321,13 @@ add_test(NAME c/error-leaks COMMAND test_error_leaks)
 add_executable(test_gc_roots tests/c/test_gc_roots.c)
 target_link_libraries(test_gc_roots kec_core m)
 add_test(NAME c/gc-roots COMMAND test_gc_roots)
+
+# The socket seam: the SANDBOX profile gate (which needs a second context, so
+# the single-context .lsp suite can't assert it) and the FE_TPTR finalizer
+# closing a dropped handle's descriptor (which Lisp can't observe at all).
+add_executable(test_net tests/c/test_net.c)
+target_link_libraries(test_net kec_core m)
+add_test(NAME c/net COMMAND test_net)
 
 # The generated embed headers must compile under a strict pedantic C11
 # compiler: ISO C11 guarantees only 4095 chars per string literal, so mkembed
