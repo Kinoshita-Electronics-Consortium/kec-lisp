@@ -46,10 +46,11 @@ decoding, read-to-EOF), URL encoding, and JSON are written in KEC Lisp. The
 split is drawn where C stops being necessary: a socket needs a syscall, a
 protocol does not.
 
-Practical consequences of drawing it there:
+Checkable consequences of drawing it there:
 
-- The protocol layers are readable, patchable, and testable by anyone who reads
-  Lisp, with no rebuild between an edit and a test.
+- Editing the protocol layers needs no rebuild. A `core/*.lsp` change does
+  (the prelude is baked into the binary), but `examples/http/http.lsp` is
+  loaded from disk, so an edit takes effect on the next run.
 - A protocol bug cannot corrupt the arena or leak a descriptor. The worst it can
   do is return a wrong string.
 - The device build pays for the socket layer only if the firmware binds it.

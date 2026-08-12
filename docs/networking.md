@@ -70,15 +70,26 @@ treat a `NUL` in the payload as out of scope for the string type.
 ## TLS terminates outside the process
 
 The interpreter speaks cleartext HTTP to `127.0.0.1`. A local proxy holds the
-TLS session with the origin server. `socat` is the smallest thing that does it:
+TLS session with the origin server.
+
+**Pick one proxy.** `socat` and `stunnel` are alternatives that do the identical
+job: each listens on a loopback port, opens a verified TLS connection to the
+origin, and pipes bytes between the two. Running both would just chain two
+proxies for no reason. Use whichever is already installed. `socat` is the
+shorter one, a single command with no config file:
 
 ```sh
 socat TCP4-LISTEN:8080,reuseaddr,fork OPENSSL:api.artifactsmmo.com:443,verify=1
 ```
 
 `verify=1` is not optional in spirit. It is what makes the proxy check the
-origin's certificate chain, which is most of what TLS is for. `stunnel` does the
-same job from a config file, which suits a supervised setup:
+origin's certificate chain, which is most of what TLS is for. Without it the
+connection is encrypted but unauthenticated, which any machine on the path can
+impersonate.
+
+`stunnel` is the alternative, configured from a file rather than a command line,
+which suits a supervised or long-running setup. Its `verifyChain` and
+`checkHost` are the equivalent of `verify=1`:
 
 ```
 [artifacts]
@@ -201,6 +212,19 @@ and run it in another:
 kec run examples/http/artifacts-history.lsp            # copper_ore, 3 rows
 kec run examples/http/artifacts-history.lsp iron_ore 5
 ```
+
+Real output, against the live API through `socat`:
+
+```
+grand exchange history: copper_ore
+Wuisch                     -> partypooper                    22 @      2   2026-08-07T14:58:46.432Z
+Wuisch                     -> partypooper                    40 @      2   2026-08-07T15:25:55.821Z
+Wuisch                     -> partypooper                    47 @      2   2026-08-07T21:36:30.031Z
+```
+
+Each row's `order_id` comes back as `"6a75cffcf2928a45b1993f68"` and stays a
+string. `string->number` on it would silently yield `6`, which is why
+`json-parse` never coerces one.
 
 ## Testing without a network
 
