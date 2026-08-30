@@ -37,6 +37,15 @@
   (let b (list 2 3))
   (check-err `(1 . ,@b)))
 
+(deftest "quasiquote/reserved-symbols"
+  ;; unquote/unquote-splicing/quasiquote are reserved inside a template:
+  ;; `(a unquote b) is structurally identical to `(a . ,b) after the reader
+  ;; runs, so the expander must treat both as the dotted splice. A template
+  ;; needing the symbols as data builds the form with list/quote instead.
+  (let b (list 2 3))
+  (check (equal? `(a unquote b) (cons 'a (list 2 3))))
+  (check (equal? (list 'a 'unquote 'b) '(a unquote b))))
+
 (deftest "quasiquote/macro-ergonomics"
   (defmacro qq-when (test . body)
     `(if ,test (do ,@body) nil))

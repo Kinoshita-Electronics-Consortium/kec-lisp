@@ -323,8 +323,10 @@ keeps running.
   thing (`core/60-str.lsp`).
 - **`(min)` / `(max)` with zero arguments raise.** Fe binds a missing
   required param to `nil`, so they silently returned `nil` and the failure
-  surfaced far from the call. Now: `"min: needs at least one argument"`
-  (`core/20-cmp.lsp`).
+  surfaced far from the call. Now: `"min: needs at least one argument"`.
+  The whole argument list binds to one rest parameter so the empty call is
+  distinguishable from an explicit `nil`: `(min nil)` is one argument and
+  folds to `nil` like any single-element fold (`core/20-cmp.lsp`).
 - **`(nth xs i)` returns `nil` for a negative index.** The loop guard never
   fired for negative `i`, so `(nth '(a b c) -1)` returned `a`; negative
   indexes now return `nil`, matching the documented past-the-end behavior.

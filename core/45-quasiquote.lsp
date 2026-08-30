@@ -17,6 +17,13 @@
 ;; unquotes one level too early — silent wrong data. It raises loudly at
 ;; expansion time instead. Build inner templates with list/cons if needed.
 
+;; The symbols unquote, unquote-splicing, and quasiquote are RESERVED inside a
+;; template. `,b` reads as (unquote b), so the dotted `(a . ,b) and the proper
+;; list `(a unquote b) are the same structure by the time the expander runs;
+;; no expander can tell them apart, and this one (like Scheme's) treats the
+;; structure as the dotted splice. A template that needs one of the three
+;; symbols as data must build the form with list/cons/quote instead.
+
 (defn %qq (x)
   (if (atom x)
       (list 'quote x)

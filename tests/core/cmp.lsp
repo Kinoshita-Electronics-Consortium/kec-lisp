@@ -33,3 +33,9 @@
   ;; instead of silently returning nil.
   (check-err (min))
   (check-err (max)))
+
+(deftest "cmp/minmax-explicit-nil-is-one-arg"
+  ;; The rest-only signature tells (min) from (min nil): an explicit nil is
+  ;; one argument and folds to itself like any single-element fold.
+  (check (is (min nil) nil))
+  (check (is (max nil) nil)))

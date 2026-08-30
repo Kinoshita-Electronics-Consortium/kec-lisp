@@ -355,27 +355,29 @@ Tests whether `n` is strictly less than `0`.
 (negative? -3)  ; => t
 ```
 
-#### `(min a . rest)`
+#### `(min a b ...)`
 
 Folds over a variadic argument list, returning the smallest.
 
-- **Parameters:** `a` — first value (required); `rest` — zero or more additional values.
-- **Returns:** the minimum of all arguments.
+- **Parameters:** one or more values.
+- **Returns:** the minimum of all arguments. A single argument is returned
+  as-is, so `(min nil)` is `nil`.
 - **Raises:** `"min: needs at least one argument"` when called with no
-  arguments (Fe binds a missing required param to `nil`, which would otherwise
-  silently return `nil`).
+  arguments. The whole argument list binds to one rest parameter, so the empty
+  call is distinguishable from an explicit `nil` argument.
 
 ```lisp
 (min 5 3 8 1)  ; => 1
 (min 5)         ; => 5
 ```
 
-#### `(max a . rest)`
+#### `(max a b ...)`
 
 Folds over a variadic argument list, returning the largest.
 
-- **Parameters:** `a` — first value (required); `rest` — zero or more additional values.
-- **Returns:** the maximum of all arguments.
+- **Parameters:** one or more values.
+- **Returns:** the maximum of all arguments. A single argument is returned
+  as-is, so `(max nil)` is `nil`.
 - **Raises:** `"max: needs at least one argument"` when called with no arguments.
 
 ```lisp

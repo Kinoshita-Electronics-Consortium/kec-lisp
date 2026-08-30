@@ -373,6 +373,13 @@ An unquote may supply a **dotted tail**: `` `(1 . ,b) `` splices `b` as the
 tail of the spine, so with `b` bound to `(2 3)` it yields `(1 2 3)`.
 `,@` in dotted tail position (`` `(1 . ,@b) ``) has no meaning and raises.
 
+The symbols `unquote`, `unquote-splicing`, and `quasiquote` are **reserved
+inside a template**. `,b` reads as `(unquote b)`, so the dotted `` `(a . ,b) ``
+and the proper list `` `(a unquote b) `` are the same structure by the time the
+expander runs, and the expander (like Scheme's) treats it as the dotted splice.
+A template that needs one of the three symbols as data must build the form with
+`list`/`cons`/`quote` instead.
+
 **Nested quasiquote is not supported.** The expander has no nesting-depth
 tracking, so `` `(a `(b ,c)) `` cannot mean what standard Lisps make it mean —
 instead of silently substituting `c` one level too early, a backquote inside a
