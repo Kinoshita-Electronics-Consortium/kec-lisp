@@ -29,8 +29,16 @@
   (let c (string-ref sep 0))
   (if c (string-split s c) (list s)))
 
+;; %format-arg — the next format argument, or a clear error naming the
+;; directive when the argument list has run dry.
+(defn %format-arg (args d)
+  (if args
+      (car args)
+      (raise (str "format: missing argument for %" (char->string d)))))
+
 ;; (format fmt arg...) -> printf-style splice returning a string.
 ;; Directives: %d %u (decimal), %x (hex), %c (char code), %s (any), %% (literal).
+;; A trailing lone % is a literal %; a directive with no argument left raises.
 (defn format (fmt . args)
   (let n (string-length fmt))
   (let out "")
@@ -42,11 +50,12 @@
           (set i (+ i 1))
           (let d (string-ref fmt i))
           (cond
-            ((is d 100) (set out (str out (number->string (car args)))) (set args (cdr args)))     ; d
-            ((is d 117) (set out (str out (number->string (car args)))) (set args (cdr args)))     ; u
-            ((is d 120) (set out (str out (number->string (car args) 16))) (set args (cdr args)))  ; x
-            ((is d 99)  (set out (str out (char->string (car args)))) (set args (cdr args)))       ; c
-            ((is d 115) (set out (str out (str (car args)))) (set args (cdr args)))                ; s
+            ((nil? d)   (set out (str out "%")))                                                          ; trailing %
+            ((is d 100) (set out (str out (number->string (%format-arg args d)))) (set args (cdr args)))     ; d
+            ((is d 117) (set out (str out (number->string (%format-arg args d)))) (set args (cdr args)))     ; u
+            ((is d 120) (set out (str out (number->string (%format-arg args d) 16))) (set args (cdr args)))  ; x
+            ((is d 99)  (set out (str out (char->string (%format-arg args d)))) (set args (cdr args)))       ; c
+            ((is d 115) (set out (str out (str (%format-arg args d)))) (set args (cdr args)))                ; s
             ((is d 37)  (set out (str out "%")))                                                 ; %
             (else (set out (str out "%")) (set out (str out (char->string d))))))
         (set out (str out (char->string c))))

@@ -18,17 +18,26 @@
 (defn positive? (n) (< 0 n))
 (defn negative? (n) (< n 0))
 
-;; (min a b...) / (max a b...) -> fold over the variadic tail.
-(defn min (a . rest)
-  (let m a)
-  (while rest
-    (if (< (car rest) m) (set m (car rest)))
-    (set rest (cdr rest)))
+;; (min a b...) / (max a b...) -> fold over the variadic tail. Zero arguments
+;; raises. The whole argument list binds to one rest symbol so the empty call
+;; is distinguishable from an explicit nil argument: Fe binds a missing
+;; required param to nil, so a `(a . rest)` signature cannot tell `(min)` from
+;; `(min nil)`; the latter is one argument and folds to nil like any
+;; single-element fold.
+(defn min args
+  (if (not args) (raise "min: needs at least one argument"))
+  (let m (car args))
+  (set args (cdr args))
+  (while args
+    (if (< (car args) m) (set m (car args)))
+    (set args (cdr args)))
   m)
 
-(defn max (a . rest)
-  (let m a)
-  (while rest
-    (if (< m (car rest)) (set m (car rest)))
-    (set rest (cdr rest)))
+(defn max args
+  (if (not args) (raise "max: needs at least one argument"))
+  (let m (car args))
+  (set args (cdr args))
+  (while args
+    (if (< m (car args)) (set m (car args)))
+    (set args (cdr args)))
   m)
